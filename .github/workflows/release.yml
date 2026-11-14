@@ -1,4 +1,5 @@
-# Builds sigit for Windows, macOS and Linux and publishes them as a GitHub release.
+# Builds sigit for Windows and macOS and publishes them as a GitHub release.
+# (Linux builds from source: see the README.)
 # Runs when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0), or by hand
 # (Actions → Release → Run workflow), which builds without publishing.
 name: Release
@@ -31,18 +32,8 @@ jobs:
             os: macos-latest
             target: x86_64-apple-darwin
             asset: sigit-macos-x64.zip
-          - name: Linux x64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: sigit-linux-x64.tar.gz
     steps:
       - uses: actions/checkout@v4
-
-      - name: Linux libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libdbus-1-dev
 
       # rust-toolchain.toml picks the Rust version; rustup installs it on first use.
       - name: Rust target
@@ -58,10 +49,6 @@ jobs:
           key: ${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: ${{ matrix.target }}-
 
-      - name: Test
-        if: runner.os == 'Linux'
-        run: cargo test --locked
-
       - name: Build
         shell: bash
         run: cargo build --release --locked --target ${{ matrix.target }}
@@ -73,6 +60,19 @@ jobs:
           New-Item -ItemType Directory dist/sigit | Out-Null
           Copy-Item target/${{ matrix.target }}/release/sigit.exe, README.md, LICENSE dist/sigit/
           Compress-Archive -Path dist/sigit/* -DestinationPath dist/${{ matrix.asset }}
+
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -notmatch '^[0-9]') { $version = '0.0.0' }
+          $exe = (Resolve-Path target/${{ matrix.target }}/release/sigit.exe).Path
+          & $iscc /Q "/DAppVersion=$version" "/DSourceExe=$exe" "/O$((Resolve-Path dist).Path)" installer/windows/sigit.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist/sigit-setup-*.exe
 
       - name: Package (macOS app)
         if: runner.os == 'macOS'
@@ -103,18 +103,25 @@ jobs:
           cp README.md LICENSE dist/
           (cd dist && ditto -c -k --keepParent sigit.app ${{ matrix.asset }} && zip -q ${{ matrix.asset }} README.md LICENSE)
 
-      - name: Package (Linux)
-        if: runner.os == 'Linux'
+      - name: Installer (macOS disk image)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
-          mkdir -p dist/sigit
-          cp target/${{ matrix.target }}/release/sigit README.md LICENSE dist/sigit/
-          tar -C dist -czf dist/${{ matrix.asset }} sigit
+          # Open it, drag sigit into Applications.
+          mkdir -p dist/dmg
+          cp -R dist/sigit.app dist/dmg/
+          ln -s /Applications dist/dmg/Applications
+          asset="${{ matrix.asset }}"
+          hdiutil create -volname sigit -srcfolder dist/dmg -fs HFS+ -format UDZO -ov "dist/${asset%.zip}.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}
+          # The zip, plus the installer (sigit-setup-*.exe or *.dmg).
+          path: |
+            dist/sigit-*.zip
+            dist/sigit-*.exe
+            dist/sigit-*.dmg
           if-no-files-found: error
 
   release:

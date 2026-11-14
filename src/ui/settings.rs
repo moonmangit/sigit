@@ -481,6 +481,48 @@ fn shortcuts(k: &Kit) -> El {
     group(k, "Keyboard", rows)
 }
 
+/// Check for updates: the button, and what the last check found.
+fn update_row(s: &State, k: &Kit) -> El {
+    use crate::update::{Update, repo};
+    let releases = format!("https://github.com/{}/releases", repo());
+    let (desc, tone): (String, Option<Outcome>) = match &s.update {
+        Update::NotChecked => (format!("Looks for a newer release on github.com/{}.", repo()), None),
+        Update::Checking => ("Checking…".into(), None),
+        Update::UpToDate => (format!("You have the latest version ({}).", crate::update::current()), Some(Outcome::Success)),
+        Update::Available { version, .. } => (format!("Version {version} is available. Download it from its release page and replace this app."), Some(Outcome::Running)),
+        Update::Failed(e) => (format!("Couldn't check: {e}"), Some(Outcome::Failure)),
+    };
+    let mut controls = row().gap(8.0).center_y();
+    if let Some(t) = tone {
+        let label = match &s.update {
+            Update::UpToDate => "Up to date".to_owned(),
+            Update::Available { version, .. } => format!("{version} available"),
+            _ => "Failed".to_owned(),
+        };
+        controls = controls.child(chip(k, label, Some(t)));
+    }
+    if let Update::Available { url, .. } = &s.update {
+        let url = if url.is_empty() { releases.clone() } else { url.clone() };
+        controls = controls.child(
+            Button::new("Open release page")
+                .variant(ButtonVariant::Submit)
+                .icon(&super::I_EXTERNAL)
+                .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
+                .build(k)
+                .key("update-open"),
+        );
+    }
+    controls = controls.child(
+        Button::new(if s.update == Update::Checking { "Checking…" } else { "Check for updates" })
+            .variant(ButtonVariant::Outline)
+            .disabled(s.update == Update::Checking)
+            .on_press(|s: &mut State| s.check_for_updates())
+            .build(k)
+            .key("update-check"),
+    );
+    item(k, "update", "Updates", &desc, controls)
+}
+
 fn about(s: &State, k: &Kit) -> El {
     let (gh, git) = s.versions.clone().unwrap_or_else(|| ("…".into(), "…".into()));
     col()
@@ -491,6 +533,7 @@ fn about(s: &State, k: &Kit) -> El {
             "sigit",
             vec![
                 item(k, "ver", &format!("Version {}", env!("CARGO_PKG_VERSION")), "A fast desktop view of your pull requests, Actions, environments and commits, built with Rust and Rune.", el()),
+                update_row(s, k),
                 item(k, "gh", "GitHub CLI", &gh, el()),
                 item(k, "git", "Git", &git, el()),
             ],

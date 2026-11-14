@@ -10,14 +10,17 @@ history, across all your repositories and organizations. Built in Rust on
 
 Get the latest build from this repository's **Releases** page:
 
-| System | File | How to run |
+| System | Installer (recommended) | Portable |
 |---|---|---|
-| Windows 10/11 (x64) | `sigit-windows-x64.zip` | Unzip, run `sigit.exe`. SmartScreen may warn on first run (the build isn't code-signed): **More info → Run anyway**. |
-| macOS, Apple Silicon | `sigit-macos-arm64.zip` | Unzip, move `sigit.app` to Applications. It isn't notarized by Apple: the first time, **right-click → Open**. |
-| macOS, Intel | `sigit-macos-x64.zip` | As above. |
-| Linux (x64) | `sigit-linux-x64.tar.gz` | `tar xzf sigit-linux-x64.tar.gz && ./sigit/sigit` (needs a Wayland or X11 desktop). |
+| Windows 10/11 (x64) | `sigit-setup-windows-x64.exe`: installs for your user (no admin), adds a Start menu entry, uninstall from Settings → Apps. | `sigit-windows-x64.zip`: unzip, run `sigit.exe`. |
+| macOS, Apple Silicon | `sigit-macos-arm64.dmg`: open it, drag sigit into Applications. | `sigit-macos-arm64.zip` |
+| macOS, Intel | `sigit-macos-x64.dmg` | `sigit-macos-x64.zip` |
 
-`SHA256SUMS.txt` lists each file's checksum.
+The builds aren't code-signed yet. On Windows, SmartScreen may warn the first time: **More info
+→ Run anyway**. On macOS (not notarized by Apple), open it the first time with **right-click →
+Open**. Uninstalling keeps your settings (`%APPDATA%\sigit` or `~/.config/sigit`).
+
+`SHA256SUMS.txt` lists each file's checksum. On Linux, build from source (below).
 
 ## Requirements
 

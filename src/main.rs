@@ -17,6 +17,7 @@ mod activity;
 mod cache;
 mod onboarding;
 mod settings;
+mod update;
 mod config;
 mod daily;
 mod gh;
@@ -335,6 +336,8 @@ pub struct State {
     pub git_saved: (String, String),
     /// (gh --version, git --version)
     pub versions: Option<(String, String)>,
+    /// Settings → About → Check for updates.
+    pub update: update::Update,
     /// Where each resizable row is (x, width in window points), for its drag handles.
     pub split_boxes: HashMap<&'static str, [f32; 2]>,
     pub palette: bool,
@@ -455,6 +458,7 @@ fn init() -> State {
         git_email: TextEdit::new(""),
         git_saved: (String::new(), String::new()),
         versions: None,
+        update: update::Update::NotChecked,
         split_boxes: HashMap::new(),
         palette: false,
         palette_q: TextEdit::new(""),
@@ -1707,6 +1711,14 @@ fn main() {
                 s.setup = onboarding::Setup::Welcome(onboarding::Preflight { git: ok("git"), gh: ok("gh"), auth: ok("octocat on github.com") });
             }),
             ("settings-git", |s: &mut State| s.open_settings(2)),
+            ("updates", |s: &mut State| {
+                s.open_settings(8);
+                s.check_for_updates(); // the real check, against the public releases
+            }),
+            ("update-available", |s: &mut State| {
+                s.open_settings(8);
+                s.update = update::Update::Available { version: "0.2.0".into(), url: String::new() };
+            }),
             ("guide", |s: &mut State| s.guide_open = true),
             ("group", |s: &mut State| {
                 s.prefs.groups = vec![config::Group { name: "Demo".into(), repos: vec!["anomalyco/rune".into(), "cli/cli".into()] }];
