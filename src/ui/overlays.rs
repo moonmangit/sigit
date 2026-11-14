@@ -220,6 +220,9 @@ pub fn toasts(s: &State, k: &Kit, layer: &mut Vec<El>) {
             .center_y()
             .child(el().size(8.0, 8.0).radius(4.0).fill(tone))
             .child(text(t.text.clone()).font(k.ty.small).color(k.c.text_base).wrap().shrink());
+        if t.error {
+            r = r.child(super::copy_button(k, &format!("toast-copy-{}", t.id), t.text.clone(), "error message"));
+        }
         if t.undo.is_some() {
             let id = t.id;
             r = r.child(Button::new("Undo").variant(ButtonVariant::Outline).help("Take it back (available for 10 s)").on_press(move |s: &mut State| s.run_undo(id)).build(k).key("undo"));

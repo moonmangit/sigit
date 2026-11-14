@@ -382,6 +382,8 @@ pub struct State {
     pub restoring: bool,
     /// Repo sections opened on the Activity page (they start as one summary line).
     pub pulse_open_repos: HashSet<String>,
+    /// Topics opened inside a repo's Activity detail: "owner/repo|prs" and so on.
+    pub pulse_topics: HashSet<String>,
     /// Per-day activity and contributors shown on the Activity page.
     pub pulse_details: bool,
     pub tracked_q: TextEdit,
@@ -391,6 +393,7 @@ pub struct State {
 
 fn init() -> State {
     config::migrate_old_folder(); // before anything reads the folder
+    update::clean_up_previous(); // the copy the last update set aside
     let mut s = State {
         page: Page::Inbox,
         sidebar: PaneState::new(264.0).range(200.0, 420.0),
@@ -489,6 +492,7 @@ fn init() -> State {
         fwd: Vec::new(),
         restoring: false,
         pulse_open_repos: HashSet::new(),
+        pulse_topics: HashSet::new(),
         pulse_details: false,
         tracked_q: TextEdit::new(""),
         group_name: TextEdit::new(""),
@@ -1637,6 +1641,15 @@ fn main() {
                 s.prefs.tracked = vec!["anomalyco/rune".into(), "cli/cli".into(), "rust-lang/rust-analyzer".into(), "tokio-rs/axum".into()];
                 s.show(Page::Inbox);
             }),
+            ("activity-repo", |s: &mut State| {
+                // One repo's detail open, with its Actions topic expanded.
+                s.show(Page::Inbox);
+                let first = s.pulse.data.as_ref().and_then(|p| p.repos.iter().find(|r| r.runs_total > 0).or(p.repos.first())).map(|r| r.slug.clone());
+                if let Some(slug) = first {
+                    s.pulse_open_repos.insert(slug.clone());
+                    s.pulse_topics.insert(format!("{slug}|ci"));
+                }
+            }),
             ("needs", |s: &mut State| {
                 s.inbox_tab = 1;
                 s.show(Page::Inbox);
@@ -1722,7 +1735,7 @@ fn main() {
             }),
             ("update-available", |s: &mut State| {
                 s.open_settings(8);
-                s.update = update::Update::Available { version: "0.2.0".into(), url: String::new() };
+                s.update = update::Update::Available { tag: "v0.2.0".into(), version: "0.2.0".into(), url: String::new() };
             }),
             ("guide", |s: &mut State| s.guide_open = true),
             ("group", |s: &mut State| {

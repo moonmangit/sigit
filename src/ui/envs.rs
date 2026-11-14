@@ -74,8 +74,10 @@ pub fn view(s: &State, k: &Kit) -> El {
                                 text(d.sha.get(..7).unwrap_or_default().to_owned())
                                     .font(k.ty.mono)
                                     .color(k.c.text_accent)
-                                    .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url)),
-                            ),
+                                    .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
+                                    .help("Open this commit on GitHub"),
+                            )
+                            .child(super::copy_button(k, &format!("env-copy-{i}"), d.sha.clone(), "deployed SHA")),
                     )
                     .child(muted(k, format!("by {} · {}", d.creator, ago(d.created_at, now))))
                     .child(muted(k, format!("{} deployments in the last 100", deps.len())));
@@ -127,7 +129,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .child(el().size(8.0, 8.0).radius(4.0).fill(outcome_color(k, outcome(&d.state))))
                 .child(text(d.environment.clone()).font(k.ty.ui_medium).color(k.c.text_base).w(120.0).truncate())
                 .child(ref_chip(k, &d.git_ref, hue(1)))
-                .child(text(d.sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_muted))
+                .child(super::click_to_copy(text(d.sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_muted), k, d.sha.clone(), "deployed SHA"))
                 .child(muted(k, d.creator.clone()))
                 .child(spacer())
                 .child(muted(k, ago(d.created_at, now))),

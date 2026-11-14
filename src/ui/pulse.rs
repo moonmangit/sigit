@@ -513,91 +513,252 @@ fn repo_section(s: &State, k: &Kit, p: &Pulse, r: &RepoPulse) -> El {
         return sec;
     }
 
-    let card = |key: &str, title: &str, tip: &str, body: El| {
-        col()
-            .key(key.to_owned())
-            .w_full()
-            .gap(10.0)
-            .padding(14.0)
-            .radius(k.radius.md)
-            .fill(k.c.bg_base)
-            .border(1.0, k.c.border_weak)
-            .child(row().w_full().gap(6.0).center_y().child(text(title.to_owned()).font(k.ty.ui_medium).color(k.c.text_base)).child(spacer()).child(muted(k, "ⓘ").help(tip.to_owned())))
-            .child(body)
-    };
-    let stat = |label: &str, value: String| col().gap(1.0).child(text(value).font(TextStyle { size: 18.0, ..k.ty.ui_medium }).color(k.c.text_strong)).child(muted(k, label));
-
-    // Open PRs of this repo.
-    let mut prs = col().w_full().gap(4.0).child(row().gap(22.0).child(stat("open now", compact(r.prs_open))).child(stat("opened", compact(r.prs_opened))).child(stat("merged", compact(r.prs_merged))).child(stat("closed", compact(r.prs_closed))));
-    if open_here.is_empty() {
-        prs = prs.child(muted(k, "No open pull requests"));
+    // 1. What needs attention, in plain words (or that nothing does).
+    let mut attention: Vec<(Outcome, String, Option<i64>)> = Vec::new();
+    for (wf, at) in &red {
+        attention.push((Outcome::Failure, format!("{wf} is failing on {}", r.default_branch), Some(*at)));
     }
-    for (i, x) in open_here.iter().take(6).enumerate() {
-        prs = prs.child(open_pr_row(k, x, &format!("op-{i}"), false));
+    if needs_review > 0 {
+        attention.push((Outcome::Success, format!("{needs_review} pull request{} ready for review (all checks passed)", plural(needs_review)), None));
     }
-    if open_here.len() > 6 {
-        prs = prs.child(muted(k, format!("…and {} more (Open repo)", open_here.len() - 6)));
+    if failing_prs > 0 {
+        attention.push((Outcome::Failure, format!("{failing_prs} pull request{} with failing checks", plural(failing_prs)), None));
     }
-
-    // CI of this repo.
-    let mut ci = col().w_full().gap(5.0).child(row().gap(22.0).child(stat("passed", rate.map_or("—".into(), |x| format!("{:.0}%", x * 100.0)))).child(stat("runs", compact(r.runs_total))).child(stat("failed", failed.to_string())).child(stat("median", crate::model::duration(r.median_secs()))));
     if running > 0 {
-        ci = ci.child(muted(k, format!("{running} running now")));
+        attention.push((Outcome::Running, format!("{running} workflow run{} in progress", plural(running)), None));
     }
-    for (i, (wf, at)) in red.iter().enumerate() {
-        ci = ci.child(row().key(format!("rn-{i}")).w_full().gap(6.0).px(6.0).py(4.0).radius(k.radius.sm).fill(k.c.danger.bg).center_y().child(el().size(8.0, 8.0).radius(4.0).fill(k.c.danger.icon)).child(text(format!("{wf} is red on {}", r.default_branch)).font(k.ty.small_medium).color(k.c.text_base).grow(1.0).truncate().shrink()).child(muted(k, ago(*at, t))));
+    let mut first = col().key("attention").w_full().gap(6.0).pb(4.0);
+    if attention.is_empty() {
+        first = first.child(line(k, Outcome::Success, "Nothing needs attention: checks are green and no reviews are waiting.".into(), None, t));
     }
-    for (i, w) in r.workflows().iter().take(5).enumerate() {
-        let tone = if w.failed == 0 { k.c.success.icon } else if (w.failed as f32 / w.runs.max(1) as f32) < 0.1 { k.c.warning.icon } else { k.c.danger.icon };
-        let sl = r.slug.clone();
-        ci = ci.child(
-            row()
-                .key(format!("w-{i}"))
-                .w_full()
-                .gap(6.0)
-                .px(4.0)
-                .py(2.0)
-                .radius(k.radius.sm)
-                .center_y()
-                .hover(k.c.hover)
-                .help(format!("{}: {} runs, {} failed, avg {}", w.name, w.runs, w.failed, crate::model::duration(w.secs / w.runs.max(1) as i64)))
-                .on_press(move |s: &mut State| s.select_repo(&sl, Page::Actions))
-                .child(el().size(8.0, 8.0).radius(4.0).fill(tone))
-                .child(text(w.name.clone()).font(k.ty.small).color(k.c.text_base).truncate().grow(1.0).shrink())
-                .child(muted(k, if w.failed > 0 { format!("{} of {} failed", w.failed, w.runs) } else { format!("{} runs", w.runs) })),
-        );
+    for (i, (o, what, at)) in attention.into_iter().take(4).enumerate() {
+        first = first.child(line(k, o, what, at, t).key(format!("att-{i}")));
     }
 
-    // The rest, smaller.
+    // 2. One line per topic; click for its details.
     let (a, d) = r.lines();
-    let mut more = col().w_full().gap(8.0).child(row().gap(22.0).child(stat("commits", compact(r.commits_total))).child(stat("lines", format!("+{} −{}", compact(a), compact(d)))).child(stat("deploys", format!("{}{}", r.deploys.len(), if r.deploys_capped { "+" } else { "" }))).child(stat("releases", r.releases.len().to_string())));
     let people = p.contributors_for(Some(&r.slug));
-    if !people.is_empty() {
-        more = more.child(muted(k, "Who changed it")).child(contributor_rows(k, &people, 4));
+    let envs = r.environments();
+    let failed_deploys: usize = envs.iter().map(|e| e.2).sum();
+    // The one or two numbers that matter most in each topic, as coloured badges.
+    let mut pr_badges = Vec::new();
+    if needs_review > 0 {
+        pr_badges.push(chip(k, format!("{needs_review} ready for review"), Some(Outcome::Success)));
     }
-    for (i, (env, n, f, last, at)) in r.environments().iter().take(4).enumerate() {
-        let o = match last.as_str() {
-            "SUCCESS" | "ACTIVE" => Outcome::Success,
-            "FAILURE" | "ERROR" => Outcome::Failure,
-            "INACTIVE" | "DESTROYED" => Outcome::Neutral,
-            _ => Outcome::Running,
-        };
-        more = more.child(row().key(format!("env-{i}")).w_full().gap(6.0).center_y().child(el().size(8.0, 8.0).radius(4.0).fill(outcome_color(k, o))).child(text(format!("{env}: {n} deploys{}", if *f > 0 { format!(", {f} failed") } else { String::new() })).font(k.ty.small).color(k.c.text_base).grow(1.0)).child(muted(k, ago(*at, t))));
+    if failing_prs > 0 {
+        pr_badges.push(chip(k, format!("{failing_prs} failing checks"), Some(Outcome::Failure)));
+    }
+    if pr_badges.is_empty() {
+        pr_badges.push(chip(k, if r.prs_open == 0 { "none open".to_owned() } else { format!("{} open", compact(r.prs_open)) }, None));
+    }
+    let mut ci_badges = Vec::new();
+    match rate {
+        Some(x) => {
+            let tone = if x >= 0.95 { Outcome::Success } else if x >= 0.8 { Outcome::Running } else { Outcome::Failure };
+            ci_badges.push(chip(k, format!("{:.0}% passed", x * 100.0), Some(tone)));
+        }
+        None => ci_badges.push(chip(k, "no runs", None)),
+    }
+    if !red.is_empty() {
+        ci_badges.push(chip(k, format!("{} red now", red.len()), Some(Outcome::Failure)).help("Workflows whose latest run on the default branch failed"));
+    }
+    let code_badges = vec![chip(k, format!("{} commits", compact(r.commits_total)), if r.commits_total > 0 { Some(Outcome::Neutral) } else { None })];
+    let mut deploy_badges = Vec::new();
+    if failed_deploys > 0 {
+        deploy_badges.push(chip(k, format!("{failed_deploys} failed"), Some(Outcome::Failure)));
+    } else if !r.deploys.is_empty() {
+        deploy_badges.push(chip(k, "all succeeded", Some(Outcome::Success)));
+    }
+    if !r.releases.is_empty() {
+        deploy_badges.push(chip(k, format!("{} release{}", r.releases.len(), plural(r.releases.len())), None));
     }
 
-    sec.child(
-        split(
+    let topics = col()
+        .key("topics")
+        .w_full()
+        .gap(2.0)
+        .child(topic(
             s,
             k,
-            "repo-aspects",
-            vec![
-                pane(card("a-prs", "Open pull requests", "PRs open in this repo now, oldest first, with where each stands. Counts for the range above.", prs), 1.0, 260.0),
-                pane(card("a-ci", "Actions health", "Pass rate, failures and run time in the range; workflows red on the default branch now; each workflow.", ci), 1.0, 260.0),
-                pane(card("a-more", "Also", "Commits and lines on the default branch, deployments, releases, contributors.", more), 1.0, 220.0),
-            ],
-        )
-        .key("aspects"),
-    )
+            &r.slug,
+            "prs",
+            "Pull requests",
+            pr_badges,
+            format!("{} open · {} opened, {} merged, {} closed in this range", compact(r.prs_open), compact(r.prs_opened), compact(r.prs_merged), compact(r.prs_closed)),
+            &|| {
+                let mut c = col().w_full().gap(4.0);
+                if open_here.is_empty() {
+                    c = c.child(muted(k, "No open pull requests"));
+                }
+                for (i, x) in open_here.iter().take(8).enumerate() {
+                    c = c.child(open_pr_row(k, x, &format!("op-{i}"), false));
+                }
+                if open_here.len() > 8 {
+                    c = c.child(muted(k, format!("…and {} more: Open repo to see all", open_here.len() - 8)));
+                }
+                c
+            },
+        ))
+        .child(topic(
+            s,
+            k,
+            &r.slug,
+            "ci",
+            "Actions",
+            ci_badges,
+            match rate {
+                Some(_) => format!("{} runs · {failed} failed · median {}", compact(r.runs_total), crate::model::duration(r.median_secs())),
+                None => "No runs in this range".into(),
+            },
+            &|| {
+                let mut c = col().w_full().gap(3.0).child(muted(k, "Each workflow in this range, the ones with failures first. Click one to open Actions."));
+                for (i, w) in r.workflows().iter().take(8).enumerate() {
+                    let tone = if w.failed == 0 { k.c.success.icon } else if (w.failed as f32 / w.runs.max(1) as f32) < 0.1 { k.c.warning.icon } else { k.c.danger.icon };
+                    let sl = r.slug.clone();
+                    c = c.child(
+                        row()
+                            .key(format!("w-{i}"))
+                            .w_full()
+                            .gap(8.0)
+                            .px(4.0)
+                            .py(3.0)
+                            .radius(k.radius.sm)
+                            .center_y()
+                            .hover(k.c.hover)
+                            .help(format!("{}: {} runs, {} failed, average {}", w.name, w.runs, w.failed, crate::model::duration(w.secs / w.runs.max(1) as i64)))
+                            .on_press(move |s: &mut State| s.select_repo(&sl, Page::Actions))
+                            .child(el().size(8.0, 8.0).radius(4.0).fill(tone))
+                            .child(text(w.name.clone()).font(k.ty.small).color(k.c.text_base).truncate().grow(1.0).shrink())
+                            .child(muted(k, if w.failed > 0 { format!("{} of {} failed", w.failed, w.runs) } else { format!("{} runs, all passed", w.runs) })),
+                    );
+                }
+                c
+            },
+        ))
+        .child(topic(
+            s,
+            k,
+            &r.slug,
+            "code",
+            "Code changes",
+            code_badges,
+            format!("on {} · +{} −{} lines · {} contributor{}", r.default_branch, compact(a), compact(d), people.len(), plural(people.len())),
+            &|| {
+                if people.is_empty() {
+                    muted(k, "No commits on the default branch in this range")
+                } else {
+                    col().w_full().gap(4.0).child(muted(k, "Who changed it (share of lines changed)")).child(contributor_rows(k, &people, 6))
+                }
+            },
+        ));
+    let topics = if r.deploys.is_empty() && r.releases.is_empty() {
+        topics
+    } else {
+        topics.child(topic(
+            s,
+            k,
+            &r.slug,
+            "deploys",
+            "Deployments & releases",
+            deploy_badges,
+            format!(
+                "{}{} deploys to {} environment{} · {} release{}",
+                r.deploys.len(),
+                if r.deploys_capped { "+" } else { "" },
+                envs.len(),
+                plural(envs.len()),
+                r.releases.len(),
+                plural(r.releases.len())
+            ),
+            &|| {
+                let mut c = col().w_full().gap(4.0);
+                for (i, (env, n, f, last, at)) in envs.iter().take(6).enumerate() {
+                    let o = match last.as_str() {
+                        "SUCCESS" | "ACTIVE" => Outcome::Success,
+                        "FAILURE" | "ERROR" => Outcome::Failure,
+                        "INACTIVE" | "DESTROYED" => Outcome::Neutral,
+                        _ => Outcome::Running,
+                    };
+                    let what = format!("{env}: {n} deploy{}{}", plural(*n), if *f > 0 { format!(", {f} failed") } else { String::new() });
+                    c = c.child(line(k, o, what, Some(*at), t).key(format!("env-{i}")));
+                }
+                for (i, (tag, at)) in r.releases.iter().take(4).enumerate() {
+                    c = c.child(line(k, Outcome::Neutral, format!("Released {tag}"), Some(*at), t).key(format!("rel-{i}")));
+                }
+                c
+            },
+        ))
+    };
+
+    sec.child(col().key("detail").w_full().gap(8.0).pb(4.0).child(first).child(el().w_full().h(1.0).fill(k.c.border_weak)).child(topics))
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
+}
+
+/// One plain sentence with a status dot, and when it happened.
+fn line(k: &Kit, o: Outcome, what: String, at: Option<i64>, now: i64) -> El {
+    let mut r = row()
+        .w_full()
+        .gap(GRID_GAP)
+        .px(GRID_PAD)
+        .center_y()
+        .child(lead(el().size(8.0, 8.0).radius(4.0).fill(outcome_color(k, o))))
+        .child(text(what).font(k.ty.small).color(k.c.text_base).wrap().grow(1.0).shrink());
+    if let Some(at) = at {
+        r = r.child(muted(k, ago(at, now)));
+    }
+    r
+}
+
+// A repo detail's rows share one grid, so dots, arrows, titles, badges and text line up:
+// [lead][title][badges][headline], and opened details start under the title.
+const GRID_PAD: f32 = 8.0;
+const GRID_GAP: f32 = 10.0;
+const LEAD_W: f32 = 14.0;
+const TITLE_W: f32 = 180.0;
+const BADGES_W: f32 = 280.0;
+
+/// The first column: a status dot or the open/close arrow, centred.
+fn lead(e: El) -> El {
+    row().w(LEAD_W).center().child(e)
+}
+
+/// A topic of a repo's detail: badges for what matters most, a muted headline for the rest,
+/// and its details on click.
+#[allow(clippy::too_many_arguments)]
+fn topic(s: &State, k: &Kit, slug: &str, id: &str, title: &str, badges: Vec<El>, headline: String, details: &dyn Fn() -> El) -> El {
+    let key = format!("{slug}|{id}");
+    let open = s.pulse_topics.contains(&key);
+    let toggle = key.clone();
+    let head = row()
+        .key(format!("t-{id}"))
+        .w_full()
+        .gap(GRID_GAP)
+        .px(GRID_PAD)
+        .py(7.0)
+        .radius(k.radius.md)
+        .center_y()
+        .hover(k.c.hover)
+        .role("button")
+        .label(title.to_owned())
+        .help(if open { format!("Hide {}", title.to_lowercase()) } else { format!("Show {}", title.to_lowercase()) })
+        .on_press(move |s: &mut State| {
+            if !s.pulse_topics.remove(&toggle) {
+                s.pulse_topics.insert(toggle.clone());
+            }
+        })
+        .child(lead(rune::icon(if open { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT }, 9.0).color(k.c.icon_faint)))
+        .child(text(title.to_owned()).font(k.ty.ui_medium).color(k.c.text_base).w(TITLE_W).truncate())
+        .child(badges.into_iter().fold(row().w(BADGES_W).gap(6.0).center_y(), |r, b| r.child(b)))
+        .child(text(headline).font(k.ty.small).color(k.c.text_muted).truncate().grow(1.0).shrink());
+    let mut c = col().key(format!("topic-{id}")).w_full().child(head);
+    if open {
+        // Details start under the title.
+        c = c.child(col().w_full().pl(GRID_PAD + LEAD_W + GRID_GAP).pr(GRID_PAD).pt(4.0).pb(10.0).child(details()));
+    }
+    c
 }
 
 // ---------------------------------------------------------------------------------------------

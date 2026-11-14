@@ -48,6 +48,7 @@ icon!(I_DASH, "g-dash", r#"<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"
 icon!(I_BACK, "g-back", r#"<path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 icon!(I_FWD, "g-fwd", r#"<path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 icon!(I_LOGO, "g-logo", r#"<circle cx="4.5" cy="4" r="1.6" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="4.5" cy="12" r="1.6" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="11.5" cy="6.5" r="1.6" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4.5 5.6V10.4M11.5 8.1C11.5 10 9 10.2 6 11.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/>"#);
+icon!(I_COPY, "g-copy", r#"<rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M10.5 5.5V3.9C10.5 3.1 9.9 2.5 9.1 2.5H3.9C3.1 2.5 2.5 3.1 2.5 3.9V9.1C2.5 9.9 3.1 10.5 3.9 10.5H5.5" stroke="currentColor" stroke-width="1.2" fill="none"/>"#);
 icon!(I_EXTERNAL, "g-ext", r#"<path d="M9 2.5H13.5V7M13.5 2.5L7.5 8.5M11.5 9.5V13.5H2.5V4.5H6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 
 // ---------------------------------------------------------------------------------------------
@@ -108,21 +109,57 @@ pub fn ci_chip(k: &Kit, ci: crate::model::Ci) -> El {
 /// A branch chip with a 🛡 when the branch is protected or the default (A2).
 pub fn branch_chip(s: &State, k: &Kit, name: &str, color: Color) -> El {
     if s.is_protected(name) {
-        ref_chip(k, &format!("🛡 {name}"), hue(6)).help("Protected or default branch: changes to it need extra care (merges are High risk)")
+        ref_pill(k, &format!("🛡 {name}"), name, hue(6)).help("Protected or default branch: changes to it need extra care (merges are High risk). Click to copy its name.")
     } else {
         ref_chip(k, name, color)
     }
 }
 
-/// A branch or ref name in mono on a soft accent pill.
+/// A branch or ref name in mono on a soft accent pill; clicking copies the name.
 pub fn ref_chip(k: &Kit, name: &str, color: Color) -> El {
-    row()
+    ref_pill(k, name, name, color)
+}
+
+/// A ref pill showing `shown` (with a 🛡 or 🏷, say) that copies `value` when clicked.
+pub fn ref_pill(k: &Kit, shown: &str, value: &str, color: Color) -> El {
+    let pill = row()
         .px(6.0)
         .py(1.0)
         .radius(4.0)
         .fill(Color { a: 0.16, ..color })
         .border(1.0, Color { a: 0.45, ..color })
-        .child(text(name.to_owned()).font(TextStyle { size: 11.0, ..k.ty.mono }).color(k.c.text_base))
+        .child(text(shown.to_owned()).font(TextStyle { size: 11.0, ..k.ty.mono }).color(k.c.text_base));
+    click_to_copy(pill, k, value.to_owned(), "name")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Copying
+// ---------------------------------------------------------------------------------------------
+
+/// Put `value` on the clipboard and say so ("Copied commit SHA: 3f2a9c1…").
+fn copy_now(s: &mut State, tx: &mut rune::Tx, value: &str, what: &str) {
+    tx.copy(value.to_owned());
+    let shown: String = value.chars().take(60).collect();
+    let more = if value.chars().count() > 60 { "…" } else { "" };
+    s.toast(format!("Copied {what}: {shown}{more}"), false);
+}
+
+/// A small copy icon next to something people often paste elsewhere (a link, a SHA, a path).
+pub fn copy_button(k: &Kit, key: &str, value: String, what: &str) -> El {
+    let what = what.to_owned();
+    IconButton::new(&I_COPY)
+        .variant(IconButtonVariant::GhostMuted)
+        .label(format!("Copy {what}"))
+        .help(format!("Copy {what}"))
+        .on_press_tx(move |s: &mut State, tx| copy_now(s, tx, &value, &what))
+        .build(k)
+        .key(key.to_owned())
+}
+
+/// Makes `e` (a name, a SHA, a path) copy `value` when clicked, with a hint on hover.
+pub fn click_to_copy(e: El, k: &Kit, value: String, what: &str) -> El {
+    let what = what.to_owned();
+    e.hover(k.c.hover).help(format!("Click to copy {what}")).on_press_tx(move |s: &mut State, tx| copy_now(s, tx, &value, &what))
 }
 
 /// Lane / series colours: evenly spaced hues, one lightness.
@@ -498,7 +535,9 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
             .child(Button::new("Fetch").variant(ButtonVariant::Outline).help("Download new commits and branches from every remote (git fetch --all --prune). Changes nothing locally.").on_press(|s: &mut State| s.fetch()).build(k).key("fetch"))
             .child(Button::new("Pull").variant(ButtonVariant::Outline).help("Fast-forward your current branch (git pull --ff-only): never creates a merge commit. Checks for uncommitted changes first.").on_press(|s: &mut State| s.pull()).build(k).key("pull"));
     }
-    head = head.child(ext_button(k, "repo-open", format!("https://github.com/{}", repo.slug)));
+    head = head
+        .child(copy_button(k, "repo-clone", format!("https://github.com/{}.git", repo.slug), "clone URL"))
+        .child(ext_button(k, "repo-open", format!("https://github.com/{}", repo.slug)));
 
     let idx = Page::REPO.iter().position(|p| *p == page);
     let tabs = SegmentedControl::new(&Page::REPO.map(|p| p.label()), idx)

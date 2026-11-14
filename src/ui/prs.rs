@@ -228,6 +228,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             .gap(8.0)
             .items_start()
             .child(text(pr.title.clone()).font(TextStyle { size: 17.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap().grow(1.0).shrink())
+            .child(super::copy_button(k, "pr-copy", pr.url.clone(), "link to this PR"))
             .child(ext_button(k, "pr-open", pr.url.clone())),
     );
     c = c.child(
@@ -238,9 +239,9 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             .flex_wrap()
             .child(state_chip)
             .child(muted(k, format!("#{} by {} · updated {}", pr.number, pr.author.login, ago_str(&pr.updated_at, now))))
-            .child(ref_chip(k, &pr.head_ref_name, hue(1)).help("The PR's branch"))
+            .child(ref_chip(k, &pr.head_ref_name, hue(1)).help("The PR's branch (click to copy)"))
             .child(muted(k, "→"))
-            .child(super::branch_chip(s, k, &pr.base_ref_name, hue(0)).help("Where it merges into"))
+            .child(super::branch_chip(s, k, &pr.base_ref_name, hue(0)).help("Where it merges into (click to copy)"))
             .child(diffstat(k, pr.additions, pr.deletions)),
     );
 
@@ -432,7 +433,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                         .w_full()
                         .gap(8.0)
                         .center_y()
-                        .child(text(f.path.clone()).font(k.ty.mono).color(k.c.text_base).truncate().grow(1.0).shrink())
+                        .child(super::click_to_copy(text(f.path.clone()).font(k.ty.mono).color(k.c.text_base).truncate().grow(1.0).shrink(), k, f.path.clone(), "file path"))
                         .child(diffstat(k, f.additions, f.deletions)),
                 )
             });

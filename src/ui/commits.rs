@@ -104,13 +104,13 @@ fn table(s: &State, k: &Kit) -> El {
 /// HEAD, local branches, remote branches and tags each get their own look.
 fn ref_badge(s: &State, k: &Kit, name: &str) -> El {
     if let Some(b) = name.strip_prefix("HEAD -> ") {
-        return row().gap(3.0).child(ref_chip(k, "HEAD", hue(6)).help("Your clone is here")).child(super::branch_chip(s, k, b, hue(1)));
+        return row().gap(3.0).child(ref_chip(k, "HEAD", hue(6)).help("Your clone is here")).child(super::branch_chip(s, k, b, hue(1)).help("Your current branch (click to copy)"));
     }
     if let Some(t) = name.strip_prefix("tag: ") {
-        return ref_chip(k, &format!("🏷 {t}"), hue(2));
+        return super::ref_pill(k, &format!("🏷 {t}"), t, hue(2)).help("A tag (click to copy)");
     }
     let remote = name.contains('/');
-    super::branch_chip(s, k, name, if remote { hue(3) } else { hue(1) }).help(if remote { "A branch on GitHub" } else { "A local branch" })
+    super::branch_chip(s, k, name, if remote { hue(3) } else { hue(1) }).help(if remote { "A branch on GitHub (click to copy)" } else { "A local branch (click to copy)" })
 }
 
 /// One row's slice of the graph: lines from the row above, the dot, lines to the parents.
@@ -154,13 +154,27 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     let c: &Commit = graph(s)?.commits.iter().find(|c| c.sha == sha)?;
     let now = now();
     let mut col_ = col().w_full().gap(12.0);
-    col_ = col_.child(text(c.subject.clone()).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap());
+    col_ = col_.child(
+        row()
+            .w_full()
+            .gap(8.0)
+            .items_start()
+            .child(text(c.subject.clone()).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap().grow(1.0).shrink())
+            .child(super::copy_button(k, "c-copy-msg", c.subject.clone(), "commit message")),
+    );
     let mut meta = row().w_full().gap(6.0).center_y().flex_wrap().child(muted(k, format!("{} · {}", c.author, ago(c.time, now))));
     for r in &c.refs {
         meta = meta.child(ref_badge(s, k, r));
     }
     col_ = col_.child(meta);
-    col_ = col_.child(text(c.sha.clone()).font(k.ty.mono).color(k.c.text_muted).selectable(true));
+    col_ = col_.child(
+        row()
+            .w_full()
+            .gap(6.0)
+            .center_y()
+            .child(text(c.sha.clone()).font(k.ty.mono).color(k.c.text_muted).selectable(true).shrink())
+            .child(super::copy_button(k, "c-copy-sha", c.sha.clone(), "commit SHA")),
+    );
     if !c.parents.is_empty() {
         let parents = c.parents.iter().map(|p| p.get(..7).unwrap_or(p)).collect::<Vec<_>>().join("  ");
         col_ = col_.child(muted(k, format!("parents  {parents}")));
@@ -205,7 +219,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                 .w_full()
                 .gap(8.0)
                 .center_y()
-                .child(text(path.clone()).font(k.ty.mono).color(k.c.text_base).truncate().grow(1.0).shrink())
+                .child(super::click_to_copy(text(path.clone()).font(k.ty.mono).color(k.c.text_base).truncate().grow(1.0).shrink(), k, path.clone(), "file path"))
                 .child(diffstat(k, *a, *r)),
         )
     });

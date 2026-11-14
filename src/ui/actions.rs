@@ -136,6 +136,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             .items_start()
             .child(status_mark(k, o))
             .child(text(run.display_title.clone()).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap().grow(1.0).shrink())
+            .child(super::copy_button(k, "run-copy", run.url.clone(), "link to this run"))
             .child(ext_button(k, "run-open", run.url.clone())),
     );
     c = c.child(
@@ -147,7 +148,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             .child(chip(k, if o.is_running() { run.status.clone() } else { run.conclusion.clone() }, Some(o)))
             .child(muted(k, format!("{} #{} · {} ·", run.workflow_name, run.number, run.event)))
             .child(ref_chip(k, &run.head_branch, hue(1)))
-            .child(text(run.head_sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_muted))
+            .child(super::click_to_copy(text(run.head_sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_muted), k, run.head_sha.clone(), "commit SHA"))
             .child(muted(k, format!("· {} · {}", ago_str(&run.created_at, now), duration(run.duration(now))))),
     );
 

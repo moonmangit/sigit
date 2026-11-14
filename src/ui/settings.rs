@@ -414,7 +414,11 @@ fn data(s: &State, k: &Kit) -> El {
                 "folder",
                 "Settings folder",
                 &format!("{folder}\nprefs.json (these settings, pins, groups), cache.json, activity.jsonl"),
-                Button::new("Open folder").variant(ButtonVariant::Outline).on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url)).build(k),
+                row()
+                    .gap(4.0)
+                    .center_y()
+                    .child(super::copy_button(k, "folder-copy", folder.clone(), "folder path"))
+                    .child(Button::new("Open folder").variant(ButtonVariant::Outline).on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url)).build(k)),
             )],
         ))
         .child(muted(k, if s.prefs.splits.is_empty() { "" } else { "Resized sections: Appearance → Section sizes resets them." }))
@@ -481,45 +485,59 @@ fn shortcuts(k: &Kit) -> El {
     group(k, "Keyboard", rows)
 }
 
-/// Check for updates: the button, and what the last check found.
+/// Updates: check, then install in place and restart (or, where this copy can't update
+/// itself, the release page).
 fn update_row(s: &State, k: &Kit) -> El {
-    use crate::update::{Update, repo};
+    use crate::update::{Update, cannot_install, current, repo};
     let releases = format!("https://github.com/{}/releases", repo());
-    let (desc, tone): (String, Option<Outcome>) = match &s.update {
-        Update::NotChecked => (format!("Looks for a newer release on github.com/{}.", repo()), None),
-        Update::Checking => ("Checking…".into(), None),
-        Update::UpToDate => (format!("You have the latest version ({}).", crate::update::current()), Some(Outcome::Success)),
-        Update::Available { version, .. } => (format!("Version {version} is available. Download it from its release page and replace this app."), Some(Outcome::Running)),
-        Update::Failed(e) => (format!("Couldn't check: {e}"), Some(Outcome::Failure)),
+    let blocked = cannot_install();
+    let (desc, chip_label, tone): (String, Option<String>, Option<Outcome>) = match &s.update {
+        Update::NotChecked => (format!("Looks for a newer release on github.com/{}.", repo()), None, None),
+        Update::Checking => ("Checking…".into(), None, None),
+        Update::UpToDate => (format!("You have the latest version ({}).", current()), Some("Up to date".into()), Some(Outcome::Success)),
+        Update::Available { version, .. } => match &blocked {
+            None => (format!("Version {version} is available. Update downloads it, checks it, and replaces this copy; your settings stay."), Some(format!("{version} available")), Some(Outcome::Running)),
+            Some(why) => (format!("Version {version} is available. {why}"), Some(format!("{version} available")), Some(Outcome::Running)),
+        },
+        Update::Installing { version } => (format!("Downloading and installing {version}…"), None, None),
+        Update::Installed { version } => (format!("Version {version} is installed. Restart sigit to start using it."), Some("Ready".into()), Some(Outcome::Success)),
+        Update::Failed(e) => (format!("{e}. Nothing was changed."), Some("Failed".into()), Some(Outcome::Failure)),
     };
     let mut controls = row().gap(8.0).center_y();
-    if let Some(t) = tone {
-        let label = match &s.update {
-            Update::UpToDate => "Up to date".to_owned(),
-            Update::Available { version, .. } => format!("{version} available"),
-            _ => "Failed".to_owned(),
-        };
+    if let (Some(label), Some(t)) = (chip_label, tone) {
         controls = controls.child(chip(k, label, Some(t)));
     }
-    if let Update::Available { url, .. } = &s.update {
-        let url = if url.is_empty() { releases.clone() } else { url.clone() };
+    let release_page = |url: &str, primary: bool| {
+        let url = if url.is_empty() { releases.clone() } else { url.to_owned() };
+        Button::new(if primary { "Open release page" } else { "What's new" })
+            .variant(if primary { ButtonVariant::Submit } else { ButtonVariant::Outline })
+            .icon(&super::I_EXTERNAL)
+            .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
+            .build(k)
+    };
+    match &s.update {
+        Update::Available { url, .. } if blocked.is_none() => {
+            controls = controls
+                .child(release_page(url, false).key("update-notes"))
+                .child(Button::new("Update now").variant(ButtonVariant::Submit).on_press(|s: &mut State| s.install_update()).build(k).key("update-install"));
+        }
+        Update::Available { url, .. } => controls = controls.child(release_page(url, true).key("update-open")),
+        Update::Installing { .. } => controls = controls.child(Spinner::new().size(14.0).build(k)),
+        Update::Installed { .. } => {
+            controls = controls.child(Button::new("Restart now").variant(ButtonVariant::Submit).on_press(|s: &mut State| s.restart_after_update()).build(k).key("update-restart"));
+        }
+        _ => {}
+    }
+    if !matches!(s.update, Update::Available { .. } | Update::Installing { .. } | Update::Installed { .. }) {
         controls = controls.child(
-            Button::new("Open release page")
-                .variant(ButtonVariant::Submit)
-                .icon(&super::I_EXTERNAL)
-                .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
+            Button::new(if s.update == Update::Checking { "Checking…" } else { "Check for updates" })
+                .variant(ButtonVariant::Outline)
+                .disabled(s.update == Update::Checking)
+                .on_press(|s: &mut State| s.check_for_updates())
                 .build(k)
-                .key("update-open"),
+                .key("update-check"),
         );
     }
-    controls = controls.child(
-        Button::new(if s.update == Update::Checking { "Checking…" } else { "Check for updates" })
-            .variant(ButtonVariant::Outline)
-            .disabled(s.update == Update::Checking)
-            .on_press(|s: &mut State| s.check_for_updates())
-            .build(k)
-            .key("update-check"),
-    );
     item(k, "update", "Updates", &desc, controls)
 }
 
@@ -538,8 +556,28 @@ fn about(s: &State, k: &Kit) -> El {
                 item(k, "git", "Git", &git, el()),
             ],
         ))
-        .child(row().gap(8.0).child(Button::new("Open the guide").variant(ButtonVariant::Outline).shortcut("F1").on_press(|s: &mut State| {
-            s.close_settings();
-            s.guide_open = true;
-        }).build(k).key("open-guide")))
+        .child(
+            row()
+                .gap(8.0)
+                .child(Button::new("Open the guide").variant(ButtonVariant::Outline).shortcut("F1").on_press(|s: &mut State| {
+                    s.close_settings();
+                    s.guide_open = true;
+                }).build(k).key("open-guide"))
+                .child(
+                    // For bug reports: everything someone helping you would ask first.
+                    Button::new("Copy version info")
+                        .variant(ButtonVariant::Outline)
+                        .icon(&super::I_COPY)
+                        .help("Copy sigit's, gh's and git's versions and your system, for a bug report")
+                        .on_press_tx(move |s: &mut State, tx| {
+                            let info = format!("sigit {} ({} {})
+{gh}
+{git}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+                            tx.copy(info);
+                            s.toast("Copied version info".into(), false);
+                        })
+                        .build(k)
+                        .key("copy-versions"),
+                ),
+        )
 }
