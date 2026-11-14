@@ -1,0 +1,5 @@
+/target
+# Headless stills (--snap) and the old vendored Rune checkout, never released.
+/shots/
+/vendor/
+*.png

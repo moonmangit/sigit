@@ -1,0 +1,141 @@
+# Builds sigit for Windows, macOS and Linux and publishes them as a GitHub release.
+# Runs when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0), or by hand
+# (Actions → Release → Run workflow), which builds without publishing.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: sigit-windows-x64.zip
+          - name: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            asset: sigit-macos-arm64.zip
+          - name: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            asset: sigit-macos-x64.zip
+          - name: Linux x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: sigit-linux-x64.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libdbus-1-dev
+
+      # rust-toolchain.toml picks the Rust version; rustup installs it on first use.
+      - name: Rust target
+        shell: bash
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ${{ matrix.target }}-
+
+      - name: Test
+        if: runner.os == 'Linux'
+        run: cargo test --locked
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist/sigit | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/sigit.exe, README.md, LICENSE dist/sigit/
+          Compress-Archive -Path dist/sigit/* -DestinationPath dist/${{ matrix.asset }}
+
+      - name: Package (macOS app)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in [0-9]*) ;; *) version="0.0.0" ;; esac
+          app=dist/sigit.app
+          mkdir -p "$app/Contents/MacOS"
+          cp target/${{ matrix.target }}/release/sigit "$app/Contents/MacOS/sigit"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>sigit</string>
+            <key>CFBundleDisplayName</key><string>sigit</string>
+            <key>CFBundleIdentifier</key><string>dev.sigit.app</string>
+            <key>CFBundleExecutable</key><string>sigit</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          # Ad-hoc signature: required to run on Apple Silicon. Not notarized (see README).
+          codesign --force --deep --sign - "$app"
+          cp README.md LICENSE dist/
+          (cd dist && ditto -c -k --keepParent sigit.app ${{ matrix.asset }} && zip -q ${{ matrix.asset }} README.md LICENSE)
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist/sigit
+          cp target/${{ matrix.target }}/release/sigit README.md LICENSE dist/sigit/
+          tar -C dist -czf dist/${{ matrix.asset }} sigit
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "sigit $GITHUB_REF_NAME" \
+            --generate-notes

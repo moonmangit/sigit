@@ -1,0 +1,3 @@
+[toolchain]
+# Same toolchain Rune pins (vendor/rune/rust-toolchain.toml).
+channel = "1.99.1"
