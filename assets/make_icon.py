@@ -81,6 +81,31 @@ def draw(size=S):
     return icon
 
 
+# Every image macOS looks for, as Apple's iconutil writes them: (type, pixel size). The 1x
+# 16 and 32 px ones (icp4, icp5) are what Finder lists, Spotlight and menus use on non-Retina
+# screens; Pillow's ICNS writer leaves them out.
+ICNS_TYPES = [
+    ("icp4", 16), ("icp5", 32), ("icp6", 64),
+    ("ic07", 128), ("ic08", 256), ("ic09", 512), ("ic10", 1024),
+    ("ic11", 32), ("ic12", 64), ("ic13", 256), ("ic14", 512),
+]
+
+
+def write_icns(master, path):
+    """An .icns of PNG images (macOS 10.7+): 'icns', total length, then type/length/data."""
+    import io
+    import struct
+
+    chunks = b""
+    for kind, px in ICNS_TYPES:
+        buf = io.BytesIO()
+        master.resize((px, px), Image.LANCZOS).save(buf, format="PNG")
+        data = buf.getvalue()
+        chunks += kind.encode("ascii") + struct.pack(">I", 8 + len(data)) + data
+    with open(path, "wb") as f:
+        f.write(b"icns" + struct.pack(">I", 8 + len(chunks)) + chunks)
+
+
 def main():
     big = draw()
     master = big.resize((1024, 1024), Image.LANCZOS)
@@ -88,7 +113,7 @@ def main():
     master.resize((256, 256), Image.LANCZOS).save(os.path.join(HERE, "icon-256.png"))
     sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
     master.save(os.path.join(HERE, "icon.ico"), sizes=[(s, s) for s in sizes])
-    master.save(os.path.join(HERE, "icon.icns"))
+    write_icns(master, os.path.join(HERE, "icon.icns"))
     print("wrote icon.png, icon-256.png, icon.ico, icon.icns")
 
 

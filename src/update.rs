@@ -186,8 +186,12 @@ fn replace(target: &Path, unpacked: &Path) -> Result<(), String> {
 
 fn copy_into_place(new: &Path, target: &Path) -> Result<(), String> {
     if new.is_dir() {
-        // An .app bundle: ditto copies it whole (signature, permissions) across volumes.
-        gh::run("ditto", &[&new.to_string_lossy(), &target.to_string_lossy()], None).map(|_| ())
+        // An .app bundle: ditto copies it whole (signature, permissions, icon) across volumes.
+        gh::run("ditto", &[&new.to_string_lossy(), &target.to_string_lossy()], None)?;
+        // Finder and the Dock cache app icons by path: a newer modification date makes them
+        // read the new bundle's icon instead of the old copy's.
+        let _ = gh::run("touch", &[&target.to_string_lossy()], None);
+        Ok(())
     } else {
         std::fs::copy(new, target).map(|_| ()).map_err(|e| e.to_string())?;
         #[cfg(unix)]

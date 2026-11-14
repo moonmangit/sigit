@@ -18,6 +18,7 @@ mod cache;
 mod onboarding;
 mod settings;
 mod update;
+mod window_icon;
 mod config;
 mod daily;
 mod gh;
@@ -322,6 +323,8 @@ pub struct State {
     pub last_cache: Instant,
     /// The page's freshness check (`ensure_page`) every 30 s.
     pub last_tick: Instant,
+    /// The window has its icon (Windows; see window_icon.rs).
+    pub window_icon_set: bool,
     /// First run / preflight: git, gh and its sign-in (`onboarding`).
     pub setup: onboarding::Setup,
     pub setup_busy: bool,
@@ -451,6 +454,7 @@ fn init() -> State {
         last_watch: Instant::now(),
         last_cache: Instant::now(),
         last_tick: Instant::now(),
+        window_icon_set: false,
         setup: onboarding::Setup::Checking,
         setup_busy: false,
         setup_at: Instant::now(),
@@ -1507,6 +1511,9 @@ fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
     }
     // Keep the timers above ticking even when nothing else wakes the window.
     tx.wake_after(Duration::from_secs(if s.watches.is_empty() { 30 } else { 10 }));
+    if !s.window_icon_set {
+        s.window_icon_set = window_icon::apply();
+    }
     changed |= s.poll_setup();
     if matches!(s.setup, onboarding::Setup::Missing(_)) {
         // Waiting on you to install or sign in: re-check on time.
