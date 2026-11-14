@@ -50,12 +50,9 @@ impl State {
 
     pub fn open_notif(&mut self, n: &Notif, tx: &mut rune::Tx) {
         match (n.kind.as_str(), n.number) {
-            ("PullRequest", Some(num)) => {
-                self.pr_state = 0;
-                self.select_repo(&n.repo.clone(), Page::Pulls);
-                self.select_pr(num);
-            }
-            ("CheckSuite", _) => self.select_repo(&n.repo.clone(), Page::Actions),
+            ("PullRequest", Some(num)) => self.open_pr(&n.repo.clone(), num),
+            // A CI notification doesn't name its run: open the latest failed one.
+            ("CheckSuite", _) => self.open_latest_failed(&n.repo.clone(), None),
             ("Issue", Some(num)) => crate::open_url(tx, &format!("https://github.com/{}/issues/{num}", n.repo)),
             ("Release", _) => crate::open_url(tx, &format!("https://github.com/{}/releases", n.repo)),
             _ => crate::open_url(tx, &format!("https://github.com/{}", n.repo)),
@@ -114,16 +111,10 @@ impl State {
         match key {
             'j' => self.queue_sel = (self.queue_sel + 1).min(q.len() - 1),
             'k' => self.queue_sel = self.queue_sel.saturating_sub(1),
-            '\n' => {
-                self.pr_state = 0;
-                self.select_repo(&slug, Page::Pulls);
-                self.select_pr(n);
-            }
+            '\n' => self.open_pr(&slug, n),
             'a' => self.request(crate::guard::Action::Approve { slug, number: n, title: hit.title, body: String::new(), confirm: true }),
             'c' => {
-                self.pr_state = 0;
-                self.select_repo(&slug, Page::Pulls);
-                self.select_pr(n);
+                self.open_pr(&slug, n);
                 self.comment.focused = true;
             }
             _ => return false,
@@ -304,6 +295,7 @@ impl State {
             self.notifs = Load::from_cache(snap.notifications, at);
         }
         if let Some((key, p)) = snap.pulse {
+            self.pulse_seen.insert(key.clone(), (snap.pulse_at.max(1), p.clone()));
             self.pulse_key = key;
             self.pulse = Load::from_cache(p, snap.pulse_at.max(1));
         }
@@ -426,9 +418,9 @@ impl State {
             }
             PaletteItem::Page(p) => self.show(p),
             PaletteItem::Pr(n) => {
-                self.page = Page::Pulls;
-                self.select_pr(n);
-                self.refresh_page();
+                if let Some(slug) = self.cur.clone() {
+                    self.open_pr(&slug, n);
+                }
             }
             PaletteItem::Branch(name) => {
                 if let (Some(dir), Some(slug)) = (self.local_path(), self.cur.clone()) {

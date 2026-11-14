@@ -81,6 +81,35 @@ pub fn spawn<T: Send + 'static>(
     }
 }
 
+/// Run each of `works` on its own thread and hand every result to `done` on the UI thread as
+/// soon as it's ready, so a page fills in piece by piece instead of waiting for the slowest.
+/// `done` returns true when its change should animate (Rune lands data a server brought at
+/// once unless asked).
+pub fn spawn_each<T: Send + 'static>(s: &mut State, works: Vec<Box<dyn FnOnce() -> T + Send>>, done: impl Fn(&mut State, T) -> bool + Send + Sync + 'static) {
+    let done = Arc::new(done);
+    match HANDLE.get().filter(|_| !INLINE.load(Ordering::Relaxed)) {
+        Some(h) => {
+            for work in works {
+                let (h, done) = (h.clone(), done.clone());
+                std::thread::spawn(move || {
+                    let out = work();
+                    h.update(move |s, tx| {
+                        if done(s, out) {
+                            tx.animated();
+                        }
+                    });
+                });
+            }
+        }
+        None => {
+            for work in works {
+                let out = work();
+                let _ = done(s, out);
+            }
+        }
+    }
+}
+
 /// Headless runs (`--snap`, `--tree`, tests) work inline.
 pub fn is_inline_run() -> bool {
     INLINE.load(Ordering::Relaxed)

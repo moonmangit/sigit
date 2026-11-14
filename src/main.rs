@@ -15,6 +15,7 @@
 
 mod activity;
 mod cache;
+mod focus;
 mod onboarding;
 mod settings;
 mod update;
@@ -323,6 +324,12 @@ pub struct State {
     pub last_cache: Instant,
     /// The page's freshness check (`ensure_page`) every 30 s.
     pub last_tick: Instant,
+    /// Where a link sent you: the row to reveal, the run or PR it opened when outside the
+    /// loaded list, and a "latest failed run" still to pick (focus.rs).
+    pub reveal: Option<focus::Reveal>,
+    pub want_failed: Option<focus::WantFailed>,
+    pub focus_run: Option<(String, Run)>,
+    pub focus_pr: Option<(String, Pr)>,
     /// The window has its icon (Windows; see window_icon.rs).
     pub window_icon_set: bool,
     /// First run / preflight: git, gh and its sign-in (`onboarding`).
@@ -372,6 +379,11 @@ pub struct State {
     pub pulse: Load<pulse::Pulse>,
     /// What the loaded / loading pulse answers (scope, range), so late answers are dropped.
     pub pulse_key: String,
+    /// The fresh Activity page being built in the background while the known one stays shown.
+    pub pulse_next: Option<pulse::Pulse>,
+    /// Each scope and range loaded this session (key → when, page), so switching back shows it
+    /// at once while it refreshes.
+    pub pulse_seen: HashMap<String, (i64, pulse::Pulse)>,
     pub pulse_preset: pulse::Preset,
     /// None: every tracked repo; Some(group): just that group's repos.
     pub pulse_scope: Option<String>,
@@ -454,6 +466,10 @@ fn init() -> State {
         last_watch: Instant::now(),
         last_cache: Instant::now(),
         last_tick: Instant::now(),
+        reveal: None,
+        want_failed: None,
+        focus_run: None,
+        focus_pr: None,
         window_icon_set: false,
         setup: onboarding::Setup::Checking,
         setup_busy: false,
@@ -487,6 +503,8 @@ fn init() -> State {
         inbox_tab: 0,
         pulse: Load::default(),
         pulse_key: String::new(),
+        pulse_next: None,
+        pulse_seen: HashMap::new(),
         pulse_preset: pulse::Preset::Week,
         pulse_scope: None,
         pulse_from: TextEdit::new(""),
@@ -900,21 +918,73 @@ impl State {
     /// What the Activity page asks for now (scope, range, repos): the loaded pulse answers it
     /// only when its key matches.
     pub fn pulse_key_now(&self) -> String {
+        // Which page this is: scope, preset, where the range starts, and the repos. Not where it
+        // ends: for "this week" that's now, which moves every second, and a key that changes on
+        // its own would never match the cache and would reload the page from scratch.
         let r = self.pulse_range();
-        format!("{:?}|{}|{}|{}", self.pulse_scope, r.since, r.until, self.pulse_repos().join(","))
+        let end = if self.pulse_preset == pulse::Preset::Custom { format!("{}..{}", self.pulse_from.text.trim(), self.pulse_to.text.trim()) } else { String::new() };
+        format!("{:?}|{:?}|{}|{end}|{}", self.pulse_scope, self.pulse_preset, r.since, self.pulse_repos().join(","))
     }
 
     pub fn refresh_pulse(&mut self) {
         let repos = self.pulse_repos();
         let range = self.pulse_range();
         let key = self.pulse_key_now();
+        // What's known stays on screen, unchanged, while the fresh page is built aside: last
+        // session's (the cache), or this session's for that scope and range. Only a range never
+        // loaded has nothing to show, and fills in piece by piece instead.
+        if self.pulse_key != key {
+            match self.pulse_seen.get(&key) {
+                Some((at, known)) => (self.pulse.data, self.pulse.at, self.pulse.cached) = (Some(known.clone()), Some(*at), false),
+                None => (self.pulse.data, self.pulse.at) = (Some(pulse::Pulse::starting(&repos, &range)), None),
+            }
+        } else if self.pulse.data.is_none() {
+            self.pulse.data = Some(pulse::Pulse::starting(&repos, &range));
+        }
         self.pulse_key = key.clone();
         self.pulse.loading = true;
-        jobs::spawn(self, move || Ok(pulse::load(&repos, &range)), move |s, r| {
-            if s.pulse_key == key {
-                s.pulse.finish(r);
-                s.save_cache();
+        self.pulse.error = None;
+        self.pulse_next = Some(pulse::Pulse::starting(&repos, &range));
+        let parts = pulse::parts(&repos, &range);
+        let left = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(parts.len()));
+        if parts.is_empty() {
+            self.pulse_next = None;
+            self.pulse.finish(Ok(pulse::Pulse::starting(&repos, &range)));
+            return;
+        }
+        jobs::spawn_each(self, parts, move |s, part| {
+            if s.pulse_key != key {
+                return false; // an answer for a scope or range you already left
             }
+            // With nothing known yet, the page shows pieces as they land, easing into place.
+            let progressive = s.pulse.data.as_ref().is_some_and(|p| !p.complete());
+            if let Some(shown) = s.pulse.data.as_mut().filter(|_| progressive) {
+                shown.apply(part.clone());
+            }
+            if let Some(next) = s.pulse_next.as_mut() {
+                next.apply(part);
+            }
+            if left.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) != 1 {
+                return progressive;
+            }
+            // All in: replace what's shown only if something differs, and animate that.
+            let Some(next) = s.pulse_next.take() else { return false };
+            let changed = s.pulse.data.as_ref() != Some(&next);
+            let t = model::now();
+            if changed {
+                s.pulse.data = Some(next.clone());
+            }
+            if s.pulse_seen.len() >= 8 && !s.pulse_seen.contains_key(&key) {
+                if let Some(oldest) = s.pulse_seen.iter().min_by_key(|(_, (at, _))| *at).map(|(k, _)| k.clone()) {
+                    s.pulse_seen.remove(&oldest);
+                }
+            }
+            s.pulse_seen.insert(key.clone(), (t, next));
+            s.pulse.loading = false;
+            s.pulse.at = Some(t);
+            s.pulse.cached = false;
+            s.save_cache();
+            changed || progressive
         });
     }
 
@@ -1015,7 +1085,10 @@ impl State {
         self.rd_mut(&slug).runs.loading = true;
         let key = slug.clone();
         let limit = self.run_limit;
-        jobs::spawn(self, move || gh::runs(&key, limit), move |s, r| s.rd_mut(&slug).runs.finish(r));
+        jobs::spawn(self, move || gh::runs(&key, limit), move |s, r| {
+            s.rd_mut(&slug).runs.finish(r);
+            s.keep_focused_run();
+        });
     }
 
     pub fn select_run(&mut self, id: u64) {
@@ -1515,6 +1588,10 @@ fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
         s.window_icon_set = window_icon::apply();
     }
     changed |= s.poll_setup();
+    if s.reveal.is_some() || s.want_failed.is_some() {
+        changed |= s.poll_focus(tx);
+        tx.wake_after(Duration::from_millis(200)); // until its row is in
+    }
     if matches!(s.setup, onboarding::Setup::Missing(_)) {
         // Waiting on you to install or sign in: re-check on time.
         tx.wake_after(Duration::from_secs(1));
@@ -1655,6 +1732,30 @@ fn main() {
                 if let Some(slug) = first {
                     s.pulse_open_repos.insert(slug.clone());
                     s.pulse_topics.insert(format!("{slug}|ci"));
+                }
+            }),
+            ("activity-month", |s: &mut State| {
+                s.pulse_preset = pulse::Preset::Month;
+                s.pulse_details = true;
+                s.show(Page::Inbox);
+            }),
+            ("activity-30", |s: &mut State| {
+                s.pulse_preset = pulse::Preset::Last30;
+                s.pulse_details = true;
+                s.show(Page::Inbox);
+            }),
+            ("activity-loading", |s: &mut State| {
+                // The Activity page part-way through loading: the open-PR list and two repos'
+                // runs are in, everything else is still coming.
+                s.show(Page::Inbox);
+                if let Some(done) = s.pulse.data.clone() {
+                    let mut p = pulse::Pulse::starting(&done.repos.iter().map(|r| r.slug.clone()).collect::<Vec<_>>(), done.range.as_ref().unwrap());
+                    p.apply(pulse::Part::Open(Ok((done.open_total, done.open_prs.clone()))));
+                    for r in done.repos.iter().take(2) {
+                        p.apply(pulse::Part::Runs(r.slug.clone(), Ok((r.runs_total, r.runs_ok_total, r.runs_failed_total, r.runs.clone()))));
+                    }
+                    s.pulse.data = Some(p);
+                    s.pulse.loading = true;
                 }
             }),
             ("needs", |s: &mut State| {

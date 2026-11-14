@@ -7,7 +7,7 @@ use rune_kit::{Button, ButtonVariant, Kit};
 use super::overlays::hint;
 use super::{chip, empty, muted, outcome_color, panel, pending, scroll, status_mark};
 use crate::model::{Hit, Outcome, ago_str, duration, now};
-use crate::{Page, State};
+use crate::State;
 
 /// Green under 4 h, amber under a day, red after.
 fn wait_tone(secs: i64) -> Outcome {
@@ -192,10 +192,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                     .center_y()
                     .hover(k.c.hover)
                     .help("Open the run")
-                    .on_press(move |s: &mut State| {
-                        s.select_repo(&slug2, Page::Actions);
-                        s.select_run(id);
-                    })
+                    .on_press(move |s: &mut State| s.open_run(&slug2, id))
                     .child(status_mark(k, r.outcome()))
                     .child(
                         col()
@@ -276,11 +273,7 @@ fn hit_row(k: &Kit, h: &Hit, is_pr: bool, now: i64, i: usize, selected: bool) ->
                 .child(text(format!("{} #{} · {} · updated {}", short_repo(&slug), n, h.author.login, ago_str(&h.updated_at, now))).font(k.ty.text_xsmall).color(k.c.text_faint)),
         );
     if is_pr {
-        r.help("Open the pull request").on_press(move |s: &mut State| {
-            s.pr_state = 0;
-            s.select_repo(&slug, Page::Pulls);
-            s.select_pr(n);
-        })
+        r.help("Open the pull request").on_press(move |s: &mut State| s.open_pr(&slug, n))
     } else {
         // Issues open on GitHub: this app is about PRs, runs and code.
         r.help("Open on GitHub").on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))

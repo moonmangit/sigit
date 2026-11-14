@@ -104,7 +104,7 @@ fn iso(t: i64) -> String {
 // Results
 // ---------------------------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct PrStat {
     pub slug: String,
@@ -119,7 +119,7 @@ pub struct PrStat {
 }
 
 /// A PR open right now.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct OpenPr {
     pub slug: String,
@@ -156,7 +156,7 @@ impl OpenPr {
     }
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct CommitStat {
     pub author: String,
@@ -165,9 +165,11 @@ pub struct CommitStat {
     pub at: i64,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct RunStat {
+    /// The run's id, for opening it (0 in data cached before ids were kept).
+    pub id: u64,
     pub workflow: String,
     pub branch: String,
     pub outcome: Option<Outcome>,
@@ -175,10 +177,16 @@ pub struct RunStat {
     pub at: i64,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct RepoPulse {
     pub slug: String,
+    /// While loading piece by piece: whether this repo's detail (commits, PR counts,
+    /// deployments) and its Actions runs are in yet. Cached data counts as in.
+    #[serde(default = "yes")]
+    pub detail_ready: bool,
+    #[serde(default = "yes")]
+    pub runs_ready: bool,
     pub default_branch: String,
     pub commits_total: u64,
     pub commits: Vec<CommitStat>,
@@ -206,6 +214,8 @@ pub struct RepoPulse {
 #[derive(Clone, Debug, Default)]
 pub struct WorkflowStat {
     pub name: String,
+    /// The run a click opens: its latest failure, or else its latest run (0 if unknown).
+    pub focus_run: u64,
     pub runs: u64,
     pub failed: u64,
     pub ok: u64,
@@ -216,7 +226,16 @@ impl RepoPulse {
     /// Runs per workflow, most failures first, then busiest.
     pub fn workflows(&self) -> Vec<WorkflowStat> {
         let mut by: HashMap<&str, WorkflowStat> = HashMap::new();
+        // (latest failure, latest run) per workflow: (at, id)
+        let mut pick: HashMap<&str, ((i64, u64), (i64, u64))> = HashMap::new();
         for r in &self.runs {
+            let p = pick.entry(r.workflow.as_str()).or_default();
+            if r.at >= p.1.0 {
+                p.1 = (r.at, r.id);
+            }
+            if r.outcome == Some(Outcome::Failure) && r.at >= p.0.0 {
+                p.0 = (r.at, r.id);
+            }
             let e = by.entry(r.workflow.as_str()).or_insert_with(|| WorkflowStat { name: r.workflow.clone(), ..Default::default() });
             e.runs += 1;
             e.secs += r.secs;
@@ -227,13 +246,18 @@ impl RepoPulse {
             }
         }
         let mut v: Vec<WorkflowStat> = by.into_values().collect();
+        for w in &mut v {
+            if let Some((failed, latest)) = pick.get(w.name.as_str()) {
+                w.focus_run = if failed.1 != 0 { failed.1 } else { latest.1 };
+            }
+        }
         v.sort_by_key(|w| std::cmp::Reverse((w.failed, w.runs)));
         v
     }
 
     /// Workflows whose latest finished run on the default branch failed: "red right now".
-    /// (workflow, when that run started, failures in a row before it went green).
-    pub fn red_now(&self) -> Vec<(String, i64)> {
+    /// (workflow, when that failed run started, its id).
+    pub fn red_now(&self) -> Vec<(String, i64, u64)> {
         let mut seen: Vec<&str> = Vec::new();
         let mut out = Vec::new();
         let mut runs: Vec<&RunStat> = self.runs.iter().filter(|r| r.branch == self.default_branch && !r.outcome.is_some_and(|o| o.is_running())).collect();
@@ -244,7 +268,7 @@ impl RepoPulse {
             }
             seen.push(&r.workflow);
             if r.outcome == Some(Outcome::Failure) {
-                out.push((r.workflow.clone(), r.at));
+                out.push((r.workflow.clone(), r.at, r.id));
             }
         }
         out
@@ -294,10 +318,15 @@ impl RepoPulse {
     }
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Pulse {
     pub range: Option<Range>,
+    /// While loading piece by piece: the open-PR list is in, and how many of the range's PR
+    /// searches (merged, opened, closed) are still out.
+    #[serde(default = "yes")]
+    pub open_ready: bool,
+    pub searches_left: u8,
     /// PRs open right now across the repos (exact), and up to CAP of them in detail.
     pub open_total: u64,
     pub open_prs: Vec<OpenPr>,
@@ -418,59 +447,144 @@ impl Pulse {
 // ---------------------------------------------------------------------------------------------
 
 /// Everything for `repos` over `range`. Blocking: run it on a worker.
-pub fn load(repos: &[String], range: &Range) -> Pulse {
-    let mut p = Pulse { range: Some(range.clone()), ..Default::default() };
+fn yes() -> bool {
+    true
+}
+
+/// One piece of the Activity page, as it arrives.
+#[derive(Clone)]
+pub enum Part {
+    Merged(Result<(u64, Vec<PrStat>), String>),
+    Opened(Result<(u64, Vec<PrStat>), String>),
+    Closed(Result<(u64, Vec<PrStat>), String>),
+    Open(Result<(u64, Vec<OpenPr>), String>),
+    /// Detail for a few repos (one batched query).
+    Repos(Vec<RepoPulse>),
+    /// One repo's Actions runs: (total, passed, failed, sample).
+    Runs(String, Result<(u64, u64, u64, Vec<RunStat>), String>),
+}
+
+impl Pulse {
+    /// What the page shows before the first piece lands: every repo listed, nothing in yet.
+    pub fn starting(repos: &[String], range: &Range) -> Pulse {
+        Pulse {
+            range: Some(range.clone()),
+            open_ready: false,
+            searches_left: 3,
+            repos: repos.iter().map(|slug| RepoPulse { slug: slug.clone(), ..Default::default() }).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// Everything is in.
+    pub fn complete(&self) -> bool {
+        self.open_ready && self.searches_left == 0 && self.repos.iter().all(|r| r.detail_ready && r.runs_ready)
+    }
+
+    pub fn apply(&mut self, part: Part) {
+        let mut error = |e: String| {
+            if !self.errors.contains(&e) {
+                self.errors.push(e);
+            }
+        };
+        match part {
+            Part::Merged(r) => {
+                self.searches_left = self.searches_left.saturating_sub(1);
+                match r {
+                    Ok(x) => (self.merged_total, self.merged) = x,
+                    Err(e) => error(e),
+                }
+            }
+            Part::Opened(r) => {
+                self.searches_left = self.searches_left.saturating_sub(1);
+                match r {
+                    Ok(x) => (self.opened_total, self.opened) = x,
+                    Err(e) => error(e),
+                }
+            }
+            Part::Closed(r) => {
+                self.searches_left = self.searches_left.saturating_sub(1);
+                match r {
+                    Ok((n, _)) => self.closed_total = n,
+                    Err(e) => error(e),
+                }
+            }
+            Part::Open(Ok((n, list))) => (self.open_total, self.open_prs, self.open_ready) = (n, list, true),
+            Part::Open(Err(e)) => {
+                error(e);
+                self.open_ready = true;
+            }
+            Part::Repos(list) => {
+                for mut fresh in list {
+                    fresh.detail_ready = true;
+                    match self.repos.iter_mut().find(|r| r.slug == fresh.slug) {
+                        Some(r) => {
+                            // Keep what the runs piece already filled in.
+                            fresh.runs_ready = r.runs_ready;
+                            fresh.runs = std::mem::take(&mut r.runs);
+                            (fresh.runs_total, fresh.runs_ok_total, fresh.runs_failed_total) = (r.runs_total, r.runs_ok_total, r.runs_failed_total);
+                            if let Some(e) = r.error.take().filter(|_| fresh.error.is_none()) {
+                                fresh.error = Some(e);
+                            }
+                            *r = fresh;
+                        }
+                        None => self.repos.push(fresh),
+                    }
+                }
+            }
+            Part::Runs(slug, result) => {
+                if let Some(r) = self.repos.iter_mut().find(|r| r.slug == slug) {
+                    r.runs_ready = true;
+                    match result {
+                        Ok((total, ok, failed, list)) => {
+                            (r.runs_total, r.runs_ok_total, r.runs_failed_total) = (total, ok, failed);
+                            r.runs = list;
+                        }
+                        Err(e) => r.error = Some(r.error.take().map_or(e.clone(), |x| format!("{x}; {e}"))),
+                    }
+                }
+            }
+        }
+        if self.complete() {
+            // The same data gives the same page whatever order its pieces landed in, so a
+            // refresh that brought nothing new compares equal and changes nothing on screen.
+            self.errors.sort();
+            // Busiest first, once nothing moves any more.
+            self.repos.sort_by_key(|r| std::cmp::Reverse({
+                let (a, d) = r.lines();
+                (a + d, r.commits_total)
+            }));
+        }
+    }
+}
+
+/// The Activity page's pieces for `repos` over `range`, each one request (or a few in a row)
+/// that can run alongside the others.
+pub fn parts(repos: &[String], range: &Range) -> Vec<Box<dyn FnOnce() -> Part + Send>> {
+    let mut out: Vec<Box<dyn FnOnce() -> Part + Send>> = Vec::new();
     if repos.is_empty() {
-        return p;
+        return out;
     }
     let span = format!("{}..{}", iso(range.since), iso(range.until));
-    std::thread::scope(|scope| {
-        let merged = scope.spawn(|| search_prs(repos, &format!("is:pr merged:{span}"), CAP));
-        let opened = scope.spawn(|| search_prs(repos, &format!("is:pr created:{span}"), 100));
-        let closed = scope.spawn(|| search_prs(repos, &format!("is:pr is:closed is:unmerged closed:{span}"), 0));
-        let open = scope.spawn(|| search_open(repos));
-        let repo_jobs: Vec<_> = repos.chunks(5).map(|chunk| scope.spawn(move || repos_detail(chunk, range))).collect();
-        let run_jobs: Vec<_> = repos.iter().map(|slug| scope.spawn(move || (slug.clone(), runs(slug, range)))).collect();
-
-        let take = |h: std::thread::ScopedJoinHandle<'_, Result<(u64, Vec<PrStat>), String>>, errors: &mut Vec<String>| match h.join() {
-            Ok(Ok(x)) => x,
-            Ok(Err(e)) => {
-                errors.push(e);
-                (0, Vec::new())
-            }
-            Err(_) => (0, Vec::new()),
-        };
-        (p.merged_total, p.merged) = take(merged, &mut p.errors);
-        (p.opened_total, p.opened) = take(opened, &mut p.errors);
-        p.closed_total = take(closed, &mut p.errors).0;
-        match open.join() {
-            Ok(Ok((n, list))) => (p.open_total, p.open_prs) = (n, list),
-            Ok(Err(e)) => p.errors.push(e),
-            Err(_) => {}
-        }
-        for j in repo_jobs {
-            if let Ok(mut v) = j.join() {
-                p.repos.append(&mut v);
-            }
-        }
-        let mut runs_by: HashMap<String, Result<(u64, u64, u64, Vec<RunStat>), String>> = run_jobs.into_iter().filter_map(|j| j.join().ok()).collect();
-        for r in &mut p.repos {
-            match runs_by.remove(&r.slug) {
-                Some(Ok((total, ok, failed, list))) => {
-                    r.runs_total = total;
-                    (r.runs_ok_total, r.runs_failed_total) = (ok, failed);
-                    r.runs = list;
-                }
-                Some(Err(e)) => r.error = Some(r.error.take().map_or(e.clone(), |x| format!("{x}; {e}"))),
-                None => {}
-            }
-        }
-    });
-    p.repos.sort_by_key(|r| std::cmp::Reverse({
-        let (a, d) = r.lines();
-        (a + d, r.commits_total)
-    }));
-    p
+    let all: Vec<String> = repos.to_vec();
+    let (a, b, c, d) = (all.clone(), all.clone(), all.clone(), all.clone());
+    let (s1, s2, s3) = (span.clone(), span.clone(), span);
+    out.push(Box::new(move || Part::Merged(search_prs(&a, &format!("is:pr merged:{s1}"), CAP))));
+    out.push(Box::new(move || Part::Opened(search_prs(&b, &format!("is:pr created:{s2}"), 100))));
+    out.push(Box::new(move || Part::Closed(search_prs(&c, &format!("is:pr is:closed is:unmerged closed:{s3}"), 0))));
+    out.push(Box::new(move || Part::Open(search_open(&d))));
+    for chunk in repos.chunks(5) {
+        let (chunk, range) = (chunk.to_vec(), range.clone());
+        out.push(Box::new(move || Part::Repos(repos_detail(&chunk, &range))));
+    }
+    for slug in repos {
+        let (slug, range) = (slug.clone(), range.clone());
+        out.push(Box::new(move || {
+            let r = runs(&slug, &range);
+            Part::Runs(slug, r)
+        }));
+    }
+    out
 }
 
 /// GitHub search over PRs in many repos: `repo:` qualifiers are split into queries short enough
@@ -619,21 +733,19 @@ fn repos_detail(repos: &[String], range: &Range) -> Vec<RepoPulse> {
     q.push('}');
     let v: Result<serde_json::Value, String> =
         run("gh", &["api", "graphql", "-f", &format!("query={q}")], None).and_then(|o| serde_json::from_str(&o).map_err(|e| e.to_string()));
-    let mut out = Vec::new();
-    for (i, slug) in repos.iter().enumerate() {
+    // Each repo's extra commit pages are fetched alongside the others'.
+    let one = |i: usize, slug: &String| -> RepoPulse {
         let mut rp = RepoPulse { slug: slug.clone(), ..Default::default() };
         let repo = match &v {
             Ok(v) => v["data"][format!("r{i}")].clone(),
             Err(e) => {
                 rp.error = Some(e.clone());
-                out.push(rp);
-                continue;
+                return rp;
             }
         };
         if repo.is_null() {
             rp.error = Some("not accessible".into());
-            out.push(rp);
-            continue;
+            return rp;
         }
         rp.default_branch = repo["defaultBranchRef"]["name"].as_str().unwrap_or_default().to_owned();
         if let Ok(v) = &v {
@@ -677,45 +789,54 @@ fn repos_detail(repos: &[String], range: &Range) -> Vec<RepoPulse> {
                 rp.releases.push((r["tagName"].as_str().unwrap_or_default().to_owned(), at));
             }
         }
-        out.push(rp);
-    }
-    out
+        rp
+    };
+    std::thread::scope(|sc| {
+        let hs: Vec<_> = repos.iter().enumerate().map(|(i, slug)| sc.spawn(move || one(i, slug))).collect();
+        hs.into_iter().filter_map(|h| h.join().ok()).collect()
+    })
 }
 
 /// Actions runs created in the range: the exact total, and up to CAP of them in detail.
 fn runs(slug: &str, range: &Range) -> Result<(u64, u64, u64, Vec<RunStat>), String> {
-    // Exact passed / failed totals: two count-only requests.
+    // Exact passed / failed totals (two count-only requests) and the first page of runs, all
+    // at once; then the rest of the sample's pages, also at once.
     let count = |status: &str| -> u64 {
         let url = format!("repos/{slug}/actions/runs?created={}..{}&status={status}&per_page=1", iso(range.since), iso(range.until));
         run("gh", &["api", &url, "--jq", ".total_count"], None).ok().and_then(|o| o.trim().parse().ok()).unwrap_or(0)
     };
-    let (ok, failed) = std::thread::scope(|sc| {
+    let (ok, failed, first) = std::thread::scope(|sc| {
         let a = sc.spawn(|| count("success"));
         let b = sc.spawn(|| count("failure"));
-        (a.join().unwrap_or(0), b.join().unwrap_or(0))
+        let c = sc.spawn(|| runs_page(slug, range, 1));
+        (a.join().unwrap_or(0), b.join().unwrap_or(0), c.join().unwrap_or_else(|_| Err("runs: worker stopped".into())))
     });
-    let (total, list) = runs_detail(slug, range)?;
+    let (total, mut list) = first?;
+    let pages = (total as usize).div_ceil(100).min(CAP / 100);
+    if pages > 1 {
+        let rest: Vec<_> = std::thread::scope(|sc| {
+            let hs: Vec<_> = (2..=pages).map(|page| sc.spawn(move || runs_page(slug, range, page))).collect();
+            hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("runs: worker stopped".into()))).collect()
+        });
+        for page in rest {
+            list.extend(page?.1);
+        }
+    }
     Ok((total, ok, failed, list))
 }
 
-fn runs_detail(slug: &str, range: &Range) -> Result<(u64, Vec<RunStat>), String> {
-    let mut total = 0;
+/// One page (100) of Actions runs created in the range: (total, runs).
+fn runs_page(slug: &str, range: &Range, page: usize) -> Result<(u64, Vec<RunStat>), String> {
+    let url = format!("repos/{slug}/actions/runs?created={}..{}&per_page=100&page={page}", iso(range.since), iso(range.until));
+    let v: serde_json::Value = serde_json::from_str(&run("gh", &["api", &url], None)?).map_err(|e| e.to_string())?;
+    let total = v["total_count"].as_u64().unwrap_or(0);
     let mut out = Vec::new();
-    for page in 1..=(CAP / 100) {
-        let url = format!("repos/{slug}/actions/runs?created={}..{}&per_page=100&page={page}", iso(range.since), iso(range.until));
-        let v: serde_json::Value = serde_json::from_str(&run("gh", &["api", &url], None)?).map_err(|e| e.to_string())?;
-        total = v["total_count"].as_u64().unwrap_or(0);
-        let list = v["workflow_runs"].as_array().cloned().unwrap_or_default();
-        for r in &list {
-            let s = |k: &str| r[k].as_str().unwrap_or_default().to_owned();
-            let o = Outcome::from_parts(&s("status"), &s("conclusion"));
-            let start = parse_time(&s("run_started_at")).or_else(|| parse_time(&s("created_at"))).unwrap_or(0);
-            let end = parse_time(&s("updated_at")).unwrap_or(start);
-            out.push(RunStat { workflow: s("name"), branch: s("head_branch"), outcome: Some(o), secs: (end - start).max(0), at: start });
-        }
-        if list.len() < 100 {
-            break;
-        }
+    for r in v["workflow_runs"].as_array().into_iter().flatten() {
+        let s = |k: &str| r[k].as_str().unwrap_or_default().to_owned();
+        let o = Outcome::from_parts(&s("status"), &s("conclusion"));
+        let start = parse_time(&s("run_started_at")).or_else(|| parse_time(&s("created_at"))).unwrap_or(0);
+        let end = parse_time(&s("updated_at")).unwrap_or(start);
+        out.push(RunStat { id: r["id"].as_u64().unwrap_or(0), workflow: s("name"), branch: s("head_branch"), outcome: Some(o), secs: (end - start).max(0), at: start });
     }
     Ok((total, out))
 }
@@ -758,9 +879,125 @@ mod tests {
         assert_eq!(r.days.len(), 3);
     }
 
+    /// Your tracked repos (from prefs), for the timing runs below.
+    fn tracked() -> Vec<String> {
+        let p = crate::config::load_prefs();
+        if !p.tracked.is_empty() {
+            return p.tracked;
+        }
+        let mut v = p.pinned.clone();
+        for g in &p.groups {
+            for r in &g.repos {
+                if !v.contains(r) {
+                    v.push(r.clone());
+                }
+            }
+        }
+        v
+    }
+
+    /// Real GitHub calls: how soon the first piece of Activity is in, and all of it, when the
+    /// pieces run alongside each other as the app runs them.
+    /// `cargo test activity_timing -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn activity_timing() {
+        let repos = tracked();
+        let range = local_range(Preset::Week, None);
+        let t0 = std::time::Instant::now();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let parts = parts(&repos, &range);
+        let n = parts.len();
+        for (i, part) in parts.into_iter().enumerate() {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let _ = part();
+                let _ = tx.send((i, t0.elapsed()));
+            });
+        }
+        let mut each: Vec<(usize, std::time::Duration)> = rx.iter().take(n).collect();
+        each.sort_by_key(|(i, _)| *i);
+        let name = |i: usize| match i {
+            0 => "merged PRs search".to_owned(),
+            1 => "opened PRs search".to_owned(),
+            2 => "closed PRs count".to_owned(),
+            3 => "open PRs list".to_owned(),
+            i if i < 4 + repos.len().div_ceil(5) => format!("repo detail batch {}", i - 3),
+            i => format!("runs of repo #{}", i - 4 - repos.len().div_ceil(5) + 1),
+        };
+        for (i, t) in &each {
+            println!("  {:<22} {t:?}", name(*i));
+        }
+        let mut done: Vec<std::time::Duration> = each.iter().map(|(_, t)| *t).collect();
+        done.sort();
+        println!("{} repos, {n} pieces: first in {:?}, half in {:?}, all in {:?}", repos.len(), done[0], done[n / 2], done[n - 1]);
+    }
+
+    /// One repo's runs: requests one after another (as before) against all at once (now).
+    #[test]
+    #[ignore]
+    fn runs_timing() {
+        let range = local_range(Preset::Last30, None);
+        let busiest = tracked().into_iter().next().expect("track a repo first");
+        let t = std::time::Instant::now();
+        // Before: the two counts, then each page in turn.
+        let count = |status: &str| {
+            let url = format!("repos/{busiest}/actions/runs?created={}..{}&status={status}&per_page=1", iso(range.since), iso(range.until));
+            run("gh", &["api", &url, "--jq", ".total_count"], None).ok()
+        };
+        std::thread::scope(|sc| {
+            let a = sc.spawn(|| count("success"));
+            let b = sc.spawn(|| count("failure"));
+            let _ = (a.join(), b.join());
+        });
+        let (total, _) = runs_page(&busiest, &range, 1).unwrap();
+        for page in 2..=(total as usize).div_ceil(100).min(CAP / 100) {
+            let _ = runs_page(&busiest, &range, page);
+        }
+        let before = t.elapsed();
+        let t = std::time::Instant::now();
+        let _ = runs(&busiest, &range);
+        println!("runs ({total} in 30 days): one after another {before:?}, all at once {:?}", t.elapsed());
+    }
+
+    /// Pieces arriving in any order build the same page, and a refresh with nothing new
+    /// compares equal to what's shown.
+    #[test]
+    fn same_pieces_any_order_same_page() {
+        let range = range(Preset::Week, at("2026-11-14T17:30:00+07:00"), None);
+        let repos = vec!["a/one".to_owned(), "b/two".to_owned()];
+        let detail = |slug: &str, lines: u64| RepoPulse { slug: slug.into(), commits: vec![CommitStat { additions: lines, ..Default::default() }], commits_total: 1, ..Default::default() };
+        let pieces = vec![
+            Part::Merged(Ok((3, Vec::new()))),
+            Part::Opened(Err("search failed".into())),
+            Part::Closed(Ok((1, Vec::new()))),
+            Part::Open(Err("open list failed".into())),
+            Part::Repos(vec![detail("a/one", 5), detail("b/two", 50)]),
+            Part::Runs("a/one".into(), Ok((10, 9, 1, Vec::new()))),
+            Part::Runs("b/two".into(), Ok((4, 4, 0, Vec::new()))),
+        ];
+        let build = |order: &[usize]| {
+            let mut p = Pulse::starting(&repos, &range);
+            assert!(!p.complete());
+            for &i in order {
+                p.apply(pieces[i].clone());
+            }
+            p
+        };
+        let forward = build(&[0, 1, 2, 3, 4, 5, 6]);
+        let backward = build(&[6, 5, 4, 3, 2, 1, 0]);
+        assert!(forward.complete());
+        assert_eq!(forward, backward);
+        assert_eq!(forward.repos[0].slug, "b/two", "busiest first");
+        assert_eq!((forward.repos[1].runs_total, forward.merged_total), (10, 3));
+        let mut changed = backward.clone();
+        changed.merged_total += 1;
+        assert_ne!(forward, changed);
+    }
+
     #[test]
     fn red_now_uses_latest_default_branch_run() {
-        let run = |wf: &str, br: &str, o: Outcome, at: i64| RunStat { workflow: wf.into(), branch: br.into(), outcome: Some(o), secs: 10, at };
+        let run = |wf: &str, br: &str, o: Outcome, at: i64| RunStat { id: at as u64, workflow: wf.into(), branch: br.into(), outcome: Some(o), secs: 10, at };
         let r = RepoPulse {
             default_branch: "main".into(),
             runs: vec![
@@ -772,7 +1009,11 @@ mod tests {
             ],
             ..Default::default()
         };
-        assert_eq!(r.red_now(), vec![("Tests".to_owned(), 30)]); // Build recovered; Lint isn't on main
+        assert_eq!(r.red_now(), vec![("Tests".to_owned(), 30, 30)]); // Build recovered; Lint isn't on main
+        // A click on a workflow opens its latest failure, else its latest run.
+        let wf = r.workflows();
+        let focus = |name: &str| wf.iter().find(|w| w.name == name).map(|w| w.focus_run);
+        assert_eq!((focus("Tests"), focus("Build"), focus("Lint")), (Some(30), Some(10), Some(50)));
         let r = RepoPulse { runs_ok_total: 9, runs_failed_total: 1, ..r };
         let (rate, failed, running) = r.health();
         assert_eq!((failed, running), (1, 0));

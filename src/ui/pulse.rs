@@ -108,7 +108,20 @@ fn dashboard(s: &State, k: &Kit, p: &Pulse) -> El {
     let mut c = col().w_full().gap(16.0);
     // 1. What you asked first: open PRs and Actions health, side by side.
     c = c.child(
-        split(s, k, "heroes", vec![pane(open_prs_panel(k, p), 0.5, 380.0), pane(health_panel(k, p), 0.5, 380.0)]).key("heroes"),
+        split(
+            s,
+            k,
+            "heroes",
+            vec![
+                pane(if p.open_ready { open_prs_panel(k, p) } else { loading_panel(k, "o-prs-loading", "Open pull requests", "Loading open pull requests…") }, 0.5, 380.0),
+                pane(
+                    if p.repos.iter().any(|r| r.runs_ready) { health_panel(k, p) } else { loading_panel(k, "o-ci-loading", "Actions health", "Loading Actions runs…") },
+                    0.5,
+                    380.0,
+                ),
+            ],
+        )
+        .key("heroes"),
     );
     // 2. Everything else in the range, one quiet line.
     c = c.child(also_strip(k, p));
@@ -163,11 +176,30 @@ fn dashboard(s: &State, k: &Kit, p: &Pulse) -> El {
                     .key("fold-repos"),
             ),
     );
-    // Repos with something wrong first: red workflows, then most open PRs.
-    let mut repos: Vec<&RepoPulse> = p.repos.iter().collect();
-    repos.sort_by_key(|r| std::cmp::Reverse((r.red_now().len(), r.prs_open)));
-    for r in repos {
-        c = c.child(repo_section(s, k, p, r));
+    // Repos with something wrong first: red workflows, then most open PRs. On a first load the
+    // order isn't known until every repo is in, so one steady row stands in for the list rather
+    // than rows that jump as each repo lands.
+    let ready = p.repos.iter().filter(|r| r.detail_ready && r.runs_ready).count();
+    if ready < p.repos.len() {
+        c = c.child(
+            row()
+                .key("repos-loading")
+                .w_full()
+                .h(64.0)
+                .gap(10.0)
+                .center()
+                .radius(k.radius.lg)
+                .fill(k.c.layer_01)
+                .border(1.0, k.c.border_weak)
+                .child(Spinner::new().size(14.0).build(k))
+                .child(muted(k, format!("Loading repositories… {ready} of {}", p.repos.len()))),
+        );
+    } else {
+        let mut repos: Vec<&RepoPulse> = p.repos.iter().collect();
+        repos.sort_by_key(|r| std::cmp::Reverse((r.red_now().len(), r.prs_open)));
+        for r in repos {
+            c = c.child(repo_section(s, k, p, r));
+        }
     }
     c.child(muted(k, format!("Open PRs and PR counts are GitHub's exact numbers. Review / CI state per PR, run health, lines and contributors read up to the latest {CAP} items per repo.")).wrap())
 }
@@ -176,11 +208,17 @@ fn dashboard(s: &State, k: &Kit, p: &Pulse) -> El {
 // Open pull requests
 // ---------------------------------------------------------------------------------------------
 
+/// A number that, when fresh data changes it, fades into its new value (keyed by the value,
+/// so an unchanged number stays put and only changed ones move).
+fn value_text(value: String) -> El {
+    text(value.clone()).key(format!("v:{value}")).transition(rune::Transition::blur_replace())
+}
+
 fn big_number(k: &Kit, value: String, color: rune::Color, caption: &str) -> El {
     row()
         .gap(10.0)
         .items_end()
-        .child(text(value).font(TextStyle { size: 40.0, ..k.ty.ui_medium }).color(color))
+        .child(value_text(value).font(TextStyle { size: 40.0, ..k.ty.ui_medium }).color(color))
         .child(text(caption.to_owned()).font(k.ty.ui).color(k.c.text_muted).pb(8.0))
 }
 
@@ -209,7 +247,7 @@ fn open_prs_panel(k: &Kit, p: &Pulse) -> El {
         .border(1.0, k.c.border_weak)
         .child(row().w_full().gap(8.0).center_y().child(text("Open pull requests").font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_base)).child(spacer()).child(hint(k, "h-open", "PRs open right now in your tracked repos, whatever the range", 4)))
         .child(big_number(k, compact(p.open_total), k.c.text_strong, "open now"))
-        .child(muted(k, format!("{} opened and {} merged {label}", compact(p.opened_total), compact(p.merged_total))));
+        .child(muted(k, if p.searches_left > 0 { format!("Counting PRs opened and merged {label}…") } else { format!("{} opened and {} merged {label}", compact(p.opened_total), compact(p.merged_total)) }));
 
     // Where they stand.
     let state = |label: &str, n: usize, tone: Option<Outcome>, tip: &str| {
@@ -221,7 +259,7 @@ fn open_prs_panel(k: &Kit, p: &Pulse) -> El {
             .radius(k.radius.md)
             .fill(k.c.bg_base)
             .help(tip.to_owned())
-            .child(text(n.to_string()).font(TextStyle { size: 20.0, ..k.ty.ui_medium }).color(match tone {
+            .child(value_text(n.to_string()).font(TextStyle { size: 20.0, ..k.ty.ui_medium }).color(match tone {
                 Some(o) if n > 0 => outcome_color(k, o),
                 _ => k.c.text_base,
             }))
@@ -299,11 +337,7 @@ fn open_pr_row(k: &Kit, x: &crate::pulse::OpenPr, key: &str, show_repo: bool) ->
         .center_y()
         .hover(k.c.hover)
         .help("Open it")
-        .on_press(move |s: &mut State| {
-            s.pr_state = 0;
-            s.select_repo(&slug, Page::Pulls);
-            s.select_pr(n);
-        })
+        .on_press(move |s: &mut State| s.open_pr(&slug, n))
         .child(col().grow(1.0).shrink().gap(1.0).child(text(x.title.clone()).font(k.ty.ui).color(k.c.text_base).truncate()).child(text(meta).font(k.ty.text_xsmall).color(k.c.text_faint)))
         .child(super::ci_chip(k, x.ci()))
         .child(chip(k, label, tone))
@@ -335,7 +369,7 @@ fn health_panel(k: &Kit, p: &Pulse) -> El {
     let sampled = p.repos.iter().any(|r| r.runs_capped());
     let runs_total: u64 = p.repos.iter().map(|r| r.runs_total).sum();
     let minutes: i64 = runs.iter().map(|r| r.secs).sum::<i64>() / 60;
-    let red: Vec<(&str, String, i64)> = p.repos.iter().flat_map(|r| r.red_now().into_iter().map(move |(w, at)| (r.slug.as_str(), w, at))).collect();
+    let red: Vec<(&str, String, i64, u64)> = p.repos.iter().flat_map(|r| r.red_now().into_iter().map(move |(w, at, id)| (r.slug.as_str(), w, at, id))).collect();
 
     let mut c = col()
         .key("health")
@@ -346,6 +380,7 @@ fn health_panel(k: &Kit, p: &Pulse) -> El {
         .fill(k.c.layer_01)
         .border(1.0, k.c.border_weak)
         .child(row().w_full().gap(8.0).center_y().child(text("Actions health").font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_base)).child(spacer()).child(hint(k, "h-health", "Pass rate of finished workflow runs in the range, and which workflows are failing on the default branch right now", 5)))
+        .children(still_loading(k, p, |r| r.runs_ready, "Actions"))
         .child(match rate {
             Some(r) => big_number(k, format!("{:.0}%", r * 100.0), rate_color(k, r), "of runs passed"),
             None => big_number(k, "—".into(), k.c.text_muted, "no finished runs"),
@@ -357,8 +392,8 @@ fn health_panel(k: &Kit, p: &Pulse) -> El {
     if red.is_empty() {
         redl = redl.child(row().gap(8.0).center_y().px(6.0).py(4.0).child(el().size(9.0, 9.0).radius(4.5).fill(k.c.success.icon)).child(text("Every workflow's latest run passed").font(k.ty.ui).color(k.c.success.fg)));
     }
-    for (i, (slug, wf, at)) in red.iter().enumerate().take(6) {
-        let s2 = slug.to_string();
+    for (i, (slug, wf, at, id)) in red.iter().enumerate().take(6) {
+        let (s2, wf2, id) = (slug.to_string(), wf.clone(), *id);
         redl = redl.child(
             row()
                 .key(format!("red-{i}"))
@@ -370,8 +405,8 @@ fn health_panel(k: &Kit, p: &Pulse) -> El {
                 .center_y()
                 .fill(k.c.danger.bg)
                 .hover(k.c.hover)
-                .help("Open this repo's Actions")
-                .on_press(move |s: &mut State| s.select_repo(&s2, Page::Actions))
+                .help("Open this failed run")
+                .on_press(move |s: &mut State| open_run_or_failed(s, &s2, id, &wf2))
                 .child(el().size(9.0, 9.0).radius(4.5).fill(k.c.danger.icon))
                 .child(text(wf.clone()).font(k.ty.ui_medium).color(k.c.text_base).grow(1.0).truncate().shrink())
                 .child(muted(k, slug.split_once('/').map_or("", |(_, r)| r).to_owned()))
@@ -388,22 +423,36 @@ fn health_panel(k: &Kit, p: &Pulse) -> El {
         let mut bars = row().w_full().gap(4.0).items_end();
         for (i, (label, okn, bad)) in days.iter().enumerate() {
             let h = |n: u64| (n as f32 / peak as f32 * H).max(if n > 0 { 2.0 } else { 0.0 });
+            // Columns share the width equally (w 0 + grow), and bars narrow to fit long ranges.
             let mut day = col()
                 .key(format!("cd-{i}"))
+                .w(0.0)
                 .grow(1.0)
                 .gap(3.0)
                 .items_center()
                 .help(format!("{label}: {okn} passed, {bad} failed"))
-                .child(col().w(16.0).h(H).child(spacer()).child(el().w_full().h(h(*bad)).radius(2.0).fill(k.c.danger.icon)).child(el().w_full().h(h(*okn)).radius(2.0).fill(k.c.success.icon)));
-            if days.len() <= 10 || i % 5 == 0 {
-                day = day.child(text(label.clone()).font(k.ty.text_xsmall).color(k.c.text_faint));
-            }
+                .child(col().w_full().max_w(16.0).h(H).child(spacer()).child(el().w_full().h(h(*bad)).radius(2.0).fill(k.c.danger.icon)).child(el().w_full().h(h(*okn)).radius(2.0).fill(k.c.success.icon)));
+            // Every day keeps the same label slot (empty on the unlabelled ones), so all bars
+            // stand on one baseline however many days the range has.
+            day = day.child(day_label(k, label, days.len() <= 10 || i % 5 == 0));
             bars = bars.child(day);
         }
         let title = if sampled { "Runs per day (latest 300 per repo: busy repos' earlier days are undercounted)" } else { "Runs per day" };
         c = c.child(col().w_full().gap(6.0).child(row().w_full().child(text(title).font(k.ty.small_medium).color(k.c.text_muted).wrap().shrink()).child(spacer()).child(row().gap(10.0).child(row().gap(4.0).center_y().child(el().size(8.0, 8.0).radius(2.0).fill(k.c.success.icon)).child(muted(k, "passed"))).child(row().gap(4.0).center_y().child(el().size(8.0, 8.0).radius(2.0).fill(k.c.danger.icon)).child(muted(k, "failed"))))).child(bars));
     }
     c
+}
+
+/// A panel whose data hasn't arrived yet (the page fills in piece by piece).
+fn loading_panel(k: &Kit, key: &str, title: &str, what: &str) -> El {
+    // About as tall as the filled panel, so the page doesn't jump when it arrives.
+    panel(k, key, title, None, row().w_full().h(420.0).center().gap(10.0).child(Spinner::new().size(14.0).build(k)).child(muted(k, what.to_owned())))
+}
+
+/// "Still loading 3 of 10 repos", while some repos' pieces are out.
+fn still_loading(k: &Kit, p: &Pulse, ready: fn(&RepoPulse) -> bool, what: &str) -> Option<El> {
+    let left = p.repos.iter().filter(|r| !ready(r)).count();
+    (left > 0).then(|| row().gap(6.0).center_y().child(Spinner::new().size(10.0).build(k)).child(muted(k, format!("Still loading {what} for {left} of {} repos", p.repos.len()))))
 }
 
 fn also_strip(k: &Kit, p: &Pulse) -> El {
@@ -417,7 +466,10 @@ fn also_strip(k: &Kit, p: &Pulse) -> El {
     let capped = p.repos.iter().any(|r| r.deploys_capped);
     let releases: usize = p.repos.iter().map(|r| r.releases.len()).sum();
     let people = p.contributors().len();
-    let item = |label: &str, value: String, tip: &str| col().gap(1.0).help(tip.to_owned()).child(text(value).font(TextStyle { size: 17.0, ..k.ty.ui_medium }).color(k.c.text_base)).child(muted(k, label));
+    // A number whose piece hasn't arrived shows "…", not a zero.
+    let (prs_in, repos_in) = (p.searches_left == 0, p.repos.iter().all(|r| r.detail_ready));
+    let or_wait = |ready: bool, v: String| if ready { v } else { "…".to_owned() };
+    let item = |label: &str, value: String, tip: &str| col().gap(1.0).help(tip.to_owned()).child(value_text(value).font(TextStyle { size: 17.0, ..k.ty.ui_medium }).color(k.c.text_base)).child(muted(k, label));
     row()
         .key("also")
         .w_full()
@@ -430,13 +482,18 @@ fn also_strip(k: &Kit, p: &Pulse) -> El {
         .flex_wrap()
         .center_y()
         .child(muted(k, "Also in this range"))
-        .child(item("PRs merged", compact(p.merged_total), "Pull requests merged"))
-        .child(item("closed unmerged", compact(p.closed_total), "Pull requests closed without merging"))
-        .child(item("commits", compact(commits), "Commits on default branches"))
-        .child(item("lines", format!("+{} −{}", compact(add), compact(del)), "Lines added / removed by those commits (latest 300 per repo)"))
-        .child(item("deploys", format!("{deploys}{}{}", if capped { "+" } else { "" }, if deploy_fail > 0 { format!(" ({deploy_fail} failed)") } else { String::new() }), "Deployments, and how many failed"))
-        .child(item("releases", releases.to_string(), "Releases published"))
-        .child(item("contributors", people.to_string(), "People who committed or merged"))
+        .child(item("PRs merged", or_wait(prs_in, compact(p.merged_total)), "Pull requests merged"))
+        .child(item("closed unmerged", or_wait(prs_in, compact(p.closed_total)), "Pull requests closed without merging"))
+        .child(item("commits", or_wait(repos_in, compact(commits)), "Commits on default branches"))
+        .child(item("lines", or_wait(repos_in, format!("+{} −{}", compact(add), compact(del))), "Lines added / removed by those commits (latest 300 per repo)"))
+        .child(item(
+            "deploys",
+            or_wait(repos_in, format!("{deploys}{}{}", if capped { "+" } else { "" }, if deploy_fail > 0 { format!(" ({deploy_fail} failed)") } else { String::new() })),
+            "Deployments, and how many failed",
+        ))
+        .child(item("releases", or_wait(repos_in, releases.to_string()), "Releases published"))
+        .child(item("contributors", or_wait(repos_in && prs_in, people.to_string()), "People who committed or merged"))
+        .children((p.searches_left > 0 || p.repos.iter().any(|r| !r.detail_ready)).then(|| row().pl(12.0).gap(6.0).center_y().child(Spinner::new().size(10.0).build(k)).child(muted(k, "loading…"))))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -478,7 +535,7 @@ fn repo_section(s: &State, k: &Kit, p: &Pulse, r: &RepoPulse) -> El {
                 .min_w(250.0)
                 .gap(8.0)
                 .center_y()
-                .child(text(format!("{} open", compact(r.prs_open))).font(k.ty.ui_medium).color(k.c.text_base))
+                .child(value_text(if r.detail_ready { format!("{} open", compact(r.prs_open)) } else { "… open".to_owned() }).font(k.ty.ui_medium).color(k.c.text_base))
                 .child(if needs_review > 0 { chip(k, format!("{needs_review} ready for review"), Some(Outcome::Success)).help("Waiting on a reviewer with all checks passed") } else { row() })
                 .child(if failing_prs > 0 { chip(k, format!("{failing_prs} checks failing"), Some(Outcome::Failure)) } else { row() }),
         )
@@ -488,10 +545,11 @@ fn repo_section(s: &State, k: &Kit, p: &Pulse, r: &RepoPulse) -> El {
                 .gap(8.0)
                 .center_y()
                 .child(el().size(9.0, 9.0).radius(4.5).fill(rate.map_or(k.c.icon_faint, |x| rate_color(k, x))))
-                .child(text(rate.map_or("no runs".to_owned(), |x| format!("{:.0}% passed", x * 100.0))).font(k.ty.ui_medium).color(k.c.text_base))
+                .child(value_text(if !r.runs_ready { "… passed".to_owned() } else { rate.map_or("no runs".to_owned(), |x| format!("{:.0}% passed", x * 100.0)) }).font(k.ty.ui_medium).color(k.c.text_base))
                 .child(if !red.is_empty() { chip(k, format!("{} red now", red.len()), Some(Outcome::Failure)) } else if failed > 0 { muted(k, format!("{failed} failed")) } else { row() }),
         )
         .child(spacer())
+        .children((!r.detail_ready || !r.runs_ready).then(|| row().center_y().child(Spinner::new().size(12.0).build(k)).help("This repo's numbers are still coming in")))
         .child(
             Button::new("Open repo")
                 .variant(ButtonVariant::Outline)
@@ -514,25 +572,30 @@ fn repo_section(s: &State, k: &Kit, p: &Pulse, r: &RepoPulse) -> El {
     }
 
     // 1. What needs attention, in plain words (or that nothing does).
-    let mut attention: Vec<(Outcome, String, Option<i64>)> = Vec::new();
-    for (wf, at) in &red {
-        attention.push((Outcome::Failure, format!("{wf} is failing on {}", r.default_branch), Some(*at)));
+    let mut attention: Vec<(Outcome, String, Option<i64>, Option<(String, u64)>)> = Vec::new();
+    for (wf, at, id) in &red {
+        attention.push((Outcome::Failure, format!("{wf} is failing on {}", r.default_branch), Some(*at), Some((wf.clone(), *id))));
     }
     if needs_review > 0 {
-        attention.push((Outcome::Success, format!("{needs_review} pull request{} ready for review (all checks passed)", plural(needs_review)), None));
+        attention.push((Outcome::Success, format!("{needs_review} pull request{} ready for review (all checks passed)", plural(needs_review)), None, None));
     }
     if failing_prs > 0 {
-        attention.push((Outcome::Failure, format!("{failing_prs} pull request{} with failing checks", plural(failing_prs)), None));
+        attention.push((Outcome::Failure, format!("{failing_prs} pull request{} with failing checks", plural(failing_prs)), None, None));
     }
     if running > 0 {
-        attention.push((Outcome::Running, format!("{running} workflow run{} in progress", plural(running)), None));
+        attention.push((Outcome::Running, format!("{running} workflow run{} in progress", plural(running)), None, None));
     }
     let mut first = col().key("attention").w_full().gap(6.0).pb(4.0);
     if attention.is_empty() {
         first = first.child(line(k, Outcome::Success, "Nothing needs attention: checks are green and no reviews are waiting.".into(), None, t));
     }
-    for (i, (o, what, at)) in attention.into_iter().take(4).enumerate() {
-        first = first.child(line(k, o, what, at, t).key(format!("att-{i}")));
+    for (i, (o, what, at, run)) in attention.into_iter().take(4).enumerate() {
+        let mut l = line(k, o, what, at, t).key(format!("att-{i}"));
+        if let Some((wf, id)) = run {
+            let slug = r.slug.clone();
+            l = l.radius(k.radius.sm).hover(k.c.hover).help("Open this failed run").on_press(move |s: &mut State| open_run_or_failed(s, &slug, id, &wf));
+        }
+        first = first.child(l);
     }
 
     // 2. One line per topic; click for its details.
@@ -611,10 +674,10 @@ fn repo_section(s: &State, k: &Kit, p: &Pulse, r: &RepoPulse) -> El {
                 None => "No runs in this range".into(),
             },
             &|| {
-                let mut c = col().w_full().gap(3.0).child(muted(k, "Each workflow in this range, the ones with failures first. Click one to open Actions."));
+                let mut c = col().w_full().gap(3.0).child(muted(k, "Each workflow in this range, the ones with failures first. Click one to open its latest failed run (or latest run)."));
                 for (i, w) in r.workflows().iter().take(8).enumerate() {
                     let tone = if w.failed == 0 { k.c.success.icon } else if (w.failed as f32 / w.runs.max(1) as f32) < 0.1 { k.c.warning.icon } else { k.c.danger.icon };
-                    let sl = r.slug.clone();
+                    let (sl, wf, id) = (r.slug.clone(), w.name.clone(), w.focus_run);
                     c = c.child(
                         row()
                             .key(format!("w-{i}"))
@@ -626,7 +689,7 @@ fn repo_section(s: &State, k: &Kit, p: &Pulse, r: &RepoPulse) -> El {
                             .center_y()
                             .hover(k.c.hover)
                             .help(format!("{}: {} runs, {} failed, average {}", w.name, w.runs, w.failed, crate::model::duration(w.secs / w.runs.max(1) as i64)))
-                            .on_press(move |s: &mut State| s.select_repo(&sl, Page::Actions))
+                            .on_press(move |s: &mut State| open_run_or_failed(s, &sl, id, &wf))
                             .child(el().size(8.0, 8.0).radius(4.0).fill(tone))
                             .child(text(w.name.clone()).font(k.ty.small).color(k.c.text_base).truncate().grow(1.0).shrink())
                             .child(muted(k, if w.failed > 0 { format!("{} of {} failed", w.failed, w.runs) } else { format!("{} runs, all passed", w.runs) })),
@@ -691,6 +754,16 @@ fn repo_section(s: &State, k: &Kit, p: &Pulse, r: &RepoPulse) -> El {
     };
 
     sec.child(col().key("detail").w_full().gap(8.0).pb(4.0).child(first).child(el().w_full().h(1.0).fill(k.c.border_weak)).child(topics))
+}
+
+/// Open run `id` (with its row revealed), or, for data cached before runs kept their ids, the
+/// latest failed run of `workflow`.
+fn open_run_or_failed(s: &mut State, slug: &str, id: u64, workflow: &str) {
+    if id != 0 {
+        s.open_run(slug, id);
+    } else {
+        s.open_latest_failed(slug, Some(workflow.to_owned()));
+    }
 }
 
 fn plural(n: usize) -> &'static str {
@@ -789,23 +862,31 @@ fn day_bars(k: &Kit, days: &[(String, u64, u64)], h: f32) -> El {
     }
     let peak = days.iter().map(|d| d.1.max(d.2)).max().unwrap_or(1).max(1);
     let small = h < 80.0;
-    let mut bars = row().w_full().gap(if small { 3.0 } else { 6.0 }).items_end();
+    let long = days.len() > 10;
+    let mut bars = row().w_full().gap(if small || long { 3.0 } else { 6.0 }).items_end();
     for (i, (label, c, m)) in days.iter().enumerate() {
-        let bar = |n: u64, color| el().w(if small { 7.0 } else { 14.0 }).h((n as f32 / peak as f32 * h).max(if n > 0 { 3.0 } else { 1.0 })).radius(2.0).fill(color);
+        let bar = |n: u64, color| el().w(0.0).grow(1.0).max_w(if small { 7.0 } else { 14.0 }).h((n as f32 / peak as f32 * h).max(if n > 0 { 3.0 } else { 1.0 })).radius(2.0).fill(color);
         let mut day = col()
             .key(format!("day-{i}"))
+            .w(0.0)
             .grow(1.0)
             .gap(4.0)
             .items_center()
             .help(format!("{label}: {c} commits, {m} PRs merged"))
-            .child(row().h(h).gap(2.0).items_end().child(bar(*c, hue(0))).child(bar(*m, hue(1))));
-        // Short ranges label every day; long ones every few.
-        if !small || days.len() <= 8 || i % 5 == 0 {
-            day = day.child(text(label.clone()).font(k.ty.text_xsmall).color(k.c.text_faint));
-        }
+            .child(row().w_full().max_w(if small { 16.0 } else { 30.0 }).h(h).gap(if long { 1.0 } else { 2.0 }).items_end().justify_center().child(bar(*c, hue(0))).child(bar(*m, hue(1))));
+        // Short ranges label every day; long ones every few. Every day keeps the slot, so the
+        // bars share one baseline.
+        day = day.child(day_label(k, label, !long || i % 5 == 0));
         bars = bars.child(day);
     }
     bars
+}
+
+/// A day's label under its bar, or the same-sized empty slot when the range is too long to
+/// label every day. Labels may be wider than their bar, so they don't widen the column.
+fn day_label(k: &Kit, label: &str, shown: bool) -> El {
+    let slot = row().h(14.0).w(0.0).center();
+    if shown { slot.child(text(label.to_owned()).font(k.ty.text_xsmall).color(k.c.text_faint)) } else { slot }
 }
 
 fn contributor_rows(k: &Kit, people: &[crate::pulse::Contributor], top: usize) -> El {

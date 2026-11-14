@@ -74,10 +74,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                     .radius(999.0)
                     .hover(k.c.hover)
                     .help(format!("{} on {}: {} · {}", r.workflow_name, d.default_branch, if r.outcome().is_running() { r.status.clone() } else { r.conclusion.clone() }, ago_str(&r.created_at, t)))
-                    .on_press(move |s: &mut State| {
-                        s.select_repo(&slug2, Page::Actions);
-                        s.select_run(id);
-                    })
+                    .on_press(move |s: &mut State| s.open_run(&slug2, id))
                     .child(status_mark(k, r.outcome()))
                     .child(text(r.workflow_name.clone()).font(k.ty.text_xsmall).color(k.c.text_muted)),
             );
@@ -135,11 +132,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .radius(k.radius.md)
                 .center_y()
                 .hover(k.c.hover)
-                .on_press(move |s: &mut State| {
-                    s.pr_state = 0;
-                    s.select_repo(&slug5, Page::Pulls);
-                    s.select_pr(n);
-                })
+                .on_press(move |s: &mut State| s.open_pr(&slug5, n))
                 .child(text(short(slug)).font(k.ty.small).color(k.c.text_muted).w(160.0).truncate())
                 .child(text(format!("#{n}")).font(k.ty.small).color(k.c.text_faint).w(50.0))
                 .child(text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).truncate().grow(1.0).shrink());

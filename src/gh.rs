@@ -425,6 +425,11 @@ pub fn run_one(slug: &str, id: u64) -> Result<Run, String> {
 }
 
 /// One PR's state (for watching).
+/// One PR with everything the list has (for a link to a PR outside the loaded list).
+pub fn pr_full(slug: &str, n: u64) -> Result<Pr, String> {
+    gh_json(&["pr", "view", &n.to_string(), "-R", slug, "--json", PR_FIELDS])
+}
+
 pub fn pr_one(slug: &str, n: u64) -> Result<Pr, String> {
     gh_json(&["pr", "view", &n.to_string(), "-R", slug, "--json", "number,title,state,reviewDecision,statusCheckRollup,url,updatedAt"])
 }

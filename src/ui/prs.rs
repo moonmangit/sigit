@@ -12,7 +12,7 @@ use crate::gh::MergeMethod;
 use crate::guard::Action;
 use crate::risk;
 use crate::model::{Outcome, Pr, ago_str, now};
-use crate::{PR_STATES, Page, State};
+use crate::{PR_STATES, State};
 
 /// The PRs the filter box lets through: loaded ones that match (instant, on every keystroke),
 /// then what GitHub's search found beyond them once it answers.
@@ -51,7 +51,7 @@ fn visible(s: &State) -> Vec<&Pr> {
 /// A PR by number, from the loaded list or the search results.
 fn find(s: &State, n: u64) -> Option<&Pr> {
     let loaded = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.iter().find(|p| p.number == n));
-    loaded.or_else(|| s.pr_hits.as_ref().and_then(|(_, h)| h.iter().find(|p| p.number == n)))
+    loaded.or_else(|| s.pr_hits.as_ref().and_then(|(_, h)| h.iter().find(|p| p.number == n))).or_else(|| s.focused_pr(n))
 }
 
 fn review_label(p: &Pr) -> (&'static str, Option<Outcome>) {
@@ -455,9 +455,10 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                         .variant(ButtonVariant::Outline)
                         .help("Open the run's failing log lines in the app")
                         .on_press(move |s: &mut State| {
-                            s.show(Page::Actions);
-                            s.select_run(id);
-                            s.load_triage(id);
+                            if let Some(slug) = s.cur.clone() {
+                                s.open_run(&slug, id);
+                                s.load_triage(id);
+                            }
                         })
                         .build(k)
                         .key(format!("why-{i}"))
