@@ -499,7 +499,14 @@ fn update_row(s: &State, k: &Kit) -> El {
             None => (format!("Version {version} is available. Update downloads it, checks it, and replaces this copy; your settings stay."), Some(format!("{version} available")), Some(Outcome::Running)),
             Some(why) => (format!("Version {version} is available. {why}"), Some(format!("{version} available")), Some(Outcome::Running)),
         },
-        Update::Installing { version } => (format!("Downloading and installing {version}…"), None, None),
+        Update::Installing { version } => (
+            format!(
+                "Downloading and installing {version}… If sigit is installed for all users, {} asks for permission to replace it.",
+                if cfg!(target_os = "macos") { "macOS" } else { "Windows" }
+            ),
+            None,
+            None,
+        ),
         Update::Installed { version } => (format!("Version {version} is installed. Restart sigit to start using it."), Some("Ready".into()), Some(Outcome::Success)),
         Update::Failed(e) => (format!("{e}. Nothing was changed."), Some("Failed".into()), Some(Outcome::Failure)),
     };

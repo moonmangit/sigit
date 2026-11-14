@@ -175,13 +175,91 @@ fn replace(target: &Path, unpacked: &Path) -> Result<(), String> {
     }
     let old = set_aside(target);
     remove(&old);
-    std::fs::rename(target, &old).map_err(|e| format!("Couldn't move the current version aside: {e}"))?;
+    match std::fs::rename(target, &old) {
+        Ok(()) => {}
+        // Installed where this account can't write (Program Files for all users, or
+        // /Applications for a standard Mac account): do the swap with the system's permission.
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return swap_as_admin(target, &new, &old),
+        Err(e) => return Err(format!("Couldn't move the current version aside: {e}")),
+    }
     if let Err(e) = copy_into_place(&new, target) {
         remove(target);
         let _ = std::fs::rename(&old, target);
         return Err(format!("Couldn't put the new version in place: {e}"));
     }
     Ok(())
+}
+
+/// The same swap as `replace` (set the old copy aside, put the new one in place, put the old
+/// one back if that fails), run with administrator rights. Windows shows its permission
+/// prompt (UAC); macOS asks for an administrator's password.
+#[cfg(windows)]
+fn swap_as_admin(target: &Path, new: &Path, old: &Path) -> Result<(), String> {
+    let script = elevated_swap_script(target, new, old);
+    // An outer PowerShell starts the elevated one and waits for it; the swap travels encoded,
+    // so no path needs quoting on a command line.
+    let outer = format!(
+        "$p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{}'; exit $p.ExitCode",
+        encode_command(&script)
+    );
+    match gh::run("powershell", &["-NoProfile", "-NonInteractive", "-Command", &outer], None) {
+        Ok(_) => Ok(()),
+        Err(e) if e.to_lowercase().contains("canceled") || e.to_lowercase().contains("cancelled") => {
+            Err("sigit is installed for all users, so updating needs administrator permission, which wasn't given".into())
+        }
+        Err(e) => Err(format!("Couldn't replace sigit even with administrator permission: {e}")),
+    }
+}
+
+/// PowerShell that swaps `new` in for `target`, keeping `target` aside as `old` and putting it
+/// back if the copy fails. Exit 0 on success.
+#[cfg(windows)]
+fn elevated_swap_script(target: &Path, new: &Path, old: &Path) -> String {
+    let q = |p: &Path| p.to_string_lossy().replace('\'', "''");
+    let (t, n, o) = (q(target), q(new), q(old));
+    format!(
+        "$ErrorActionPreference = 'Stop'\n\
+         try {{\n\
+           if (Test-Path -LiteralPath '{o}') {{ Remove-Item -LiteralPath '{o}' -Force }}\n\
+           Move-Item -LiteralPath '{t}' -Destination '{o}'\n\
+           try {{ Copy-Item -LiteralPath '{n}' -Destination '{t}' }}\n\
+           catch {{ Move-Item -LiteralPath '{o}' -Destination '{t}' -Force; exit 2 }}\n\
+           exit 0\n\
+         }} catch {{ exit 1 }}\n"
+    )
+}
+
+/// PowerShell's -EncodedCommand: base64 of the script in UTF-16LE.
+#[cfg(windows)]
+fn encode_command(script: &str) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (chunk[0] as u32) << 16 | (*chunk.get(1).unwrap_or(&0) as u32) << 8 | *chunk.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[cfg(not(windows))]
+fn swap_as_admin(target: &Path, new: &Path, old: &Path) -> Result<(), String> {
+    // A shell command run with an administrator's password through AppleScript.
+    let sh = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
+    let (t, n, o) = (sh(target), sh(new), sh(old));
+    let cmd = format!("rm -rf {o}; mv {t} {o} && (ditto {n} {t} || (rm -rf {t}; mv {o} {t}; exit 2)) && touch {t}");
+    let script = format!("do shell script \"{}\" with administrator privileges", cmd.replace('\\', "\\\\").replace('"', "\\\""));
+    match gh::run("osascript", &["-e", &script], None) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("-128") || e.to_lowercase().contains("cancel") => Err("Updating needs an administrator's password, which wasn't given".into()),
+        Err(e) => Err(format!("Couldn't replace sigit even with administrator permission: {e}")),
+    }
 }
 
 fn copy_into_place(new: &Path, target: &Path) -> Result<(), String> {
@@ -301,6 +379,31 @@ mod tests {
     fn old_copy_names() {
         assert_eq!(set_aside(Path::new("C:/apps/sigit.exe")), Path::new("C:/apps/sigit.old.exe"));
         assert_eq!(set_aside(Path::new("/Applications/sigit.app")), Path::new("/Applications/sigit.app.old"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn encodes_like_powershell() {
+        // [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes("exit 0"))
+        assert_eq!(encode_command("exit 0"), "ZQB4AGkAdAAgADAA");
+    }
+
+    /// The elevated swap's script, run here without elevation on throwaway files.
+    #[cfg(windows)]
+    #[test]
+    fn elevated_swap_script_swaps_and_keeps_the_old_copy() {
+        let dir = std::env::temp_dir().join(format!("sigit-swap-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("it's new")).unwrap();
+        let (target, new, old) = (dir.join("sigit.exe"), dir.join("it's new").join("sigit.exe"), dir.join("sigit.old.exe"));
+        std::fs::write(&target, "old").unwrap();
+        std::fs::write(&new, "new").unwrap();
+        let script = elevated_swap_script(&target, &new, &old);
+        let out = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encode_command(&script)]).status().unwrap();
+        assert!(out.success());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "old");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
