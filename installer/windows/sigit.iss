@@ -30,6 +30,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=sigit-setup-windows-x64
 LicenseFile=..\..\LICENSE
+SetupIconFile=..\..\assets\icon.ico
 UninstallDisplayIcon={app}\sigit.exe
 UninstallDisplayName=sigit
 Compression=lzma2/max

@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" width="112" alt="sigit icon"></p>
+
 # sigit
 
 A fast desktop app for everyday GitHub and git work: pull requests, Actions, environments and

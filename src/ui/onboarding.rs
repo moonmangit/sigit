@@ -4,10 +4,39 @@
 use rune::{El, TextStyle, col, el, row, spacer, text};
 use rune_kit::{Button, ButtonVariant, Kit, SegmentedControl, Spinner};
 
-use super::{I_LOGO, muted, scroll};
+use super::{muted, scroll};
 use crate::State;
 use crate::config::Theme;
 use crate::onboarding::{LOGIN, Preflight, RECHECK_SECS, Setup, install_hint};
+
+/// What the splash says, while there's nothing to show yet: the first launch (or one after
+/// the cache was cleared) before the startup check and the repo list are back. With last
+/// session's data the window opens on it instead.
+pub fn splash_message(s: &State) -> Option<&'static str> {
+    if s.inbox.data.is_some() {
+        return None;
+    }
+    match s.setup {
+        Setup::Checking => Some("Checking git and the GitHub CLI…"),
+        Setup::Ready if s.inbox.loading && s.inbox.error.is_none() => Some("Loading your repositories…"),
+        _ => None,
+    }
+}
+
+/// The splash: the app mark, its name, and what it's doing.
+pub fn splash(k: &Kit, message: &str) -> El {
+    col()
+        .key("splash")
+        .w_full()
+        .h_full()
+        .center()
+        .gap(16.0)
+        .fill(k.c.page)
+        .child(super::app_mark(88.0))
+        .child(text("sigit").font(TextStyle { size: 30.0, ..k.ty.ui_medium }).color(k.c.text_strong))
+        .child(row().gap(10.0).center_y().child(Spinner::new().size(14.0).build(k)).child(muted(k, message.to_owned())))
+        .child(text(format!("Version {}", crate::update::current())).font(k.ty.text_xsmall).color(k.c.text_faint))
+}
 
 pub fn view(s: &State, k: &Kit) -> El {
     let card = match &s.setup {
@@ -26,15 +55,7 @@ fn header(k: &Kit, title: &str, sub: &str) -> El {
     col()
         .w_full()
         .gap(10.0)
-        .child(
-            row()
-                .size(44.0, 44.0)
-                .radius(12.0)
-                .center()
-                .fill(k.c.surface_base)
-                .border(1.0, k.c.border_weak)
-                .child(rune::icon(&I_LOGO, 26.0).color(k.c.text_base)),
-        )
+        .child(super::app_mark(48.0))
         .child(text(title.to_owned()).font(TextStyle { size: 26.0, ..k.ty.ui_medium }).color(k.c.text_strong))
         .child(muted(k, sub.to_owned()).wrap().w_full())
 }

@@ -325,7 +325,13 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     cx.caption_color(if dark { Color::WHITE } else { Color::BLACK });
     let bar = titlebar(s, &k, cx.chrome_insets());
     // Setup missing something, or a first run: that screen takes the window.
-    let main = if s.setup.covers_app() { onboarding::view(s, &k) } else { shell };
+    let main = if s.setup.covers_app() {
+        onboarding::view(s, &k)
+    } else if let Some(msg) = onboarding::splash_message(s) {
+        onboarding::splash(&k, msg)
+    } else {
+        shell
+    };
     let mut app = col().key("app").w_full().h_full().fill(k.c.page).child(bar).child(col().w_full().grow(1.0).min_h(0.0).child(main));
     if let Some(anchor) = menu_anchor {
         app = app.child(anchor.absolute(0.0, 0.0));
@@ -538,6 +544,19 @@ fn no_clone(k: &Kit, slug: &str) -> El {
 // Title bar (drawn by the app: no native one)
 // ---------------------------------------------------------------------------------------------
 
+/// The app icon as drawn in the UI: the white branch mark on the indigo-to-blue rounded tile,
+/// the same as `assets/icon.png` (the window, taskbar and installers use that file).
+pub fn app_mark(size: f32) -> El {
+    let c = |hex: &str| rune::color::hex(hex).unwrap_or(Color::WHITE);
+    row()
+        .size(size, size)
+        .radius(size * 0.225)
+        .center()
+        .fill(c("#634DFF"))
+        .linear_gradient(std::f32::consts::FRAC_PI_4 * 3.0, [(0.0, c("#634DFF")), (1.0, c("#228BFF"))])
+        .child(rune::icon(&I_LOGO, size * 0.64).color(Color::WHITE))
+}
+
 /// The custom title bar's height (the window's caption buttons take the same height).
 pub const TITLEBAR_HEIGHT: f32 = 38.0;
 
@@ -553,15 +572,7 @@ fn titlebar(s: &State, k: &Kit, insets: rune::ChromeInsets) -> El {
     let brand = row()
         .gap(8.0)
         .center_y()
-        .child(
-            row()
-                .size(22.0, 22.0)
-                .radius(6.0)
-                .center()
-                .fill(k.c.surface_base)
-                .border(1.0, k.c.border_weak)
-                .child(rune::icon(&I_LOGO, 14.0).color(k.c.text_base)),
-        )
+        .child(app_mark(22.0))
         .child(text("sigit").font(k.ty.ui_medium).color(k.c.text_base));
     let command = row()
         .key("command-bar")

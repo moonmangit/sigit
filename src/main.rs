@@ -1706,6 +1706,11 @@ fn main() {
                 s.setup_at = Instant::now() + Duration::from_secs(3600);
                 s.setup = onboarding::Setup::Missing(onboarding::Preflight { git: ok("git version 2.54.0"), gh: ok("gh version 2.98.0"), auth: Err("Not signed in to GitHub".into()) });
             }),
+            ("splash", |s: &mut State| {
+                // A first launch: nothing cached yet, the startup check still running.
+                s.inbox = Load::default();
+                s.setup = onboarding::Setup::Checking;
+            }),
             ("welcome", |s: &mut State| {
                 let ok = |w: &str| Ok(w.to_owned());
                 s.setup = onboarding::Setup::Welcome(onboarding::Preflight { git: ok("git"), gh: ok("gh"), auth: ok("octocat on github.com") });
@@ -1743,7 +1748,19 @@ fn main() {
     // B6: OS notifications under the app's own name; a click opens what it's about. Registering
     // writes the name under HKCU\Software\Classes\AppUserModelId, so headless runs skip it.
     if !headless {
-        let _ = rune_notify::register(&rune_notify::Identity::new("dev.sigit.app", "sigit"));
+        let mut identity = rune_notify::Identity::new("dev.sigit.app", "sigit");
+        // The notification icon is read from a file: keep a copy of the app icon in our folder.
+        if let Some(dir) = config::dir() {
+            let icon = dir.join("icon.png");
+            let bytes: &[u8] = include_bytes!("../assets/icon-256.png");
+            if std::fs::metadata(&icon).map(|m| m.len() as usize).ok() != Some(bytes.len()) {
+                let _ = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&icon, bytes));
+            }
+            if icon.exists() {
+                identity = identity.icon(icon);
+            }
+        }
+        let _ = rune_notify::register(&identity);
     }
     rune_notify::on_click(|click| {
         let (slug, kind, id) = (click.get("slug").map(str::to_owned), click.get("kind").map(str::to_owned), click.get("id").map(str::to_owned));

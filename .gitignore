@@ -2,4 +2,5 @@
 # Headless stills (--snap) and the old vendored Rune checkout, never released.
 /shots/
 /vendor/
-*.png
+# Stray headless stills in the project root (the app icon in assets/ is kept).
+/*.png
