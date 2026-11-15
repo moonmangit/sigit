@@ -1,7 +1,9 @@
-# sigit: daily-use and safety features (design notes)
+# sigit: design notes
 
 Status: **all features below are built.** Kept as the design notes behind them: the problem
-each one solves, how it works, and the rules it follows.
+each one solves, how it works, and the rules it follows. Parts A and B are the safety and
+daily features; Part C records the decisions made since (gh/git only, refreshing, commands,
+links, languages, updates, privacy).
 
 Goal: something developers open first thing every morning and keep open all day, because it
 answers "what needs me?" faster than github.com and **stops them before they break something
@@ -359,6 +361,116 @@ Size: **S**
 
 ---
 
+## Part C: Later decisions
+
+Added after the features above, as the app grew. Each says what it does, why, and the rule
+to keep.
+
+### C1. Why sigit goes through `gh` and `git`
+
+**Decision:** every read and write runs the `gh` or `git` you already use; sigit holds no
+GitHub token and no git implementation of its own.
+
+**Why:** your login, your SSH keys, your credential helpers and your git config already work
+there, and they stay yours: sigit never sees a password or token. What sigit does is exactly
+what you could type, which is also what makes C3 possible. The cost is a process per call,
+kept off the window (`src/jobs.rs`) and batched where GitHub allows (a few GraphQL queries for
+counts).
+
+**Rule:** a new feature calls `gh` or `git` through `gh::run` (or a `gh::Cmd`). It doesn't add
+an HTTP client or a token store.
+
+### C2. Fresh without pressing Refresh
+
+**Behaviour:**
+- Every page shows what it has at once: memory, or last session's cache (B8).
+- **Opening** a page (a tab, a repo, Back / Forward) and **coming back to the window** after
+  more than 5 s away check GitHub again in the background and swap in only what changed.
+- What was fetched in the last 10 s isn't asked again, so flicking between tabs doesn't
+  refetch. Activity, which takes a few seconds and many requests, re-checks at most once a
+  minute.
+- While a page stays open it re-checks on its own: PRs every 2 min, runs 1 min (15 s while one
+  runs), local git 20 s, Activity 5 min. Ctrl+R reloads everything now.
+
+**Why:** people switch to sigit to see what changed; a page that's a minute old when you come
+back to it is the main reason anyone presses Refresh.
+
+**Where:** the timings are `ttl` in `src/main.rs`; `ensure_page` is the tick,
+`revalidate_page` is opening a page and coming back (`window_focus`). Rune reports window
+focus only to the root element, which is why the handler sits on what `rune_kit::root`
+returns.
+
+### C3. The command behind every action
+
+**Behaviour:** a button that runs something shows its command on hover; the confirm dialog
+lists what will run; the result and the activity log show what ran, with copy buttons.
+Settings → Safety turns it off.
+
+**Why:** to learn the tools by using the app, and to debug: when something fails, the exact
+command is right there to run in a terminal.
+
+**Rule: what's shown is what runs.** Each action's arguments are built once, as a `gh::Cmd`
+(`merge_cmd`, `checkout_cmds`…), and that one value is both displayed (`Cmd::line`) and run
+(`Cmd::run`). Results show what was recorded while the action ran (`gh::recording`), not a
+prediction, so a remote checkout shows whether the `--track` fallback was needed. A test
+(`every_action_and_undo_shows_a_command`) builds every action and undo and checks its line, and
+the `match`es are exhaustive, so a new action can't skip it. Long arguments (a review comment)
+are cut short in the display only; the full text is what's sent.
+
+### C4. Links that open the exact thing
+
+**Behaviour:** a link opens its item, not just its page: a red workflow opens that failing run
+selected, details open, row scrolled into view; a CI notification opens the latest failed run
+of that workflow; a PR opens that PR. An item older than the loaded list is fetched on its own
+and kept in the list.
+
+**Why:** landing on a list of 50 runs after clicking a red one leaves you hunting for it.
+
+**Where:** `src/focus.rs`.
+
+### C5. Two languages
+
+**Behaviour:** English or Thai (Settings → Appearance → Language, or the computer's language).
+Git and GitHub terms stay in English inside Thai, as Thai developers write them; GitHub's own
+text is never translated.
+
+**How:**
+- **English is the key.** The code is written in English; `assets/i18n/th.tsv` maps each
+  English string to Thai. No message ids to invent or keep in sync, and a string with no Thai
+  yet still shows, in English.
+- `t("…")` for fixed text; `tf!` in place of `format!` for sentences with values. The catalog
+  holds the whole template, and Thai may move or reorder the values (`{n}`, `{0}`, `{}`), since
+  Thai word order differs.
+- Thai uses the bundled **Noto Sans Thai** (SIL OFL) after Inter, so Latin stays Inter and
+  every computer shows the same Thai; line heights grow to about 1.6× for stacked vowels and
+  tone marks. Line breaking is Rune's dictionary-based segmenter.
+- Rune's own words (a text field's Cut / Copy / Paste, the window menu) are named through
+  `rune::labels`.
+
+**Keeping it complete:** `scripts/i18n-check.py` lists UI strings with no Thai; a test checks
+every Thai entry only uses values its English has; a debug build run with
+`SIGIT_LANG=th SIGIT_I18N_MISSES=file` lists the English it actually showed.
+
+### C6. Updates
+
+**Behaviour:** Settings → About checks the newest GitHub release and installs it: download,
+verify against `SHA256SUMS.txt`, move the running copy aside, put the new one in place,
+restart.
+
+**Rules:** nothing is installed that doesn't match its checksum. When the install folder isn't
+writable (installed for all users), the swap runs elevated (Windows UAC, macOS password)
+instead of failing. A development build (run from `target/`) is never replaced.
+
+### C7. What ships, and what stays private
+
+- Commits use the GitHub noreply email.
+- Release binaries are built by CI from a tag; local release builds go through
+  `scripts/release.*`, which strip local folder paths (`--remap-path-prefix`).
+- Screenshot scenes use public repositories and sample data, never your own.
+- Your pins, groups, settings, cache and activity log stay in your settings folder.
+
+---
+
 ## Summary
 
 | # | Feature | Part | Size | My suggested order |
@@ -382,4 +494,5 @@ Size: **S**
 
 - Commit, push, force-push, remote branch deletion, rebase/merge locally: out of scope: the app never writes history.
 - Editing files, resolving conflicts: that's the editor's job.
-- Storing a GitHub token in the app: keep using `gh`'s login.
+- Storing a GitHub token in the app: keep using `gh`'s login (see C1).
+- Translating GitHub's own text (titles, comments, names): it's shown as written (see C5).

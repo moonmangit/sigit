@@ -1966,6 +1966,30 @@ fn main() {
                     });
                 }
             }),
+            ("cmd-comment", |s: &mut State| {
+                // A PR with a short description, so the comment box and its button are in view.
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                s.comment = TextEdit::new("Looks good, thanks!");
+                let n = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.iter().find(|p| p.number == 942).or(p.last())).map(|p| p.number);
+                if let Some(n) = n {
+                    s.select_pr(n);
+                }
+            }),
+            ("cmd-pr-local", |s: &mut State| {
+                // A PR in a repo with a local clone (this folder stands in for it), so "Check out
+                // locally" shows. Nothing runs.
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                s.add_repo_pub("anomalyco/rune".into(), std::env::current_dir().ok());
+                if let Some(n) = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| p.number) {
+                    s.select_pr(n);
+                }
+            }),
+            ("cmd-countdown", |s: &mut State| {
+                // A merge counting down (an hour away, so nothing ever runs).
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                let action = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: true };
+                s.grace = Some(guard::Grace { action, at: Instant::now() + Duration::from_secs(3600) });
+            }),
             ("aged-prs", |s: &mut State| {
                 // Pull requests fetched a minute ago: fresh for the 30 s tick, so only a
                 // revalidation (coming back to the window) reloads them.

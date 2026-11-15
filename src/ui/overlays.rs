@@ -340,11 +340,12 @@ pub fn palette(s: &State, k: &Kit, layer: &mut Vec<El>) {
 // ---------------------------------------------------------------------------------------------
 
 /// (title, paragraphs). Each feature: what it's for, how to use it, and its keys.
-pub const GUIDE: [(&str, &[&str]); 11] = [
+pub const GUIDE: [(&str, &[&str]); 13] = [
     ("Welcome", &[
         "sigit is a fast window onto your everyday GitHub and git work. It reads through the gh and git you already use, so it never sees a password or token.",
         "It never commits or pushes. Anything that changes something goes through safety checks first (see Safety).",
         "Hover almost anything for a tooltip. Press F1 (or Ctrl+/) for this guide, and Ctrl+K to jump anywhere.",
+        "Links go straight to the thing: a red workflow opens that failing run, selected and scrolled into view; a PR anywhere opens that PR. SHAs, branch names, paths and links copy with one click.",
     ]),
     ("Inbox & notifications", &[
         "The Inbox opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.",
@@ -391,12 +392,21 @@ pub const GUIDE: [(&str, &[&str]); 11] = [
         "Right-click an organization's header to move it up, down or to the top, or to give it your own colour and icon. The badge then marks its repos everywhere in the sidebar and in the repo header.",
         "Click the ▦ button on a group's header (or pick it in Ctrl+K) for its dashboard: CI health per repo, deployments per environment, commits not yet on production, and every open PR in the group.",
     ]),
+    ("gh & git commands", &[
+        "Everything sigit does runs the GitHub CLI (gh) or git. Rest the pointer on a button that runs something and a card shows what it does and the exact command, highlighted.",
+        "Before anything runs, the confirm dialog lists the commands under Runs (with the stash first when you choose Stash and continue). After it runs, the result and the Activity log show the commands that actually ran, each with a copy button: paste one into a terminal to learn the tools or to debug.",
+        "Turn this off in Settings → Safety → Show gh / git commands.",
+    ]),
+    ("Language & updates", &[
+        "Settings → Appearance → Language: System (follows your computer), English or ไทย. The whole interface switches at once, dates and times included. Git and GitHub terms stay in English, and GitHub's own text (titles, comments, names) is shown as written.",
+        "Settings → About → Check for updates looks for a newer release on GitHub. Update now downloads it, checks it against the release's checksums and replaces this copy; your settings stay. If sigit is installed for all users, your computer asks for administrator permission.",
+    ]),
     ("Watching", &[
         "Watch a run or a PR (eye button) to get a desktop notification when it changes. Branches you check out in the app are watched automatically for the day (Settings).",
         "Notifications show while sigit is open, even minimized. Click one to jump to it.",
     ]),
     ("Settings & shortcuts", &[
-        "Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email), Safety (production names, sensitive paths, merge countdown), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About.",
+        "Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, language, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email), Safety (merge countdown, showing gh / git commands, production names, sensitive paths), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About (version and updates).",
         "Sections side by side (a list and its detail, the Activity panels, each repo's cards, Needs you) have a handle between them: drag it to resize, double-click it to reset. Sizes are remembered.",
         "Next to Back / Forward, \"updated 2m ago\" says how fresh the page is (\"cached\" = from last session, red = the last update failed). Pages show what they loaded at once, and check again in the background whenever you open one or come back to the window, so you rarely need Refresh (Activity at most once a minute). While a page stays open it re-checks on its own (PRs 2 min, runs 1 min or 15 s while running, local git 20 s, Activity 5 min). Click it or press Ctrl+R to reload everything now.",
         "Back / Forward (top left of the toolbar, or Alt+← / Alt+→) step through the pages and repos you visited, like a browser.",

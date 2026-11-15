@@ -6,7 +6,7 @@ A fast desktop app for everyday GitHub and git work: pull requests, Actions, env
 history, across all your repositories and organizations. Built in Rust on
 [Rune](https://github.com/anomalyco/rune), a GPU-rendered native UI.
 
-**It reads and reviews; it never commits or pushes.**
+**It reads and reviews; it never commits or pushes.** In English or Thai (ไทย).
 
 ## Download
 
@@ -71,6 +71,42 @@ on top. Drag to reorder, fold sections, and give organizations your own colour a
 
 Side-by-side sections have a handle between them: drag to resize, double-click to reset.
 
+Around every page:
+
+- **Links open the exact thing.** A red workflow on Activity opens that failing run, selected, with
+  its details open and its row scrolled into view; a CI notification opens the latest failed run; a
+  PR anywhere opens that PR. One older than the loaded list is fetched on its own.
+- **Copy what you paste elsewhere.** SHAs, branch and file names, links, clone URLs and error
+  messages have a copy button or copy on click.
+- **Ctrl+K** jumps to any repo, #PR, branch, group or command, typed in English or Thai.
+
+## See the gh and git commands
+
+Everything sigit does runs the GitHub CLI or git, and it shows you exactly what:
+
+- **Hover** a button that runs something (Approve, Merge, Re-run, Fetch, Pop stash, Undo, Done…):
+  a card shows what it does and the command, highlighted, e.g.
+  `gh pr merge 12 -R owner/repo --squash --delete-branch`.
+- **Before it runs**, the confirm dialog lists the commands under **Runs**, with the
+  `git stash push` first when you choose Stash and continue.
+- **After it runs**, the result message and the activity log show the commands that actually
+  ran (a remote checkout shows whether the plain `git switch` worked or the `--track` one was
+  needed), each with a copy button: run it yourself in a terminal to learn or debug.
+
+Turn it off in **Settings → Safety → Show gh / git commands**.
+
+## Language
+
+**Settings → Appearance → Language**: System (follows your computer), English or ไทย, also on
+the first-run welcome. The whole interface switches at once: labels, tooltips, messages, the
+guide, dates (จ. 9, พ.ย.) and relative times. Git and GitHub terms (PR, commit, branch, merge,
+workflow) stay in English, as Thai developers use them, and GitHub's own text (titles,
+comments, names) is shown as written.
+
+Thai is set in **Noto Sans Thai**, bundled with the app so it looks the same everywhere
+(SIL Open Font License, `assets/fonts/NotoSansThai-OFL.txt`), with taller lines for Thai's
+stacked vowels and tone marks.
+
 ## Safety
 
 - Every write action is checked against fresh GitHub and git state first: protected branches,
@@ -78,14 +114,24 @@ Side-by-side sections have a handle between them: drag to resize, double-click t
   production deployments, uncommitted changes. Risky actions ask first; the riskiest need the
   repo, branch or environment name typed.
 - Merges wait a few seconds with a Cancel button. Close, checkout, branch delete, pins and
-  groups can be undone. Everything the app runs is in the activity log.
+  groups can be undone. Everything the app runs is in the activity log, with its commands.
 
 ## Settings
 
-The gear at the top right (or **Ctrl+,**): Appearance (theme, text size, repos per
-organization), Accounts (the GitHub accounts `gh` is signed in to, and switching), Git (your
-commit name and email), Safety (production environment names, sensitive paths, merge
-countdown), Notifications and watches, Data & storage (the cache), the activity log, shortcuts.
+The gear at the top right (or **Ctrl+,**): Appearance (theme, language, text size, repos per
+organization, section sizes), Accounts (the GitHub accounts `gh` is signed in to, and
+switching), Git (your commit name and email), Safety (merge countdown, showing gh / git
+commands, production environment names, sensitive paths), Notifications and watches, Data &
+storage (the cache), the activity log, shortcuts, and About.
+
+## Updates
+
+**Settings → About → Check for updates** asks GitHub for the newest release. When there is
+one, **Update now** downloads this system's build, checks it against the release's
+`SHA256SUMS.txt`, swaps it in for the running copy and offers **Restart now**; your settings
+stay. If sigit is installed for all users (Program Files), Windows asks for administrator
+permission for the swap (macOS asks for your password). A build run from `target/` isn't
+updated this way: update it from source.
 
 Everything is stored on your computer only:
 
@@ -107,9 +153,10 @@ Branches · **Esc** closes a window or cancels a merge countdown. Hover anything
 
 - Every `gh` and `git` call runs off the UI thread (`src/jobs.rs`); a click never waits on the
   network.
-- Pages keep what they loaded and show it at once; opening a page reloads only what's gone stale,
-  with an "updated 2m ago" mark beside Back / Forward. Last session's data is on screen in the
-  first frame.
+- Pages show what they loaded at once and check GitHub again in the background whenever you
+  open one or come back to the window, swapping in only what changed, so you rarely press
+  Refresh. An "updated 2m ago" mark beside Back / Forward says how fresh the page is. Last
+  session's data is on screen in the first frame.
 - Long lists build only the rows on screen. Counts come from GitHub's totals, batched into a few
   GraphQL queries.
 
@@ -121,20 +168,36 @@ cargo run -- --snap shot.png --scene prs --size 1400x860    # headless still of 
 ```
 
 Scenes (in `src/main.rs`): `inbox`, `activity`, `needs`, `prs`, `actions`, `envs`, `commits`,
-`branches`, `merge`, `palette`, `settings`, `guide`, `group`, `groups`, `orgs`, and more. They
-use public repositories as sample data and never write anything.
+`branches`, `merge`, `palette`, `settings`, `guide`, `group`, `groups`, `orgs`; `light-*` for
+the light theme; `cmd-*` for a button's command card (with `--script` moving the pointer onto
+it); `setup`, `welcome`, `update-available`, and more. They use public repositories and sample
+data and never write anything. Add `SIGIT_LANG=th` to render in Thai.
+
+**Translations.** English is written in the code and is its own key: `assets/i18n/th.tsv`
+maps each English string to Thai (`English<TAB>Thai`, `\n` for a newline). Use `t("…")` (or
+the views' `text`) for fixed text and `tf!` in place of `format!` for a sentence with values,
+so Thai can put them where its grammar wants. `python scripts/i18n-check.py` lists strings
+with no Thai yet; a debug build run with `SIGIT_LANG=th SIGIT_I18N_MISSES=misses.txt` lists
+every English string it actually shows that the catalog lacks.
 
 | File | What |
 |---|---|
 | `src/main.rs` | `State`, loading and caching rules, frame hooks, scenes |
-| `src/gh.rs` / `src/git.rs` | every `gh` and `git` call |
+| `src/gh.rs` / `src/git.rs` | every `gh` and `git` call, and the `Cmd`s actions show and run |
 | `src/pulse.rs` | the Activity page's data |
 | `src/guard.rs` / `src/risk.rs` | risk checks, confirmations, undo |
 | `src/daily.rs` | notifications, review queue, triage, groups, watches, palette |
 | `src/cache.rs`, `src/config.rs`, `src/settings.rs` | the on-disk cache, preferences, the Settings window's actions |
+| `src/focus.rs` | links that open the exact run or PR |
+| `src/onboarding.rs` | the startup check for git, gh and a sign-in |
+| `src/update.rs` | checking for, downloading and installing a new release |
+| `src/i18n.rs`, `assets/i18n/th.tsv` | the interface language and the Thai catalog |
+| `src/ui/cmd.rs` | highlighted command lines and the hover cards |
 | `src/ui/*.rs` | the shell (custom title bar), and one file per view |
+| `scripts/i18n-check.py`, `scripts/release.*` | the translation check; local release builds |
 
-Design notes for the safety and daily features: `docs/design-notes.md`.
+Design notes (why the safety, daily, refresh, command and translation features work the way
+they do, and what was left out on purpose): `docs/design-notes.md`.
 
 ## License
 
