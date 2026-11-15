@@ -1,6 +1,7 @@
 //! Environments: what's deployed where right now, and a swimlane of deployments over time.
 
-use rune::{Color, El, Shape, TextStyle, canvas, col, el, row, spacer, text};
+use rune::{Color, El, Shape, TextStyle, canvas, col, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::Kit;
 
 use super::{chip, empty, hue, muted, outcome_color, panel, pending, ref_chip, scroll};
@@ -30,14 +31,14 @@ pub fn view(s: &State, k: &Kit) -> El {
         }
     }
     if names.is_empty() {
-        return empty(k, "This repository has no environments or deployments");
+        return super::empty_state(k, "no-envs", &super::I_CLOUD, "No environments yet", "This repository has no environments or deployments on GitHub. They show here once a workflow deploys to one.", None);
     }
     let now = now();
 
     let cards = names.iter().enumerate().fold(row().key("env-cards").w_full().gap(12.0).flex_wrap(), |r, (i, name)| {
         let deps: Vec<&Deployment> = envs.deployments.iter().filter(|d| d.environment == *name).collect();
         let mut card = col()
-            .key(format!("env-{i}"))
+            .key(tf!("env-{i}"))
             .grow(1.0)
             .min_w(240.0)
             .gap(10.0)
@@ -63,7 +64,7 @@ pub fn view(s: &State, k: &Kit) -> El {
         match latest {
             Some(d) => {
                 // A link to the deployed commit.
-                let url = format!("https://github.com/{slug}/commit/{}", d.sha);
+                let url = tf!("https://github.com/{slug}/commit/{}", d.sha);
                 card = card
                     .child(
                         row()
@@ -75,12 +76,12 @@ pub fn view(s: &State, k: &Kit) -> El {
                                     .font(k.ty.mono)
                                     .color(k.c.text_accent)
                                     .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
-                                    .help("Open this commit on GitHub"),
+                                    .help(crate::i18n::t("Open this commit on GitHub")),
                             )
-                            .child(super::copy_button(k, &format!("env-copy-{i}"), d.sha.clone(), "deployed SHA")),
+                            .child(super::copy_button(k, &tf!("env-copy-{i}"), d.sha.clone(), "deployed SHA")),
                     )
-                    .child(muted(k, format!("by {} · {}", d.creator, ago(d.created_at, now))))
-                    .child(muted(k, format!("{} deployments in the last 100", deps.len())));
+                    .child(muted(k, tf!("by {} · {}", d.creator, ago(d.created_at, now))))
+                    .child(muted(k, tf!("{} of the {} most recent deployments", deps.len(), envs.deployments.len())));
             }
             None => card = card.child(muted(k, "No recent deployments")),
         }
@@ -119,18 +120,25 @@ pub fn view(s: &State, k: &Kit) -> El {
         .child(legend_item(k, "inactive", outcome_color(k, Outcome::Neutral)));
 
     let recent = envs.deployments.iter().take(30).enumerate().fold(col().w_full().gap(2.0), |c, (i, d)| {
+        let lane = names.iter().position(|n| *n == d.environment).unwrap_or(0);
+        let url = tf!("https://github.com/{slug}/commit/{}", d.sha);
         c.child(
             row()
-                .key(format!("dep-{i}"))
+                .key(tf!("dep-{i}"))
                 .w_full()
                 .gap(10.0)
-                .py(4.0)
+                .px(8.0)
+                .py(5.0)
+                .radius(k.radius.md)
                 .center_y()
+                .hover(k.c.hover)
+                .help(crate::i18n::t("Open the deployed commit on GitHub"))
+                .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
                 .child(el().size(8.0, 8.0).radius(4.0).fill(outcome_color(k, outcome(&d.state))))
                 .child(text(d.environment.clone()).font(k.ty.ui_medium).color(k.c.text_base).w(120.0).truncate())
-                .child(ref_chip(k, &d.git_ref, hue(1)))
+                .child(ref_chip(k, &d.git_ref, hue(lane + 1)))
                 .child(super::click_to_copy(text(d.sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_muted), k, d.sha.clone(), "deployed SHA"))
-                .child(muted(k, d.creator.clone()))
+                .child(muted(k, d.creator.clone()).truncate().shrink())
                 .child(spacer())
                 .child(muted(k, ago(d.created_at, now))),
         )

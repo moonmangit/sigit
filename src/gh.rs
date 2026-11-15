@@ -11,8 +11,73 @@ use crate::model::{
     Deployment, Envs, Hit, Inbox, Notif, Pr, PrDetail, PrView, QueueInfo, RemoteRepo, RepoMeta, Run, RunView, SearchRepo, parse_time,
 };
 
+// ---------------------------------------------------------------------------------------------
+// The commands the app runs, as you'd type them (Settings → Safety → Show gh / git commands)
+// ---------------------------------------------------------------------------------------------
+
+/// A command an action runs: its program and arguments. Building the arguments in one place
+/// keeps what the app shows ([`Cmd::line`]) the same as what it runs ([`Cmd::run`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cmd {
+    pub program: &'static str,
+    pub args: Vec<String>,
+}
+
+impl Cmd {
+    pub fn new(program: &'static str, args: &[&str]) -> Cmd {
+        Cmd { program, args: args.iter().map(|a| (*a).to_owned()).collect() }
+    }
+
+    pub fn arg(mut self, a: impl Into<String>) -> Cmd {
+        self.args.push(a.into());
+        self
+    }
+
+    pub fn run(&self, cwd: Option<&Path>) -> Result<String, String> {
+        run(self.program, &self.args.iter().map(String::as_str).collect::<Vec<_>>(), cwd)
+    }
+
+    /// As you'd type it in a terminal: arguments with spaces or quotes are quoted, and a long
+    /// one (a review comment, say) is cut short.
+    pub fn line(&self) -> String {
+        line(self.program, &self.args.iter().map(String::as_str).collect::<Vec<_>>())
+    }
+}
+
+/// `program args…` as a shell line.
+pub fn line(program: &str, args: &[&str]) -> String {
+    let quote = |a: &str| {
+        let a = if a.chars().count() > 60 { format!("{}…", a.chars().take(57).collect::<String>()) } else { a.to_owned() };
+        let a = a.replace('\n', "↵");
+        if a.is_empty() || a.contains([' ', '"', '\'', '$', '`', '|', '&', ';', '<', '>', '(', ')', '*', '?', '#', '~']) {
+            format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\""))
+        } else {
+            a
+        }
+    };
+    std::iter::once(program.to_owned()).chain(args.iter().map(|a| quote(a))).collect::<Vec<_>>().join(" ")
+}
+
+thread_local! {
+    /// While [`recording`] runs on this thread: every command started, as a line.
+    static RECORD: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` and returns what it returned with every gh / git command it started, in order.
+pub fn recording<R>(f: impl FnOnce() -> R) -> (R, Vec<String>) {
+    RECORD.with(|r| *r.borrow_mut() = Some(Vec::new()));
+    let out = f();
+    let lines = RECORD.with(|r| r.borrow_mut().take()).unwrap_or_default();
+    (out, lines)
+}
+
 /// Run a program and return stdout, or stderr (trimmed) as the error.
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
+    RECORD.with(|r| {
+        if let Some(v) = r.borrow_mut().as_mut() {
+            v.push(line(program, args));
+        }
+    });
     let mut cmd = Command::new(program);
     cmd.args(args);
     if let Some(dir) = cwd {
@@ -206,52 +271,40 @@ impl MergeMethod {
     }
 }
 
-pub fn approve(slug: &str, n: u64, body: &str) -> Result<String, String> {
-    let n = n.to_string();
-    let mut args = vec!["pr", "review", &n, "-R", slug, "--approve"];
-    if !body.is_empty() {
-        args.extend(["-b", body]);
-    }
-    run("gh", &args, None)
+pub fn approve_cmd(slug: &str, n: u64, body: &str) -> Cmd {
+    let c = Cmd::new("gh", &["pr", "review", &n.to_string(), "-R", slug, "--approve"]);
+    if body.is_empty() { c } else { c.arg("-b").arg(body) }
 }
 
-pub fn request_changes(slug: &str, n: u64, body: &str) -> Result<String, String> {
-    run("gh", &["pr", "review", &n.to_string(), "-R", slug, "--request-changes", "-b", body], None)
+pub fn request_changes_cmd(slug: &str, n: u64, body: &str) -> Cmd {
+    Cmd::new("gh", &["pr", "review", &n.to_string(), "-R", slug, "--request-changes", "-b", body])
 }
 
-pub fn comment(slug: &str, n: u64, body: &str) -> Result<String, String> {
-    run("gh", &["pr", "comment", &n.to_string(), "-R", slug, "-b", body], None)
+pub fn comment_cmd(slug: &str, n: u64, body: &str) -> Cmd {
+    Cmd::new("gh", &["pr", "comment", &n.to_string(), "-R", slug, "-b", body])
 }
 
-pub fn merge(slug: &str, n: u64, method: MergeMethod, delete_branch: bool) -> Result<String, String> {
-    let n = n.to_string();
-    let mut args = vec!["pr", "merge", &n, "-R", slug, method.flag()];
-    if delete_branch {
-        args.push("--delete-branch");
-    }
-    run("gh", &args, None)
+pub fn merge_cmd(slug: &str, n: u64, method: MergeMethod, delete_branch: bool) -> Cmd {
+    let c = Cmd::new("gh", &["pr", "merge", &n.to_string(), "-R", slug, method.flag()]);
+    if delete_branch { c.arg("--delete-branch") } else { c }
 }
 
-pub fn close(slug: &str, n: u64) -> Result<String, String> {
-    run("gh", &["pr", "close", &n.to_string(), "-R", slug], None)
+pub fn close_cmd(slug: &str, n: u64) -> Cmd {
+    Cmd::new("gh", &["pr", "close", &n.to_string(), "-R", slug])
 }
 
-/// `gh pr checkout` in the local clone: fetches the PR's branch and switches to it.
-pub fn checkout_pr(dir: &Path, slug: &str, n: u64) -> Result<String, String> {
-    run("gh", &["pr", "checkout", &n.to_string(), "-R", slug], Some(dir))
+/// `gh pr checkout`, run in the local clone: fetches the PR's branch and switches to it.
+pub fn checkout_pr_cmd(slug: &str, n: u64) -> Cmd {
+    Cmd::new("gh", &["pr", "checkout", &n.to_string(), "-R", slug])
 }
 
-pub fn rerun(slug: &str, id: u64, failed_only: bool) -> Result<String, String> {
-    let id = id.to_string();
-    let mut args = vec!["run", "rerun", &id, "-R", slug];
-    if failed_only {
-        args.push("--failed");
-    }
-    run("gh", &args, None)
+pub fn rerun_cmd(slug: &str, id: u64, failed_only: bool) -> Cmd {
+    let c = Cmd::new("gh", &["run", "rerun", &id.to_string(), "-R", slug]);
+    if failed_only { c.arg("--failed") } else { c }
 }
 
-pub fn cancel(slug: &str, id: u64) -> Result<String, String> {
-    run("gh", &["run", "cancel", &id.to_string(), "-R", slug], None)
+pub fn cancel_cmd(slug: &str, id: u64) -> Cmd {
+    Cmd::new("gh", &["run", "cancel", &id.to_string(), "-R", slug])
 }
 
 /// Cut `s` to at most `max` bytes at a line end.
@@ -292,8 +345,8 @@ pub fn branch_rules(slug: &str, branch: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub fn reopen(slug: &str, n: u64) -> Result<String, String> {
-    run("gh", &["pr", "reopen", &n.to_string(), "-R", slug], None)
+pub fn reopen_cmd(slug: &str, n: u64) -> Cmd {
+    Cmd::new("gh", &["pr", "reopen", &n.to_string(), "-R", slug])
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -323,8 +376,12 @@ pub fn notifications() -> Result<Vec<Notif>, String> {
 }
 
 /// Mark a notification thread read on GitHub ("Done").
+pub fn mark_read_cmd(id: &str) -> Cmd {
+    Cmd::new("gh", &["api", "-X", "PATCH", &format!("notifications/threads/{id}")])
+}
+
 pub fn mark_read(id: &str) -> Result<String, String> {
-    run("gh", &["api", "-X", "PATCH", &format!("notifications/threads/{id}")], None).map(|_| "Marked as done".into())
+    mark_read_cmd(id).run(None).map(|_| "Marked as done".into())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -381,7 +438,7 @@ pub fn queue_info(prs: &[(String, u64)]) -> Result<HashMap<(String, u64), QueueI
 
 /// The failed steps' log, last `lines` lines, without the job/step/timestamp prefix columns.
 pub fn failed_log(slug: &str, id: u64, lines: usize) -> Result<String, String> {
-    let mut out = run("gh", &["run", "view", &id.to_string(), "-R", slug, "--log-failed"], None)?;
+    let mut out = failed_log_cmd(slug, id).run(None)?;
     cap(&mut out, 2_000_000);
     let cleaned: Vec<String> = out
         .lines()
@@ -487,8 +544,17 @@ fn parse_accounts(json: &str) -> Vec<Account> {
 }
 
 /// Make `login` the account gh uses on `host`.
+pub fn switch_account_cmd(host: &str, login: &str) -> Cmd {
+    Cmd::new("gh", &["auth", "switch", "-h", host, "-u", login])
+}
+
 pub fn switch_account(host: &str, login: &str) -> Result<String, String> {
-    run("gh", &["auth", "switch", "-h", host, "-u", login], None).map(|_| format!("Now using {login} on {host}"))
+    switch_account_cmd(host, login).run(None).map(|_| format!("Now using {login} on {host}"))
+}
+
+/// The failing steps' log of a run ("Why it failed").
+pub fn failed_log_cmd(slug: &str, id: u64) -> Cmd {
+    Cmd::new("gh", &["run", "view", &id.to_string(), "-R", slug, "--log-failed"])
 }
 
 /// First lines of `gh --version` and `git --version`.
@@ -506,5 +572,104 @@ mod account_tests {
         assert_eq!((v[0].login.as_str(), v[0].active, v[0].protocol.as_str()), ("a", true, "ssh"));
         assert_eq!(v[1].login, "b");
         assert!(super::parse_accounts("not json").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+    use crate::guard::Action;
+
+    #[test]
+    fn lines_read_like_a_terminal() {
+        assert_eq!(merge_cmd("o/r", 12, MergeMethod::Squash, true).line(), "gh pr merge 12 -R o/r --squash --delete-branch");
+        assert_eq!(comment_cmd("o/r", 3, "looks good, ship it").line(), "gh pr comment 3 -R o/r -b \"looks good, ship it\"");
+        assert_eq!(approve_cmd("o/r", 3, "").line(), "gh pr review 3 -R o/r --approve");
+        // A long body is cut, a newline shown as ↵, quotes escaped.
+        let long = comment_cmd("o/r", 1, &"x".repeat(80)).line();
+        assert!(long.ends_with("x…") && long.chars().count() < 100, "{long}");
+        assert_eq!(comment_cmd("o/r", 1, "a \"b\"\nc").line(), "gh pr comment 1 -R o/r -b \"a \\\"b\\\"↵c\"");
+    }
+
+    /// What an action shows is what it runs: the shown lines come from the same `Cmd`s.
+    #[test]
+    fn actions_show_what_they_run() {
+        let dir = std::path::PathBuf::from(".");
+        let co = Action::Checkout { dir: dir.clone(), slug: "o/r".into(), name: "origin/feat".into(), remote: true };
+        assert_eq!(co.command_lines(false), ["git switch feat", "git switch --track origin/feat"]);
+        let del = Action::DeleteBranch { dir: dir.clone(), name: "old".into(), sha: "abc".into(), force: true, unpushed: Vec::new() };
+        assert_eq!(del.command_lines(false), ["git branch -D old"]);
+        let pull = Action::Pull { dir };
+        let stashed = pull.command_lines(true);
+        assert_eq!(stashed[0], "git stash push --include-untracked -m \"sigit: before Pull\"");
+        assert_eq!(stashed[1], "git pull --ff-only");
+    }
+
+    /// Every action and every undo names the gh / git command it runs (the `match`es in
+    /// `commands` / `command_lines` are exhaustive, so a new action can't skip it).
+    #[test]
+    fn every_action_and_undo_shows_a_command() {
+        use crate::guard::Undo;
+        let (dir, s) = (std::path::PathBuf::from("."), || "o/r".to_owned());
+        let actions = [
+            Action::Merge { slug: s(), number: 1, title: String::new(), method: MergeMethod::Rebase, delete_branch: false },
+            Action::Close { slug: s(), number: 1, title: String::new() },
+            Action::Approve { slug: s(), number: 1, title: String::new(), body: String::new(), confirm: true },
+            Action::RequestChanges { slug: s(), number: 1, body: "fix".into() },
+            Action::Comment { slug: s(), number: 1, body: "hi".into() },
+            Action::Rerun { slug: s(), id: 9, title: String::new(), workflow: String::new(), sha: String::new(), failed_only: true },
+            Action::CancelRun { slug: s(), id: 9, title: String::new(), workflow: String::new(), sha: String::new() },
+            Action::Checkout { dir: dir.clone(), slug: s(), name: "dev".into(), remote: false },
+            Action::PrCheckout { dir: dir.clone(), slug: s(), number: 1 },
+            Action::Pull { dir: dir.clone() },
+            Action::Fetch { dir: dir.clone() },
+            Action::Stash { dir: dir.clone(), op: "drop", name: "stash@{1}".into() },
+            Action::DeleteBranch { dir: dir.clone(), name: "x".into(), sha: "abc".into(), force: false, unpushed: Vec::new() },
+        ];
+        let expected = [
+            "gh pr merge 1 -R o/r --rebase",
+            "gh pr close 1 -R o/r",
+            "gh pr review 1 -R o/r --approve",
+            "gh pr review 1 -R o/r --request-changes -b fix",
+            "gh pr comment 1 -R o/r -b hi",
+            "gh run rerun 9 -R o/r --failed",
+            "gh run cancel 9 -R o/r",
+            "git switch dev",
+            "gh pr checkout 1 -R o/r",
+            "git pull --ff-only",
+            "git fetch --all --prune",
+            "git stash drop stash@{1}",
+            "git branch -d x",
+        ];
+        for (a, want) in actions.iter().zip(expected) {
+            assert_eq!(a.command_lines(false), [want], "{}", a.label());
+        }
+        let undos = [
+            (Undo::ReopenPr { slug: s(), number: 1 }, "gh pr reopen 1 -R o/r"),
+            (Undo::SwitchBack { dir: dir.clone(), branch: "main".into() }, "git switch main"),
+            (Undo::RestoreBranch { dir: dir.clone(), name: "x".into(), sha: "abc".into() }, "git branch x abc"),
+            (Undo::StashPop { dir }, "git stash pop stash@{0}"),
+        ];
+        for (u, want) in undos {
+            assert_eq!(u.command_lines(), [want]);
+        }
+        // The rest of the buttons that run something.
+        assert_eq!(mark_read_cmd("42").line(), "gh api -X PATCH notifications/threads/42");
+        assert_eq!(switch_account_cmd("github.com", "me").line(), "gh auth switch -h github.com -u me");
+        assert_eq!(failed_log_cmd("o/r", 9).line(), "gh run view 9 -R o/r --log-failed");
+        assert_eq!(crate::git::set_global_cmd("user.name", "Ann Lee").line(), "git config --global user.name \"Ann Lee\"");
+        assert!(crate::update::download_cmd("v1", "a.zip", "d").line().starts_with("gh release download v1 --repo "));
+    }
+
+    #[test]
+    fn records_what_ran() {
+        let (_, ran) = recording(|| {
+            let _ = run("git", &["--version"], None);
+            let _ = run("git", &["config", "--get", "user.name"], None);
+        });
+        assert_eq!(ran, ["git --version", "git config --get user.name"]);
+        // Nothing is recorded outside `recording`.
+        let (_, none) = recording(|| ());
+        assert!(none.is_empty());
     }
 }

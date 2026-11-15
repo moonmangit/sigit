@@ -1,7 +1,9 @@
 //! Inbox: what needs you today, across every repo: the review queue (B2), your PRs and who
 //! you're waiting on, GitHub notifications with Done / Snooze (B1), recent runs, issues.
 
-use rune::{El, TextStyle, col, row, spacer, text};
+use super::cmd::CmdTip;
+use rune::{El, TextStyle, col, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Button, ButtonVariant, Kit};
 
 use super::overlays::hint;
@@ -20,9 +22,9 @@ fn wait_tone(secs: i64) -> Outcome {
 
 fn waited(secs: i64) -> String {
     match secs {
-        s if s < 3600 => format!("{}m", s / 60),
-        s if s < 86_400 => format!("{}h", s / 3600),
-        s => format!("{}d", s / 86_400),
+        s if s < 3600 => tf!("{}m", s / 60),
+        s if s < 86_400 => tf!("{}h", s / 3600),
+        s => tf!("{}d", s / 86_400),
     }
 }
 
@@ -63,7 +65,7 @@ pub fn view(s: &State, k: &Kit) -> El {
             .radius(k.radius.lg)
             .fill(k.c.layer_01)
             .border(1.0, k.c.border_weak)
-            .help(tip.to_owned())
+            .help(crate::i18n::t(tip.to_owned()))
             .child(muted(k, label))
             .child(text(n.to_string()).font(TextStyle { size: 28.0, ..k.ty.ui_medium }).color(color))
     };
@@ -86,14 +88,14 @@ pub fn view(s: &State, k: &Kit) -> El {
     let sel = s.queue_sel.min(queue.len().saturating_sub(1));
     let ready = queue.iter().filter(|(i, _)| s.queue_ci(*i).reviewable()).count();
     if !queue.is_empty() {
-        q = q.child(group_title(k, format!("Ready for review: all checks passed ({ready})"), Outcome::Success));
+        q = q.child(group_title(k, tf!("Ready for review: all checks passed ({ready})"), Outcome::Success));
         if ready == 0 {
             q = q.child(muted(k, "None yet: no PR waiting on you has all its checks passed").padding(6.0));
         }
     }
     for (pos, (i, secs)) in queue.iter().enumerate() {
         if pos == ready {
-            q = q.child(group_title(k, format!("Not ready yet: checks failing, running or not run ({})", queue.len() - ready), Outcome::Failure));
+            q = q.child(group_title(k, tf!("Not ready yet: checks failing, running or not run ({})", queue.len() - ready), Outcome::Failure));
         }
         let h = &inbox.review_requested[*i];
         let info = s.queue.get(&(h.repository.name_with_owner.clone(), h.number));
@@ -101,9 +103,9 @@ pub fn view(s: &State, k: &Kit) -> El {
         let mut extra = row().gap(6.0).center_y();
         extra = extra.child(super::ci_chip(k, s.queue_ci(*i)));
         if let Some(i) = info {
-            extra = extra.child(muted(k, format!("+{} −{}", i.additions, i.deletions)).help("Size of the change"));
+            extra = extra.child(muted(k, tf!("+{} −{}", i.additions, i.deletions)).help(crate::i18n::t("Size of the change")));
         }
-        extra = extra.child(chip(k, format!("waiting {}", waited(*secs)), Some(wait_tone(*secs))).help("How long since your review was requested"));
+        extra = extra.child(chip(k, tf!("waiting {}", waited(*secs)), Some(wait_tone(*secs))).help(crate::i18n::t("How long since your review was requested")));
         r = r.child(extra);
         q = q.child(r);
     }
@@ -131,11 +133,11 @@ pub fn view(s: &State, k: &Kit) -> El {
         let mut r = hit_row(k, h, true, t, 1000 + i, false);
         if let Some(info) = info {
             if let Some(o) = ci_outcome(&info.ci) {
-                r = r.child(status_mark(k, o).help(format!("CI: {}", info.ci.to_lowercase())));
+                r = r.child(status_mark(k, o).help(crate::i18n::t(tf!("CI: {}", info.ci.to_lowercase()))));
             }
             if !info.waiting_on.is_empty() {
                 let since = (t - info.requested_at).max(0);
-                r = r.child(chip(k, format!("waiting on {} · {}", info.waiting_on.join(", "), waited(since)), Some(wait_tone(since))));
+                r = r.child(chip(k, tf!("waiting on {} · {}", info.waiting_on.join(", "), waited(since)), Some(wait_tone(since))));
             }
         }
         mine = mine.child(r);
@@ -148,31 +150,38 @@ pub fn view(s: &State, k: &Kit) -> El {
     }
     for (i, n) in notifs.iter().take(25).enumerate() {
         let (n1, n2, n3, n4) = ((*n).clone(), n.id.clone(), n.id.clone(), n.id.clone());
-        let reason = n.reason.replace('_', " ");
+        let reason = crate::i18n::t(n.reason.replace('_', " "));
         nl = nl.child(
             row()
-                .key(format!("n-{i}"))
+                .key(tf!("n-{i}"))
                 .w_full()
                 .gap(8.0)
                 .px(8.0)
                 .py(5.0)
                 .radius(k.radius.md)
                 .center_y()
+                .hover(k.c.hover)
+                .hover_group()
                 .child(
                     col()
                         .grow(1.0)
                         .shrink()
                         .gap(2.0)
-                        .radius(k.radius.md)
-                        .hover(k.c.hover)
                         .on_press_tx(move |s: &mut State, tx| s.open_notif(&n1, tx))
-                        .help("Open it here")
+                        .help(crate::i18n::t("Open it here"))
                         .child(text(n.title.clone()).font(k.ty.ui).color(k.c.text_base).truncate())
-                        .child(text(format!("{} · {} · {}", n.repo.split_once('/').map_or(n.repo.as_str(), |(_, r)| r), reason, ago_str(&n.updated_at, t))).font(k.ty.text_xsmall).color(k.c.text_faint).truncate()),
+                        .child(text(tf!("{} · {} · {}", n.repo.split_once('/').map_or(n.repo.as_str(), |(_, r)| r), reason, ago_str(&n.updated_at, t))).font(k.ty.text_xsmall).color(k.c.text_faint).truncate()),
                 )
-                .child(Button::new("1h").variant(ButtonVariant::GhostMuted).help("Snooze for an hour (on this computer only)").on_press(move |s: &mut State| s.notif_snooze(n2.clone(), 3600)).build(k).key("s1"))
-                .child(Button::new("Tomorrow").variant(ButtonVariant::GhostMuted).help("Snooze until tomorrow (on this computer only)").on_press(move |s: &mut State| s.notif_snooze(n3.clone(), 18 * 3600)).build(k).key("s2"))
-                .child(Button::new("Done").variant(ButtonVariant::Outline).help("Mark as read on GitHub").on_press(move |s: &mut State| s.notif_done(n4.clone())).build(k).key("done")),
+                // Snoozing is a second thought: it shows when the row is hovered or focused.
+                .child(
+                    row()
+                        .gap(2.0)
+                        .center_y()
+                        .group_opacity(0.0, 1.0)
+                        .child(Button::new(crate::i18n::t("1h")).variant(ButtonVariant::GhostMuted).help(crate::i18n::t("Snooze for an hour (on this computer only)")).on_press(move |s: &mut State| s.notif_snooze(n2.clone(), 3600)).build(k).key("s1"))
+                        .child(Button::new(crate::i18n::t("Tomorrow")).variant(ButtonVariant::GhostMuted).help(crate::i18n::t("Snooze until tomorrow (on this computer only)")).on_press(move |s: &mut State| s.notif_snooze(n3.clone(), 18 * 3600)).build(k).key("s2")),
+                )
+                .child({ let tip = s.with_commands(crate::i18n::t("Mark as read on GitHub"), &[crate::gh::mark_read_cmd(&n4).line()]); Button::new(crate::i18n::t("Done")).variant(ButtonVariant::Outline).on_press(move |s: &mut State| s.notif_done(n4.clone())).build(k).key("done").cmd_tip(s, tip) }),
         );
     }
 
@@ -183,7 +192,7 @@ pub fn view(s: &State, k: &Kit) -> El {
             let (slug2, id) = (slug.clone(), r.database_id);
             c.child(
                 row()
-                    .key(format!("run-{i}"))
+                    .key(tf!("run-{i}"))
                     .w_full()
                     .gap(10.0)
                     .px(8.0)
@@ -191,7 +200,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                     .radius(k.radius.md)
                     .center_y()
                     .hover(k.c.hover)
-                    .help("Open the run")
+                    .help(crate::i18n::t("Open the run"))
                     .on_press(move |s: &mut State| s.open_run(&slug2, id))
                     .child(status_mark(k, r.outcome()))
                     .child(
@@ -200,7 +209,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                             .shrink()
                             .gap(2.0)
                             .child(text(r.display_title.clone()).font(k.ty.ui).color(k.c.text_base).truncate())
-                            .child(text(format!("{} · {} · {}", short_repo(slug), r.workflow_name, r.head_branch)).font(k.ty.text_xsmall).color(k.c.text_faint).truncate()),
+                            .child(text(tf!("{} · {} · {}", short_repo(slug), r.workflow_name, r.head_branch)).font(k.ty.text_xsmall).color(k.c.text_faint).truncate()),
                     )
                     .child(muted(k, duration(r.duration(t))))
                     .child(muted(k, ago_str(&r.created_at, t)).w(64.0)),
@@ -222,18 +231,18 @@ pub fn view(s: &State, k: &Kit) -> El {
     let right = col()
         .w_full()
         .gap(12.0)
-        .child(panel(k, "notifs", &format!("Notifications ({})", notifs.len()), Some(hint(k, "h-notif", "From GitHub. Done marks read there too; snooze is local.", 1)), nl))
+        .child(panel(k, "notifs", &tf!("Notifications ({})", notifs.len()), Some(hint(k, "h-notif", "From GitHub. Done marks read there too; snooze is local.", 1)), nl))
         .child(panel(k, "runs", "Recent workflow runs", Some(muted(k, "your 6 most active repos")), runs_body));
 
     let mut header = row().w_full().center_y().child(
         col()
-            .gap(2.0)
+            .gap(4.0)
             .child(text("Today").font(TextStyle { size: 22.0, ..k.ty.ui_medium }).color(k.c.text_strong))
             .child(muted(k, "Everything waiting on you, across your repositories")),
     );
     header = header.child(spacer());
     if let Some(e) = &s.inbox.error {
-        header = header.child(chip(k, format!("Last refresh failed: {e}"), Some(Outcome::Failure)));
+        header = header.child(chip(k, tf!("Last refresh failed: {e}"), Some(Outcome::Failure)));
     }
     scroll(
         "inbox-scroll",
@@ -254,7 +263,7 @@ fn hit_row(k: &Kit, h: &Hit, is_pr: bool, now: i64, i: usize, selected: bool) ->
         line = line.child(chip(k, "Draft", None));
     }
     let r = row()
-        .key(format!("hit-{i}"))
+        .key(tf!("hit-{i}"))
         .w_full()
         .gap(10.0)
         .px(8.0)
@@ -270,12 +279,12 @@ fn hit_row(k: &Kit, h: &Hit, is_pr: bool, now: i64, i: usize, selected: bool) ->
                 .shrink()
                 .gap(2.0)
                 .child(line)
-                .child(text(format!("{} #{} · {} · updated {}", short_repo(&slug), n, h.author.login, ago_str(&h.updated_at, now))).font(k.ty.text_xsmall).color(k.c.text_faint)),
+                .child(text(tf!("{} #{} · {} · updated {}", short_repo(&slug), n, h.author.login, ago_str(&h.updated_at, now))).font(k.ty.text_xsmall).color(k.c.text_faint).truncate()),
         );
     if is_pr {
-        r.help("Open the pull request").on_press(move |s: &mut State| s.open_pr(&slug, n))
+        r.help(crate::i18n::t("Open the pull request")).on_press(move |s: &mut State| s.open_pr(&slug, n))
     } else {
         // Issues open on GitHub: this app is about PRs, runs and code.
-        r.help("Open on GitHub").on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
+        r.help(crate::i18n::t("Open on GitHub")).on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
     }
 }

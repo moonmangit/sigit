@@ -13,6 +13,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[macro_use]
+mod i18n;
 mod activity;
 mod cache;
 mod focus;
@@ -105,6 +107,12 @@ pub mod ttl {
     pub const RUNNING: i64 = 15;
     /// The local clone: status, branches, the commit graph.
     pub const LOCAL: i64 = 20;
+    /// Opening a page or coming back to the window re-checks what's older than this.
+    pub const REVALIDATE: i64 = 10;
+    /// Activity on those occasions: it takes a few seconds and many requests to gather.
+    pub const PULSE_REVALIDATE: i64 = 60;
+    /// Seconds away from the window before coming back re-checks the page.
+    pub const AWAY: u64 = 5;
     /// Default branch, protection, admin.
     pub const META: i64 = 900;
     /// The Activity page (many requests per repo).
@@ -221,9 +229,9 @@ impl Place {
     /// "Pull requests · anomalyco/rune", for the buttons' tooltips.
     pub fn label(&self) -> String {
         match (&self.repo, &self.group) {
-            (Some(r), _) => format!("{} · {r}", self.page.label()),
-            (_, Some(g)) => format!("Group · {g}"),
-            _ => self.page.label().to_owned(),
+            (Some(r), _) => tf!("{} · {r}", crate::i18n::t(self.page.label())),
+            (_, Some(g)) => tf!("Group · {g}"),
+            _ => crate::i18n::t(self.page.label()),
         }
     }
 }
@@ -348,6 +356,12 @@ pub struct State {
     pub versions: Option<(String, String)>,
     /// Settings → About → Check for updates.
     pub update: update::Update,
+    /// The command hover card showing now (the button the pointer rests on).
+    pub cmd_tip: Option<ui::cmd::Tip>,
+    /// When the window lost focus, on the app clock (None while it has it).
+    pub away_since: Option<f64>,
+    /// Seconds since the app started, as `poll` last heard (virtual in a headless run).
+    pub clock: f64,
     /// Where each resizable row is (x, width in window points), for its drag handles.
     pub split_boxes: HashMap<&'static str, [f32; 2]>,
     pub palette: bool,
@@ -482,6 +496,9 @@ fn init() -> State {
         git_saved: (String::new(), String::new()),
         versions: None,
         update: update::Update::NotChecked,
+        cmd_tip: None,
+        away_since: None,
+        clock: 0.0,
         split_boxes: HashMap::new(),
         palette: false,
         palette_q: TextEdit::new(""),
@@ -520,6 +537,8 @@ fn init() -> State {
         group_name: TextEdit::new(""),
     };
     s.collapsed = s.prefs.collapsed.iter().cloned().collect();
+    // Messages built before the first frame (toasts, risk checks) are in the right language too.
+    i18n::apply(s.prefs.language);
     s.settings_prod = TextEdit::new(s.prefs.prod_names.join(", "));
     s.settings_sensitive = TextEdit::new(s.prefs.sensitive.join("\n"));
     // B8: last session's data first, so the first frame is full; fresh data replaces it.
@@ -682,29 +701,55 @@ impl State {
             self.save_prefs();
         }
         self.page = page;
-        self.ensure_page();
+        self.revalidate_page();
     }
 
-    /// Switch page; load only what it shows that's missing or stale (see `ttl`).
+    /// Switch page: what's cached shows at once, and is checked again (`revalidate_page`).
     pub fn show(&mut self, page: Page) {
         self.remember(&Place::new(page, self.cur.clone(), self.group_cur.clone()));
         self.page = page;
-        self.ensure_page();
+        self.revalidate_page();
     }
 
-    /// Load what the page shows only where it's missing or older than its `ttl`: opening a
-    /// page, going back, and the 30 s tick. Fresh data is shown as is, with no request.
+    /// The window lost or got focus: coming back after a while checks the page again.
+    pub fn window_focus(&mut self, focused: bool) {
+        if !focused {
+            self.away_since = Some(self.clock);
+            return;
+        }
+        if self.away_since.take().is_some_and(|t| self.clock - t >= ttl::AWAY as f64) {
+            self.revalidate_page();
+        }
+    }
+
+    /// The 30 s tick: reload what the page shows where it's missing or older than its `ttl`.
+    /// Fresh data is shown as is, with no request.
     pub fn ensure_page(&mut self) {
+        self.load_stale(i64::MAX);
+    }
+
+    /// Opening a page (a tab, a repo, back / forward) or coming back to the window: what's
+    /// cached shows at once and is checked again in the background, so the page is current
+    /// without pressing Refresh. Anything fetched in the last few seconds isn't asked again
+    /// (flicking between tabs doesn't refetch), and Activity, which is slow to gather, at most
+    /// once a minute.
+    pub fn revalidate_page(&mut self) {
+        self.load_stale(ttl::REVALIDATE);
+    }
+
+    /// Load what the page shows where it's missing or older than its `ttl`, or than `cap`
+    /// seconds when that's shorter.
+    fn load_stale(&mut self, cap: i64) {
         let ts = |d: Option<&RepoData>, f: fn(&RepoData, i64) -> bool, ttl: i64| d.is_none_or(|d| f(d, ttl));
         match self.page {
             Page::Inbox => {
-                if self.inbox.stale(ttl::GH) {
+                if self.inbox.stale(ttl::GH.min(cap)) {
                     self.refresh_inbox();
                 }
-                if self.notifs.stale(ttl::GH) {
+                if self.notifs.stale(ttl::GH.min(cap)) {
                     self.refresh_notifications();
                 }
-                if self.pulse.stale(ttl::PULSE) || (!self.pulse.loading && self.pulse_key != self.pulse_key_now()) {
+                if self.pulse.stale(ttl::PULSE.min(cap.max(ttl::PULSE_REVALIDATE))) || (!self.pulse.loading && self.pulse_key != self.pulse_key_now()) {
                     self.refresh_pulse();
                 }
                 return;
@@ -713,7 +758,7 @@ impl State {
             _ => {}
         }
         let d = self.rd();
-        let (meta, status) = (ts(d, |d, t| d.meta.stale(t), ttl::META), ts(d, |d, t| d.status.stale(t), ttl::LOCAL));
+        let (meta, status) = (ts(d, |d, t| d.meta.stale(t), ttl::META), ts(d, |d, t| d.status.stale(t), ttl::LOCAL.min(cap)));
         if meta {
             self.refresh_meta();
         }
@@ -724,37 +769,37 @@ impl State {
         match self.page {
             Page::Pulls => {
                 let other_state = d.is_some_and(|d| d.prs_state != self.pr_state && d.prs.data.is_some() && !d.prs.loading);
-                if other_state || ts(d, |d, t| d.prs.stale(t), ttl::GH) {
+                if other_state || ts(d, |d, t| d.prs.stale(t), ttl::GH.min(cap)) {
                     self.load_prs();
                 }
-                if self.pr_sel.is_some() && self.pr_detail.stale(ttl::DETAIL) {
+                if self.pr_sel.is_some() && self.pr_detail.stale(ttl::DETAIL.min(cap)) {
                     self.load_pr_detail();
                 }
             }
             Page::Actions => {
-                let runs_ttl = if self.runs_running() { ttl::RUNNING } else { ttl::RUNS };
+                let runs_ttl = if self.runs_running() { ttl::RUNNING.min(cap) } else { ttl::RUNS.min(cap) };
                 if ts(d, |d, t| d.runs.stale(t), runs_ttl) {
                     self.load_runs();
                 }
                 let sel_running = self.run_sel.is_some_and(|id| self.run_running(id));
-                if self.run_sel.is_some() && self.run_detail.stale(if sel_running { ttl::RUNNING } else { ttl::DETAIL }) {
+                if self.run_sel.is_some() && self.run_detail.stale(if sel_running { ttl::RUNNING.min(cap) } else { ttl::DETAIL.min(cap) }) {
                     self.load_run_detail();
                 }
             }
             Page::Envs => {
-                if ts(d, |d, t| d.envs.stale(t), ttl::GH) {
+                if ts(d, |d, t| d.envs.stale(t), ttl::GH.min(cap)) {
                     self.refresh_envs();
                 }
             }
             Page::Commits => {
                 let other = d.is_some_and(|d| !d.graph.loading && d.graph.data.as_ref().is_some_and(|g| g.all != self.all_branches));
-                if other || ts(d, |d, t| d.graph.stale(t), ttl::LOCAL) {
+                if other || ts(d, |d, t| d.graph.stale(t), ttl::LOCAL.min(cap)) {
                     self.refresh_graph();
                 }
                 // A commit never changes: its detail is loaded once.
             }
             Page::Branches => {
-                let (branches, tools) = (ts(d, |d, t| d.branches.stale(t), ttl::LOCAL), ts(d, |d, t| d.stashes.stale(t) || d.cleanup.stale(t), ttl::LOCAL));
+                let (branches, tools) = (ts(d, |d, t| d.branches.stale(t), ttl::LOCAL.min(cap)), ts(d, |d, t| d.stashes.stale(t) || d.cleanup.stale(t), ttl::LOCAL.min(cap)));
                 if branches {
                     self.refresh_branches();
                 }
@@ -825,7 +870,7 @@ impl State {
             }
             Err(e) => {
                 s.inbox.finish(Err(e.clone()));
-                s.toast(format!("gh: {e}"), true);
+                s.toast(crate::i18n::t(tf!("gh: {e}")), true);
             }
         });
     }
@@ -893,7 +938,7 @@ impl State {
         };
         self.prefs.tracked = list;
         self.save_prefs();
-        self.toast_undo(format!("{} {slug}", if now_tracked { "Tracking" } else { "Stopped tracking" }), Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t(tf!("{} {slug}", if now_tracked { "Tracking" } else { "Stopped tracking" })), Some(guard::Undo::Prefs(Box::new(before))));
         self.refresh_pulse();
     }
 
@@ -901,7 +946,7 @@ impl State {
         let before = self.prefs.clone();
         self.prefs.tracked.clear();
         self.save_prefs();
-        self.toast_undo("Tracking your pinned repos and your groups again".into(), Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t("Tracking your pinned repos and your groups again"), Some(guard::Undo::Prefs(Box::new(before))));
         self.refresh_pulse();
     }
 
@@ -1190,7 +1235,7 @@ impl State {
             s.repo_searching = false;
             match r {
                 Ok(hits) => s.repo_hits = (q, hits),
-                Err(e) => s.toast(format!("Repo search failed: {e}"), true),
+                Err(e) => s.toast(crate::i18n::t(tf!("Repo search failed: {e}")), true),
             }
         });
     }
@@ -1216,7 +1261,7 @@ impl State {
                 s.pr_searching = false;
                 match r {
                     Ok(prs) => s.pr_hits = Some((key, prs)),
-                    Err(e) => s.toast(format!("PR search failed: {e}"), true),
+                    Err(e) => s.toast(crate::i18n::t(tf!("PR search failed: {e}")), true),
                 }
             },
         );
@@ -1251,17 +1296,31 @@ impl State {
             return; // a double click doesn't run it twice
         }
         self.busy.push(label.clone());
-        jobs::spawn(self, work, move |s, r| {
+        jobs::spawn(self, move || gh::recording(work), move |s, (r, commands)| {
             s.busy.retain(|b| *b != label);
+            let ran = s.ran_lines(&commands);
             match r {
                 Ok(out) => {
                     let line = out.lines().map(str::trim).rfind(|l| !l.is_empty()).map(str::to_owned);
-                    s.toast(line.unwrap_or_else(|| format!("{label}: done")), false);
+                    s.toast(crate::i18n::t(line.unwrap_or_else(|| tf!("{label}: done"))) + &ran, false);
                     after(s);
                 }
-                Err(e) => s.toast(format!("{label} failed: {e}"), true),
+                Err(e) => s.toast(crate::i18n::t(tf!("{label} failed: {e}")) + &ran, true),
             }
         });
+    }
+
+    /// "\n$ gh pr merge 12 --squash …" for a toast, when Settings shows commands; else empty.
+    pub fn ran_lines(&self, commands: &[String]) -> String {
+        if !self.prefs.show_commands || commands.is_empty() {
+            return String::new();
+        }
+        commands.iter().map(|c| format!("\n$ {c}")).collect()
+    }
+
+    /// A button's tooltip: `help` and the commands it runs (see `ui::cmd::CmdTip`).
+    pub fn with_commands(&self, help: impl Into<String>, commands: &[String]) -> ui::cmd::Tip {
+        ui::cmd::Tip::new(help, commands.to_vec())
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1274,8 +1333,13 @@ impl State {
             return;
         }
         if let Err(e) = config::save_prefs(&self.prefs) {
-            self.toast(format!("Couldn't save preferences: {e}"), true);
+            self.toast(crate::i18n::t(tf!("Couldn't save preferences: {e}")), true);
         }
+    }
+
+    pub fn set_language(&mut self, l: config::Language) {
+        self.prefs.language = l;
+        self.save_prefs();
     }
 
     pub fn set_theme(&mut self, t: config::Theme) {
@@ -1286,7 +1350,7 @@ impl State {
     pub fn toggle_pin(&mut self, slug: &str) {
         let before = self.prefs.clone();
         let pinned = !self.prefs.pinned.iter().any(|p| p == slug);
-        self.toast_undo(format!("{} {slug}", if pinned { "Pinned" } else { "Unpinned" }), Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t(tf!("{} {slug}", if pinned { "Pinned" } else { "Unpinned" })), Some(guard::Undo::Prefs(Box::new(before))));
         match self.prefs.pinned.iter().position(|p| p == slug) {
             Some(i) => {
                 self.prefs.pinned.remove(i);
@@ -1298,7 +1362,7 @@ impl State {
 
     pub fn toggle_in_group(&mut self, group: &str, slug: &str) {
         let before = self.prefs.clone();
-        self.toast_undo(format!("Updated group {group}"), Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t(tf!("Updated group {group}")), Some(guard::Undo::Prefs(Box::new(before))));
         let Some(g) = self.prefs.groups.iter_mut().find(|g| g.name == group) else { return };
         match g.repos.iter().position(|r| r == slug) {
             Some(i) => {
@@ -1373,14 +1437,14 @@ impl State {
         }
         self.prefs.owner_order = order;
         self.save_prefs();
-        self.toast_undo(format!("Moved {owner}"), Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t(tf!("Moved {owner}")), Some(guard::Undo::Prefs(Box::new(before))));
     }
 
     pub fn reset_owner_order(&mut self) {
         let before = self.prefs.clone();
         self.prefs.owner_order.clear();
         self.save_prefs();
-        self.toast_undo("Organizations back in the default order (you first, then A–Z)".into(), Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t("Organizations back in the default order (you first, then A–Z)"), Some(guard::Undo::Prefs(Box::new(before))));
     }
 
     pub fn owner_style(&self, owner: &str) -> Option<&config::OwnerStyle> {
@@ -1408,7 +1472,7 @@ impl State {
             self.prefs.owner_styles.push(config::OwnerStyle { owner: owner.clone(), color, icon });
         }
         self.save_prefs();
-        self.toast_undo(if reset { format!("{owner}: default look") } else { format!("{owner}: saved") }, Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t(if reset { tf!("{owner}: default look") } else { tf!("{owner}: saved") }), Some(guard::Undo::Prefs(Box::new(before))));
     }
 
     /// A pinned repo dragged from `from` to `to`.
@@ -1445,7 +1509,7 @@ impl State {
 
     pub fn delete_group(&mut self, name: &str) {
         let before = self.prefs.clone();
-        self.toast_undo(format!("Deleted group {name}"), Some(guard::Undo::Prefs(Box::new(before))));
+        self.toast_undo(crate::i18n::t(tf!("Deleted group {name}")), Some(guard::Undo::Prefs(Box::new(before))));
         self.prefs.groups.retain(|g| g.name != name);
         self.collapsed.remove(&format!("g:{name}"));
         self.save_prefs();
@@ -1463,7 +1527,7 @@ impl State {
         let name = self.group_name.text.trim().to_owned();
         let taken = self.prefs.groups.iter().any(|g| g.name == name && Some(&g.name) != edit.rename.as_ref());
         if name.is_empty() || taken {
-            self.toast(if taken { format!("There's already a group called {name}") } else { "A group needs a name".into() }, true);
+            self.toast(crate::i18n::t(if taken { tf!("There's already a group called {name}") } else { "A group needs a name".into() }), true);
             self.group_edit = Some(edit);
             return;
         }
@@ -1518,23 +1582,23 @@ impl State {
         self.prefs.prod_names = self.settings_prod.text.split(',').map(|x| x.trim().to_owned()).filter(|x| !x.is_empty()).collect();
         self.prefs.sensitive = self.settings_sensitive.text.lines().map(|x| x.trim().to_owned()).filter(|x| !x.is_empty()).collect();
         self.save_prefs();
-        self.toast("Safety settings saved".into(), false);
+        self.toast(crate::i18n::t("Safety settings saved"), false);
     }
 
     fn add_local_repo(&mut self, dir: PathBuf) {
         let Some(top) = git::toplevel(&dir) else {
-            self.toast(format!("{} isn't a git repository", dir.display()), true);
+            self.toast(crate::i18n::t(tf!("{} isn't a git repository", dir.display())), true);
             return;
         };
         let Some(slug) = git::slug_of(&top) else {
-            self.toast("Its `origin` remote isn't on GitHub".into(), true);
+            self.toast(crate::i18n::t("Its `origin` remote isn't on GitHub"), true);
             return;
         };
         self.add_repo(slug.clone(), Some(top));
         let saved: Vec<config::Saved> =
             self.repos.iter().filter_map(|r| Some(config::Saved { slug: r.slug.clone(), path: r.path.clone()? })).collect();
         if let Err(e) = config::save(&saved) {
-            self.toast(format!("Couldn't save the repo list: {e}"), true);
+            self.toast(crate::i18n::t(tf!("Couldn't save the repo list: {e}")), true);
         }
         self.select_repo(&slug, Page::Commits);
     }
@@ -1546,7 +1610,7 @@ pub fn ask_local_repo(s: &mut State, tx: &mut Tx) {
     tx.open_folder(options, |s: &mut State, r, _| match r {
         Ok(Some(dir)) => s.add_local_repo(dir),
         Ok(None) => {}
-        Err(e) => s.toast(e.to_string(), true),
+        Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
     });
 }
 
@@ -1563,7 +1627,8 @@ pub fn open_url(tx: &mut Tx, url: &str) {
 /// Timers: toasts fade (5 s, 10 s with Undo); a merge's grace period runs out; the page reloads
 /// what went stale (`ttl`: runs every 15 s while one is running); watches every 30 s;
 /// notifications every 60 s; the cache is saved every 3 minutes.
-fn poll(s: &mut State, _: f64, tx: &mut Tx) -> bool {
+fn poll(s: &mut State, clock: f64, tx: &mut Tx) -> bool {
+    s.clock = clock;
     let mut changed = false;
     let before = s.toasts.len();
     s.toasts.retain(|t| t.born.elapsed() < Duration::from_secs(if t.undo.is_some() { 10 } else { 5 }));
@@ -1672,6 +1737,17 @@ fn on_key(s: &mut State, ev: &KeyEvent, _: &mut Tx) -> bool {
     }
     false
 }
+
+/// The theme's Inter and IBM Plex Mono, plus Noto Sans Thai (SIL Open Font License, see
+/// `assets/fonts/NotoSansThai-OFL.txt`) so Thai looks the same on every computer.
+const FONTS: &[&[u8]] = &[
+    rune_theme_opencode::FONTS[0],
+    rune_theme_opencode::FONTS[1],
+    rune_theme_opencode::FONTS[2],
+    include_bytes!("../assets/fonts/NotoSansThai.ttf"),
+];
+/// Latin in Inter; Thai, which Inter lacks, falls through to Noto Sans Thai.
+const FAMILIES: (&str, &str) = ("Inter, Noto Sans Thai", "IBM Plex Mono, Noto Sans Thai");
 
 fn view(s: &State, cx: &mut Cx<State>) -> El {
     ui::view(s, cx)
@@ -1792,14 +1868,17 @@ fn main() {
                 s.refresh_prs();
             }),
             ("commits", |s: &mut State| {
-                s.select_repo("anomalyco/rune", Page::Commits);
+                // Any repo with a local clone (Commits reads one).
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
                 if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
                     s.select_commit(&sha);
                 }
             }),
             ("branches", |s: &mut State| {
                 s.branch_view = 1;
-                s.select_repo("anomalyco/rune", Page::Branches);
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Branches);
             }),
             ("merge", |s: &mut State| {
                 // Only the risk check runs (read-only); nothing is merged without the dialog.
@@ -1846,6 +1925,180 @@ fn main() {
                 s.update = update::Update::Available { tag: "v0.2.0".into(), version: "0.2.0".into(), url: String::new() };
             }),
             ("guide", |s: &mut State| s.guide_open = true),
+            ("settings-safety", |s: &mut State| s.open_settings(3)),
+            ("settings-about", |s: &mut State| s.open_settings(8)),
+            ("cmd-failed-run", |s: &mut State| {
+                // The first run, shown as failed (Re-run failed jobs, Why it failed).
+                s.select_repo("anomalyco/rune", Page::Actions);
+                let id = s.data.get_mut("anomalyco/rune").and_then(|d| d.runs.data.as_mut()).and_then(|r| r.first_mut()).map(|r| {
+                    r.status = "completed".into();
+                    r.conclusion = "failure".into();
+                    r.database_id
+                });
+                if let Some(id) = id {
+                    s.select_run(id);
+                }
+            }),
+            ("cmd-running-run", |s: &mut State| {
+                // The first run, shown as running (Cancel run).
+                s.select_repo("anomalyco/rune", Page::Actions);
+                let id = s.data.get_mut("anomalyco/rune").and_then(|d| d.runs.data.as_mut()).and_then(|r| r.first_mut()).map(|r| {
+                    r.status = "in_progress".into();
+                    r.conclusion = String::new();
+                    r.database_id
+                });
+                if let Some(id) = id {
+                    s.select_run(id);
+                }
+            }),
+            ("cmd-stash-continue", |s: &mut State| {
+                // A checkout that finds uncommitted changes: the dialog offers Stash and continue.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map(|r| (r.slug.clone(), r.path.clone().unwrap_or_default()));
+                if let Some((slug, dir)) = local {
+                    s.select_repo(&slug, Page::Branches);
+                    s.pending = Some(guard::Pending {
+                        action: guard::Action::Checkout { dir, slug, name: "dev".into(), remote: false },
+                        checking: false,
+                        risk: risk::Risk::new(risk::Level::Medium),
+                        blocked: None,
+                        dirty: vec!["src/cli.rs".into(), "README.md".into()],
+                        word: None,
+                    });
+                }
+            }),
+            ("aged-prs", |s: &mut State| {
+                // Pull requests fetched a minute ago: fresh for the 30 s tick, so only a
+                // revalidation (coming back to the window) reloads them.
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                if let Some(d) = s.data.get_mut("anomalyco/rune") {
+                    d.prs.at = Some(model::now() - 60);
+                    d.status.at = Some(model::now() - 60);
+                }
+            }),
+            // Screens for checking each button's command tooltip (sample data where the real
+            // repo has none; nothing runs).
+            ("cmd-stashes", |s: &mut State| {
+                let local = s.repos.iter().find(|r| r.path.is_some()).map(|r| r.slug.clone()).unwrap_or_default();
+                s.select_repo(&local, Page::Branches);
+                s.branch_view = 2;
+                s.refresh_branch_tools();
+                if let Some(d) = s.data.get_mut(&local) {
+                    let t = model::now();
+                    d.stashes.data = Some(vec![
+                        model::Stash { name: "stash@{0}".into(), message: "On main: sigit: before Checkout dev".into(), time: t - 600 },
+                        model::Stash { name: "stash@{1}".into(), message: "WIP on feat: try a new layout".into(), time: t - 86_400 },
+                    ]);
+                }
+            }),
+            ("cmd-cleanup", |s: &mut State| {
+                let local = s.repos.iter().find(|r| r.path.is_some()).map(|r| r.slug.clone()).unwrap_or_default();
+                s.select_repo(&local, Page::Branches);
+                s.branch_view = 3;
+                s.refresh_branch_tools();
+                if let Some(d) = s.data.get_mut(&local) {
+                    d.cleanup.data = Some(vec![
+                        model::Cleanup { name: "fix/old-typo".into(), sha: "a1b2c3d".into(), merged: true, gone: true, stale_days: None, unpushed: Vec::new() },
+                        model::Cleanup { name: "spike/idea".into(), sha: "d4e5f6a".into(), merged: false, gone: false, stale_days: Some(120), unpushed: vec!["d4e5f6a try it".into()] },
+                        model::Cleanup { name: "feat/done".into(), sha: "b7c8d9e".into(), merged: true, gone: false, stale_days: None, unpushed: Vec::new() },
+                    ]);
+                }
+            }),
+            ("cmd-undo", |s: &mut State| {
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                s.toast_undo("✓ Closed pull request #1004".into(), Some(guard::Undo::ReopenPr { slug: "anomalyco/rune".into(), number: 1004 }));
+            }),
+            ("cmd-accounts", |s: &mut State| {
+                s.open_settings(1);
+                let acct = |login: &str, active: bool| gh::Account { host: "github.com".into(), login: login.into(), active, ok: true, scopes: "repo, workflow".into(), source: "keyring".into(), protocol: "https".into() };
+                s.accounts.data = Some(vec![acct("octocat", true), acct("octo-work", false)]);
+            }),
+            ("cmd-git-identity", |s: &mut State| {
+                s.open_settings(2);
+                s.git_name = TextEdit::new("Ann Lee");
+                s.git_email = TextEdit::new("ann@example.com");
+            }),
+            ("cmd-branch-checkout", |s: &mut State| {
+                let local = s.repos.iter().find(|r| r.path.is_some()).map(|r| r.slug.clone()).unwrap_or_default();
+                s.branch_view = 1;
+                s.select_repo(&local, Page::Branches);
+                s.branch_sel = Some("origin/main".into());
+            }),
+            ("cmd-commit-checkout", |s: &mut State| {
+                let local = s.repos.iter().find(|r| r.path.is_some()).map(|r| r.slug.clone()).unwrap_or_default();
+                s.select_repo(&local, Page::Commits);
+                // A commit with a branch on it, so it offers "Check out".
+                let sha = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.iter().find(|c| c.refs.iter().any(|r| !r.starts_with("tag: ") && !r.starts_with("HEAD")))).map(|c| c.sha.clone());
+                if let Some(sha) = sha {
+                    s.select_commit(&sha);
+                }
+            }),
+            ("activity-log-commands", |s: &mut State| {
+                // The activity log with entries that ran commands (sample entries, nothing runs).
+                s.open_settings(6);
+                let t = model::now();
+                let e = |at: i64, action: &str, ok: bool, detail: &str, commands: &[&str]| activity::Entry {
+                    at: t - at, repo: "anomalyco/rune".into(), action: action.into(), ok, detail: detail.into(), commands: commands.iter().map(|c| (*c).to_owned()).collect(),
+                };
+                s.activity = vec![
+                    e(60, "Merge #1004", true, "✓ Squashed and merged pull request #1004", &["gh pr merge 1004 -R anomalyco/rune --squash --delete-branch"]),
+                    e(600, "Checkout origin/feat", true, "Switched to feat", &["git stash push --include-untracked -m \"sigit: before Checkout origin/feat\"", "git switch feat", "git switch --track origin/feat"]),
+                    e(3600, "Re-run failed jobs of 4521", false, "run 4521 cannot be rerun; its workflow file may be broken", &["gh run rerun 4521 -R anomalyco/rune --failed"]),
+                ];
+            }),
+            ("merge-no-commands", |s: &mut State| {
+                // The merge dialog with Settings → Show gh / git commands off.
+                s.prefs.show_commands = false;
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone()));
+                if let Some((number, title)) = pr {
+                    s.request(guard::Action::Merge { slug: "anomalyco/rune".into(), number, title, method: gh::MergeMethod::Squash, delete_branch: true });
+                }
+            }),
+            ("toast-commands", |s: &mut State| {
+                // What a finished action's result looks like (nothing actually runs).
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                let a = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: true };
+                let ran = s.ran_lines(&a.command_lines(false));
+                s.toast(format!("✓ Squashed and merged pull request #1004{ran}"), false);
+            }),
+            // The light theme (scenes otherwise keep the saved theme, whatever --theme says).
+            ("light-needs", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                s.inbox_tab = 1;
+                s.show(Page::Inbox);
+            }),
+            ("light-activity", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                s.show(Page::Inbox);
+            }),
+            ("light-prs", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                if let Some(n) = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| p.number) {
+                    s.select_pr(n);
+                }
+            }),
+            ("light-envs", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                s.select_repo("anomalyco/rune", Page::Envs);
+            }),
+            ("light-branches", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Branches);
+            }),
+            ("light-settings", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                s.open_settings(0);
+            }),
+            ("light-commits", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                }
+            }),
             ("group", |s: &mut State| {
                 s.prefs.groups = vec![config::Group { name: "Demo".into(), repos: vec!["anomalyco/rune".into(), "cli/cli".into()] }];
                 s.open_group("Demo");
@@ -1859,8 +2112,8 @@ fn main() {
                 }
             }),
         ],
-        fonts: rune_theme_opencode::FONTS,
-        families: rune_theme_opencode::FAMILIES,
+        fonts: FONTS,
+        families: FAMILIES,
         poll: Some(poll),
         on_key: Some(on_key),
         ..AppSpec::new("sigit", (1440.0, 900.0), init, view)
@@ -1930,6 +2183,24 @@ mod cache_tests {
         assert!(l.stale(60), "older than its ttl");
         l.finish(Err("offline".into()));
         assert_eq!(l.data, Some(1), "a failed update keeps what was shown");
+    }
+
+    /// Opening a page re-checks data the background tick still counts as fresh, but not what
+    /// was fetched a moment ago (flicking between tabs) or Activity within its minute.
+    #[test]
+    fn revalidate_on_open() {
+        let mut prs: Load<u32> = Load::default();
+        prs.finish(Ok(1));
+        prs.at = Some(model::now() - 30);
+        assert!(!prs.stale(ttl::GH), "the 30 s tick leaves a 30 s old PR list");
+        assert!(prs.stale(ttl::GH.min(ttl::REVALIDATE)), "opening the page checks it again");
+        prs.at = Some(model::now() - 3);
+        assert!(!prs.stale(ttl::GH.min(ttl::REVALIDATE)), "just fetched: no second request");
+        let pulse_cap = ttl::PULSE.min(ttl::REVALIDATE.max(ttl::PULSE_REVALIDATE));
+        prs.at = Some(model::now() - 30);
+        assert!(!prs.stale(pulse_cap), "Activity waits a minute between checks");
+        prs.at = Some(model::now() - 90);
+        assert!(prs.stale(pulse_cap));
     }
 
     #[test]

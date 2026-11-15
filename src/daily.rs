@@ -38,7 +38,7 @@ impl State {
         if let Some(list) = self.notifs.data.as_mut() {
             list.retain(|n| n.id != id);
         }
-        self.act("Mark done".into(), move || gh::mark_read(&id), |_| {});
+        self.act(crate::i18n::t("Mark done"), move || gh::mark_read(&id), |_| {});
     }
 
     /// Local only: it comes back after `secs`.
@@ -70,7 +70,7 @@ impl State {
             inbox.review_requested.iter().chain(&inbox.my_prs).map(|h| (h.repository.name_with_owner.clone(), h.number)).collect();
         jobs::spawn(self, move || gh::queue_info(&keys), |s, r| match r {
             Ok(q) => s.queue = q,
-            Err(e) => s.toast(format!("Review queue details failed: {e}"), true),
+            Err(e) => s.toast(crate::i18n::t(tf!("Review queue details failed: {e}")), true),
         });
     }
 
@@ -186,9 +186,9 @@ impl State {
     pub fn toggle_watch(&mut self, target: WatchTarget, label: String) {
         if let Some(i) = self.watches.iter().position(|w| w.target == target) {
             self.watches.remove(i);
-            self.toast(format!("Stopped watching {label}"), false);
+            self.toast(crate::i18n::t(tf!("Stopped watching {label}")), false);
         } else {
-            self.toast(format!("Watching {label}: you'll get a notification when it changes"), false);
+            self.toast(crate::i18n::t(tf!("Watching {label}: you'll get a notification when it changes")), false);
             self.watches.push(Watch { target, label, last: String::new(), since: Instant::now() });
             self.poll_watches();
         }
@@ -197,7 +197,7 @@ impl State {
     pub fn watch_branch(&mut self, slug: &str, branch: &str) {
         let t = WatchTarget::Branch { slug: slug.to_owned(), branch: branch.to_owned() };
         if !self.is_watched(&t) {
-            self.watches.push(Watch { target: t, label: format!("CI on {branch}"), last: String::new(), since: Instant::now() });
+            self.watches.push(Watch { target: t, label: tf!("CI on {branch}"), last: String::new(), since: Instant::now() });
         }
     }
 
@@ -227,7 +227,7 @@ impl State {
                     // A watched run that finished is done; so is a PR that merged or closed.
                     if done && (changed || first) && !matches!(target, WatchTarget::Branch { .. }) {
                         if first {
-                            s.toast(format!("{label}: {summary}"), false);
+                            s.toast(crate::i18n::t(tf!("{label}: {summary}")), false);
                         }
                         s.watches.retain(|w| w.target != target);
                     }
@@ -238,7 +238,7 @@ impl State {
 
     /// A toast, and an OS notification if allowed.
     fn alert(&mut self, title: &str, body: &str, target: &WatchTarget) {
-        self.toast(format!("{title}: {body}"), false);
+        self.toast(crate::i18n::t(tf!("{title}: {body}")), false);
         if !self.prefs.desktop_notify {
             return;
         }
@@ -247,7 +247,7 @@ impl State {
             WatchTarget::Pr { slug, number } => (slug.clone(), "pr", number.to_string()),
             WatchTarget::Branch { slug, branch } => (slug.clone(), "branch", branch.clone()),
         };
-        let n = rune_notify::Notification::new(format!("{kind}-{id}-{}", now()), title).body(body).info("slug", slug).info("kind", kind).info("id", id);
+        let n = rune_notify::Notification::new(crate::i18n::t(tf!("{kind}-{id}-{}", now())), title).body(body).info("slug", slug).info("kind", kind).info("id", id);
         let _ = rune_notify::post(&n);
     }
 
@@ -373,8 +373,11 @@ impl State {
     pub fn palette_items(&self) -> Vec<(PaletteItem, String, String)> {
         let q = self.palette_q.text.trim().to_lowercase();
         let mut out: Vec<(i64, PaletteItem, String, String)> = Vec::new();
+        // Matches the title as shown (Thai, say) or in English, whichever fits better.
         let mut add = |item: PaletteItem, title: String, hint: String, boost: i64| {
-            if let Some(score) = fuzzy(&q, &title.to_lowercase()) {
+            let shown = crate::i18n::t(title.as_str());
+            let score = fuzzy(&q, &shown.to_lowercase()).max(fuzzy(&q, &title.to_lowercase()));
+            if let Some(score) = score {
                 out.push((score + boost, item, title, hint));
             }
         };
@@ -384,7 +387,7 @@ impl State {
         }
         if self.cur.is_some() {
             for p in Page::REPO {
-                add(PaletteItem::Page(p), format!("Go to {}", p.label()), "this repository".into(), 10);
+                add(PaletteItem::Page(p), tf!("Go to {}", crate::i18n::t(p.label())), "this repository".into(), 10);
             }
             if let Some(prs) = self.rd().and_then(|d| d.prs.data.as_ref()) {
                 for pr in prs.iter().take(100) {
@@ -393,12 +396,12 @@ impl State {
             }
             if let Some(branches) = self.rd().and_then(|d| d.branches.data.as_ref()) {
                 for b in branches.iter().filter(|b| !b.remote).take(200) {
-                    add(PaletteItem::Branch(b.name.clone()), format!("Checkout {}", b.name), "local branch".into(), -5);
+                    add(PaletteItem::Branch(b.name.clone()), tf!("Checkout {}", b.name), "local branch".into(), -5);
                 }
             }
         }
         for g in &self.prefs.groups {
-            add(PaletteItem::Group(g.name.clone()), format!("Group: {}", g.name), format!("{} repos", g.repos.len()), 15);
+            add(PaletteItem::Group(g.name.clone()), tf!("Group: {}", g.name), tf!("{} repos", g.repos.len()), 15);
         }
         for r in &self.repos {
             let boost = if self.prefs.pinned.contains(&r.slug) { 40 } else { 0 }
@@ -538,7 +541,7 @@ fn watch_state(t: &WatchTarget) -> Option<(String, bool)> {
             let (o, passed, total) = p.checks();
             let checks = match o {
                 Outcome::Running => "checks running".to_owned(),
-                Outcome::Failure => format!("checks failing ({passed}/{total})"),
+                Outcome::Failure => tf!("checks failing ({passed}/{total})"),
                 Outcome::Success => "checks passed".to_owned(),
                 Outcome::Neutral => "no checks".to_owned(),
             };
@@ -555,7 +558,7 @@ fn watch_state(t: &WatchTarget) -> Option<(String, bool)> {
             let r = gh::runs_on(slug, branch, 1).ok()?.into_iter().next()?;
             let o = r.outcome();
             let word = if o.is_running() { "running".to_owned() } else { r.conclusion.clone() };
-            Some((format!("{} #{}: {word}", r.workflow_name, r.number), false))
+            Some((tf!("{} #{}: {word}", r.workflow_name, r.number), false))
         }
     }
 }

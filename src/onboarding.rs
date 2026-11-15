@@ -45,7 +45,7 @@ impl Setup {
 pub fn preflight() -> Preflight {
     let version = |p: &str| match gh::run(p, &["--version"], None) {
         Ok(out) => Ok(out.lines().next().unwrap_or(p).trim().to_owned()),
-        Err(_) => Err(format!("`{p}` isn't installed, or isn't on your PATH")),
+        Err(_) => Err(tf!("`{p}` isn't installed, or isn't on your PATH")),
     };
     let git = version("git");
     let gh = version("gh");
@@ -59,8 +59,8 @@ pub fn preflight() -> Preflight {
 fn signed_in() -> Result<String, String> {
     match gh::accounts() {
         Ok(list) => match list.iter().find(|a| a.active) {
-            Some(a) if a.ok => Ok(format!("{} on {}", a.login, a.host)),
-            Some(a) => Err(format!("The sign-in for {} on {} has expired", a.login, a.host)),
+            Some(a) if a.ok => Ok(tf!("{} on {}", a.login, a.host)),
+            Some(a) => Err(tf!("The sign-in for {} on {} has expired", a.login, a.host)),
             None => Err("Not signed in to GitHub".to_owned()),
         },
         // Older gh has no `auth status --json`: fall back to its exit status.
@@ -170,8 +170,8 @@ impl State {
 
     pub fn run_in_terminal(&mut self, command: &'static str) {
         match open_terminal(command) {
-            Ok(()) => self.toast(format!("Opened a terminal running `{command}`. This screen moves on by itself when it's done."), false),
-            Err(e) => self.toast(format!("{e}: `{command}`"), true),
+            Ok(()) => self.toast(crate::i18n::t(tf!("Opened a terminal running `{command}`. This screen moves on by itself when it's done.")), false),
+            Err(e) => self.toast(crate::i18n::t(tf!("{e}: `{command}`")), true),
         }
     }
 }

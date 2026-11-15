@@ -2,9 +2,11 @@
 //! Stashes (A5), and Clean up (B7: local branches that can go; remote ones never).
 //! Double-click (or Enter) a branch to check it out; every action goes through the guard.
 
+use super::cmd::CmdTip;
 use std::borrow::Cow;
 
-use rune::{El, col, el, row, spacer, text};
+use rune::{El, col, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Button, ButtonVariant, Cell, Kit, SegmentedControl, Table, TableColumn};
 
 use super::overlays::hint;
@@ -33,8 +35,8 @@ pub fn view(s: &State, k: &Kit) -> El {
         .gap(10.0)
         .center_y()
         .child(
-            SegmentedControl::new(&VIEWS.map(|v| v.0), Some(s.branch_view))
-                .label("Branches")
+            SegmentedControl::new(&crate::i18n::all(&VIEWS.map(|v| v.0)), Some(s.branch_view))
+                .label(crate::i18n::t("Branches"))
                 .fit()
                 .on_pick(|s: &mut State, i, _| {
                     s.branch_view = i;
@@ -46,20 +48,20 @@ pub fn view(s: &State, k: &Kit) -> El {
                 })
                 .build(k)
                 .key("b-scope")
-                .help(VIEWS[s.branch_view].1),
+                .help(crate::i18n::t(VIEWS[s.branch_view].1)),
         )
         .child(hint(k, "h-branches", VIEWS[s.branch_view].1, 7));
     if s.branch_view < 2 {
-        toolbar = toolbar.child(muted(k, format!("{} branches · double-click to check out · 🛡 = protected", visible(s).len()))).child(spacer());
+        toolbar = toolbar.child(muted(k, { let n = visible(s).len(); tf!("{n} branch{}", if n == 1 { "" } else { "es" }) }).help(crate::i18n::t("Double-click a branch to check it out. 🛡 marks protected or default branches."))).child(spacer());
         if let Some(name) = sel {
             let remote = s.branch_view == 1;
             toolbar = toolbar.child(
-                Button::new(format!("Checkout {name}"))
+                { let tip = s.with_commands(crate::i18n::t("Switch your clone to it. Asks first if you have uncommitted changes, and offers to stash them."), &crate::git::checkout_cmds(&name, remote).iter().map(crate::gh::Cmd::line).collect::<Vec<_>>()); Button::new(crate::i18n::t(tf!("Check out {}", short_name(&name))))
                     .variant(ButtonVariant::Contrast)
-                    .help("Switch your clone to it. Asks first if you have uncommitted changes, and offers to stash them.")
+                    
                     .on_press(move |s: &mut State| s.checkout_branch(name.clone(), remote))
                     .build(k)
-                    .key("b-checkout"),
+                    .key("b-checkout").cmd_tip(s, tip) },
             );
         }
     }
@@ -89,11 +91,11 @@ fn table(s: &State, k: &Kit) -> El {
         |s: &State, i| Cow::Owned(visible(s).get(i).map_or_else(String::new, |b| b.name.clone())),
     )
     .name("Branches")
-    .column(TableColumn::new("name", "Branch").flex(1.5).min(180.0))
-    .column(TableColumn::new("track", "Behind / ahead").width(170.0).resizable(false))
-    .column(TableColumn::new("subject", "Last commit").flex(2.0).min(200.0))
-    .column(TableColumn::new("author", "Author").width(140.0).min(80.0))
-    .column(TableColumn::new("when", "Updated").width(90.0).resizable(false))
+    .column(TableColumn::new("name", crate::i18n::t("Branch")).flex(1.5).min(180.0))
+    .column(TableColumn::new("track", crate::i18n::t("Behind / ahead")).width(170.0).resizable(false))
+    .column(TableColumn::new("subject", crate::i18n::t("Last commit")).flex(2.0).min(200.0))
+    .column(TableColumn::new("author", crate::i18n::t("Author")).width(140.0).min(80.0))
+    .column(TableColumn::new("when", crate::i18n::t("Updated")).width(90.0).resizable(false))
     .cell(move |s: &State, i, col| {
         let v = visible(s);
         let Some(b) = v.get(i) else { return Cell::text("") };
@@ -102,10 +104,10 @@ fn table(s: &State, k: &Kit) -> El {
             "name" => {
                 let mut r = row().gap(6.0).center_y();
                 if b.current {
-                    r = r.child(chip(k, "current", Some(Outcome::Success)).help("Your clone is on this branch"));
+                    r = r.child(chip(k, "current", Some(Outcome::Success)).help(crate::i18n::t("Your clone is on this branch")));
                 }
                 if b.gone {
-                    r = r.child(chip(k, "gone", Some(Outcome::Neutral)).help("Its remote branch was deleted (usually after its PR merged): a clean-up candidate"));
+                    r = r.child(chip(k, "gone", Some(Outcome::Neutral)).help(crate::i18n::t("Its remote branch was deleted (usually after its PR merged): a clean-up candidate")));
                 }
                 Cell::el(r.child(branch_chip(s, k, &b.name, if b.remote { hue(3) } else { hue(1) })))
             }
@@ -128,18 +130,18 @@ fn table(s: &State, k: &Kit) -> El {
 /// Two bars meeting at the middle: commits behind to the left, ahead to the right.
 fn track(k: &Kit, b: &Branch) -> El {
     if b.upstream.is_empty() {
-        return text(if b.remote { "" } else { "no upstream" }).font(k.ty.text_xsmall).color(k.c.text_faint).help("Not linked to a remote branch");
+        return text(if b.remote { "" } else { "no upstream" }).font(k.ty.text_xsmall).color(k.c.text_faint).help(crate::i18n::t("Not linked to a remote branch"));
     }
     let w = |n: u32| (n as f32).sqrt() * 9.0;
     row()
         .gap(4.0)
         .center_y()
-        .help(format!("{} commit(s) to pull, {} not on {} yet", b.behind, b.ahead, b.upstream))
-        .child(text(format!("{}", b.behind)).font(k.ty.text_xsmall).color(k.c.text_muted).w(26.0))
+        .help(crate::i18n::t(tf!("{} commit(s) to pull, {} not on {} yet", b.behind, b.ahead, b.upstream)))
+        .child(text(tf!("{}", b.behind)).font(k.ty.text_xsmall).color(k.c.text_muted).w(26.0))
         .child(row().w(40.0).child(spacer()).child(el().w(w(b.behind).min(40.0)).h(6.0).radius(2.0).fill(k.c.warning.icon)))
         .child(el().w(1.0).h(12.0).fill(k.c.border_strong))
         .child(row().w(40.0).child(el().w(w(b.ahead).min(40.0)).h(6.0).radius(2.0).fill(k.c.success.icon)))
-        .child(text(format!("{}", b.ahead)).font(k.ty.text_xsmall).color(k.c.text_muted))
+        .child(text(tf!("{}", b.ahead)).font(k.ty.text_xsmall).color(k.c.text_muted))
 }
 
 fn stashes(s: &State, k: &Kit) -> El {
@@ -157,11 +159,11 @@ fn stashes(s: &State, k: &Kit) -> El {
     for (i, st) in list.iter().enumerate() {
         let btn = |label: &str, op: &'static str, tip: &str, variant| {
             let (dir, name) = (dir.clone(), st.name.clone());
-            Button::new(label.to_owned()).variant(variant).help(tip.to_owned()).on_press(move |s: &mut State| s.request(Action::Stash { dir: dir.clone(), op, name: name.clone() })).build(k).key(format!("{op}-{i}"))
+            { let tip = s.with_commands(crate::i18n::t(tip.to_owned()), &[crate::git::stash_op_cmd(op, &name).line()]); Button::new(crate::i18n::t(label.to_owned())).variant(variant).on_press(move |s: &mut State| s.request(Action::Stash { dir: dir.clone(), op, name: name.clone() })).build(k).key(tf!("{op}-{i}")).cmd_tip(s, tip) }
         };
         c = c.child(
             row()
-                .key(format!("st-{i}"))
+                .key(tf!("st-{i}"))
                 .w_full()
                 .gap(10.0)
                 .px(12.0)
@@ -198,38 +200,38 @@ fn cleanup(s: &State, k: &Kit) -> El {
         let dir2 = dir.clone();
         c = c.child(
             row().w_full().child(spacer()).child(
-                Button::new(format!("Delete all {} merged", merged.len()))
+                { let tip = s.with_commands(crate::i18n::t("Deletes each one: only branches already merged into the default branch, each with Undo"), &all.iter().map(|(n, _)| crate::git::delete_branch_cmd(n, false).line()).collect::<Vec<_>>()); Button::new(crate::i18n::t(tf!("Delete all {} merged", merged.len())))
                     .variant(ButtonVariant::Outline)
-                    .help("git branch -d on each: only branches already merged into the default branch, each with Undo")
+                    
                     .on_press(move |s: &mut State| {
                         for (name, sha) in &all {
                             s.request(Action::DeleteBranch { dir: dir2.clone(), name: name.clone(), sha: sha.clone(), force: false, unpushed: Vec::new() });
                         }
                     })
                     .build(k)
-                    .key("del-merged"),
+                    .key("del-merged").cmd_tip(s, tip) },
             ),
         );
     }
     for (i, b) in list.iter().enumerate() {
         let mut why = row().gap(6.0).center_y();
         if b.merged {
-            why = why.child(chip(k, "merged", Some(Outcome::Success)).help("Fully merged into the default branch: safe to delete"));
+            why = why.child(chip(k, "merged", Some(Outcome::Success)).help(crate::i18n::t("Fully merged into the default branch: safe to delete")));
         }
         if b.gone {
-            why = why.child(chip(k, "gone upstream", Some(Outcome::Neutral)).help("Its GitHub branch was deleted"));
+            why = why.child(chip(k, "gone upstream", Some(Outcome::Neutral)).help(crate::i18n::t("Its GitHub branch was deleted")));
         }
         if let Some(days) = b.stale_days {
-            why = why.child(chip(k, format!("untouched {days}d"), Some(Outcome::Neutral)));
+            why = why.child(chip(k, tf!("untouched {days}d"), Some(Outcome::Neutral)));
         }
         let force = !b.merged;
         if force && !b.unpushed.is_empty() {
-            why = why.child(chip(k, format!("{} commit(s) only here", b.unpushed.len()), Some(Outcome::Failure)).help(b.unpushed.join("\n")));
+            why = why.child(chip(k, tf!("{} commit(s) only here", b.unpushed.len()), Some(Outcome::Failure)).help(crate::i18n::t(b.unpushed.join("\n"))));
         }
         let (dir2, name, sha, unpushed) = (dir.clone(), b.name.clone(), b.sha.clone(), b.unpushed.clone());
         c = c.child(
             row()
-                .key(format!("cl-{i}"))
+                .key(tf!("cl-{i}"))
                 .w_full()
                 .gap(10.0)
                 .px(12.0)
@@ -242,14 +244,23 @@ fn cleanup(s: &State, k: &Kit) -> El {
                 .child(why)
                 .child(spacer())
                 .child(
-                    Button::new("Delete")
+                    { let tip = s.with_commands(crate::i18n::t(if force { "Not merged: deleting needs -D and loses the commits listed. You'll type the branch name to confirm. Undo restores it." } else { "Merged: safe delete. Undo restores it." }), &[crate::git::delete_branch_cmd(&b.name, force).line()]); Button::new(crate::i18n::t("Delete"))
                         .variant(if force { ButtonVariant::Danger } else { ButtonVariant::Outline })
-                        .help(if force { "Not merged: deleting needs -D and loses the commits listed. You'll type the branch name to confirm. Undo restores it." } else { "Merged: safe delete (git branch -d). Undo restores it." })
+                        
                         .on_press(move |s: &mut State| s.request(Action::DeleteBranch { dir: dir2.clone(), name: name.clone(), sha: sha.clone(), force, unpushed: unpushed.clone() }))
                         .build(k)
-                        .key(format!("del-{i}")),
+                        .key(tf!("del-{i}")).cmd_tip(s, tip) },
                 ),
         );
     }
     crate::ui::scroll("cleanup-scroll", c)
+}
+
+/// A branch name short enough for a button: long ones keep their start and end.
+fn short_name(name: &str) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    if chars.len() <= 32 {
+        return name.to_owned();
+    }
+    tf!("{}…{}", chars[..20].iter().collect::<String>(), chars[chars.len() - 10..].iter().collect::<String>())
 }

@@ -111,7 +111,7 @@ pub fn sensitive_files<'a>(files: impl IntoIterator<Item = (&'a str, u64)>, extr
         let name = path.rsplit('/').next().unwrap_or(path);
         if LOCKFILES.contains(&name) {
             if changed > 500 {
-                out.push((path.to_owned(), format!("lock file, {changed} lines")));
+                out.push((path.to_owned(), tf!("lock file, {changed} lines")));
             }
             continue;
         }

@@ -49,7 +49,7 @@ pub fn split(s: &State, k: &Kit, id: &'static str, panes: Vec<Pane>) -> El {
     let defaults: Vec<f32> = panes.iter().map(|p| p.share).collect();
     let mins: Vec<f32> = panes.iter().map(|p| p.min).collect();
     let shares = shares(s.prefs.splits.get(id), &defaults);
-    let mut r = row().key(format!("split-{id}")).w_full().on_layout(move |s: &mut State, [x, _, w, _]| {
+    let mut r = row().key(tf!("split-{id}")).w_full().on_layout(move |s: &mut State, [x, _, w, _]| {
         s.split_boxes.insert(id, [x, w]);
     });
     for (i, p) in panes.into_iter().enumerate() {
@@ -57,20 +57,20 @@ pub fn split(s: &State, k: &Kit, id: &'static str, panes: Vec<Pane>) -> El {
             r = r.child(grip(k, id, i - 1, defaults.clone(), mins.clone(), n));
         }
         let share = if n == 1 { 1.0 } else { shares[i] };
-        r = r.child(col().key(format!("{id}-pane-{i}")).w(0.0).grow(share).min_w(p.min.min(200.0)).min_h(0.0).child(p.content));
+        r = r.child(col().key(tf!("{id}-pane-{i}")).w(0.0).grow(share).min_w(p.min.min(200.0)).min_h(0.0).child(p.content));
     }
     r
 }
 
 fn grip(k: &Kit, id: &'static str, i: usize, defaults: Vec<f32>, mins_px: Vec<f32>, n: usize) -> El {
     row()
-        .key(format!("{id}-grip-{i}"))
+        .key(tf!("{id}-grip-{i}"))
         .w(GRIP)
         .center()
         .radius(4.0)
         .hover(k.c.hover)
         .cursor(Cursor::ResizeColumn)
-        .help("Drag to resize · double-click to reset")
+        .help(crate::i18n::t("Drag to resize · double-click to reset"))
         .child(el().w(3.0).h(28.0).radius(1.5).fill(k.c.border_base))
         .on_drag(move |s: &mut State, d: &mut Drag, _| match d.phase {
             Phase::Down => {

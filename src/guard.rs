@@ -43,19 +43,19 @@ pub enum Action {
 impl Action {
     pub fn label(&self) -> String {
         match self {
-            Action::Merge { number, .. } => format!("Merge #{number}"),
-            Action::Close { number, .. } => format!("Close #{number}"),
-            Action::Approve { number, .. } => format!("Approve #{number}"),
-            Action::RequestChanges { number, .. } => format!("Request changes on #{number}"),
-            Action::Comment { number, .. } => format!("Comment on #{number}"),
-            Action::Rerun { id, failed_only, .. } => format!("Re-run {}{id}", if *failed_only { "failed jobs of " } else { "" }),
-            Action::CancelRun { id, .. } => format!("Cancel run {id}"),
-            Action::Checkout { name, .. } => format!("Checkout {name}"),
-            Action::PrCheckout { number, .. } => format!("Checkout #{number}"),
+            Action::Merge { number, .. } => tf!("Merge #{number}"),
+            Action::Close { number, .. } => tf!("Close #{number}"),
+            Action::Approve { number, .. } => tf!("Approve #{number}"),
+            Action::RequestChanges { number, .. } => tf!("Request changes on #{number}"),
+            Action::Comment { number, .. } => tf!("Comment on #{number}"),
+            Action::Rerun { id, failed_only, .. } => tf!("Re-run {}{id}", if *failed_only { "failed jobs of " } else { "" }),
+            Action::CancelRun { id, .. } => tf!("Cancel run {id}"),
+            Action::Checkout { name, .. } => tf!("Checkout {name}"),
+            Action::PrCheckout { number, .. } => tf!("Checkout #{number}"),
             Action::Pull { .. } => "Pull".into(),
             Action::Fetch { .. } => "Fetch".into(),
-            Action::Stash { op, name, .. } => format!("Stash {op} {name}"),
-            Action::DeleteBranch { name, .. } => format!("Delete branch {name}"),
+            Action::Stash { op, name, .. } => tf!("Stash {op} {name}"),
+            Action::DeleteBranch { name, .. } => tf!("Delete branch {name}"),
         }
     }
 
@@ -63,11 +63,11 @@ impl Action {
     pub fn subject(&self) -> String {
         match self {
             Action::Merge { title, .. } | Action::Close { title, .. } | Action::Approve { title, .. } => title.clone(),
-            Action::Rerun { title, workflow, .. } | Action::CancelRun { title, workflow, .. } => format!("{workflow}: {title}"),
-            Action::Checkout { name, .. } => format!("Switch your working copy to {name}"),
-            Action::PrCheckout { number, .. } => format!("Fetch PR #{number}'s branch and switch to it"),
+            Action::Rerun { title, workflow, .. } | Action::CancelRun { title, workflow, .. } => tf!("{workflow}: {title}"),
+            Action::Checkout { name, .. } => tf!("Switch your working copy to {name}"),
+            Action::PrCheckout { number, .. } => tf!("Fetch PR #{number}'s branch and switch to it"),
             Action::Pull { .. } => "Fast-forward the current branch".into(),
-            Action::DeleteBranch { name, .. } => format!("Delete local branch {name}"),
+            Action::DeleteBranch { name, .. } => tf!("Delete local branch {name}"),
             other => other.label(),
         }
     }
@@ -97,6 +97,46 @@ impl Action {
                 | Action::Fetch { .. }
                 | Action::Stash { op: "apply", .. }
         )
+    }
+
+    /// The gh / git commands it runs, in order, as built for running (`execute`) and shown
+    /// (the button's tooltip, the confirm dialog). A remote checkout lists both its forms: the
+    /// second runs only when the first can't (no local copy of the branch yet).
+    pub fn commands(&self) -> Vec<gh::Cmd> {
+        match self {
+            Action::Merge { slug, number, method, delete_branch, .. } => vec![gh::merge_cmd(slug, *number, *method, *delete_branch)],
+            Action::Close { slug, number, .. } => vec![gh::close_cmd(slug, *number)],
+            Action::Approve { slug, number, body, .. } => vec![gh::approve_cmd(slug, *number, body)],
+            Action::RequestChanges { slug, number, body } => vec![gh::request_changes_cmd(slug, *number, body)],
+            Action::Comment { slug, number, body } => vec![gh::comment_cmd(slug, *number, body)],
+            Action::Rerun { slug, id, failed_only, .. } => vec![gh::rerun_cmd(slug, *id, *failed_only)],
+            Action::CancelRun { slug, id, .. } => vec![gh::cancel_cmd(slug, *id)],
+            Action::Checkout { name, remote, .. } => git::checkout_cmds(name, *remote),
+            Action::PrCheckout { slug, number, .. } => vec![gh::checkout_pr_cmd(slug, *number)],
+            Action::Pull { .. } => vec![git::pull_cmd()],
+            Action::Fetch { .. } => vec![git::fetch_cmd()],
+            Action::Stash { op, name, .. } => vec![git::stash_op_cmd(op, name)],
+            Action::DeleteBranch { name, force, .. } => vec![git::delete_branch_cmd(name, *force)],
+        }
+    }
+
+    /// Where its commands run: the local clone for git ones, anywhere for gh ones (they name
+    /// the repo with `-R`).
+    fn cwd(&self) -> Option<&PathBuf> {
+        match self {
+            Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } | Action::Pull { dir } | Action::Fetch { dir } | Action::Stash { dir, .. } | Action::DeleteBranch { dir, .. } => Some(dir),
+            _ => None,
+        }
+    }
+
+    /// The command lines, with the stash that "Stash and continue" runs first.
+    pub fn command_lines(&self, stash_first: bool) -> Vec<String> {
+        let mut out = Vec::new();
+        if stash_first {
+            out.push(git::stash_push_cmd(&format!("sigit: before {}", self.label())).line());
+        }
+        out.extend(self.commands().iter().map(gh::Cmd::line));
+        out
     }
 
     /// Changes the working copy: checked for uncommitted changes first (A5).
@@ -136,6 +176,19 @@ pub enum Undo {
     RestoreBranch { dir: PathBuf, name: String, sha: String },
     StashPop { dir: PathBuf },
     Prefs(Box<Prefs>),
+}
+
+impl Undo {
+    /// What taking it back runs (nothing for a settings change: that's local).
+    pub fn command_lines(&self) -> Vec<String> {
+        match self {
+            Undo::ReopenPr { slug, number } => vec![gh::reopen_cmd(slug, *number).line()],
+            Undo::SwitchBack { branch, .. } => git::checkout_cmds(branch, false).iter().map(gh::Cmd::line).collect(),
+            Undo::RestoreBranch { name, sha, .. } => vec![git::restore_branch_cmd(name, sha).line()],
+            Undo::StashPop { .. } => vec![git::stash_op_cmd("pop", "stash@{0}").line()],
+            Undo::Prefs(_) => Vec::new(),
+        }
+    }
 }
 
 /// What the worker thread found.
@@ -198,7 +251,7 @@ impl State {
 
     pub fn cancel_grace(&mut self) {
         if let Some(g) = self.grace.take() {
-            self.toast(format!("{} cancelled: nothing was sent", g.action.label()), false);
+            self.toast(crate::i18n::t(tf!("{} cancelled: nothing was sent", g.action.label())), false);
         }
     }
 
@@ -224,30 +277,32 @@ impl State {
             if let Some(dir) = &stash_dir {
                 git::stash_push(dir, &format!("sigit: before {}", a.label()))?;
             }
-            match a {
-                Action::Merge { slug, number, method, delete_branch, .. } => gh::merge(&slug, number, method, delete_branch),
-                Action::Close { slug, number, .. } => gh::close(&slug, number),
-                Action::Approve { slug, number, body, .. } => gh::approve(&slug, number, &body),
-                Action::RequestChanges { slug, number, body } => gh::request_changes(&slug, number, &body),
-                Action::Comment { slug, number, body } => gh::comment(&slug, number, &body),
-                Action::Rerun { slug, id, failed_only, .. } => gh::rerun(&slug, id, failed_only),
-                Action::CancelRun { slug, id, .. } => gh::cancel(&slug, id),
-                Action::Checkout { dir, name, remote, .. } => git::checkout(&dir, &name, remote),
-                Action::PrCheckout { dir, slug, number } => gh::checkout_pr(&dir, &slug, number),
-                Action::Pull { dir } => git::pull(&dir),
-                Action::Fetch { dir } => git::fetch(&dir),
-                Action::Stash { dir, op, name } => git::stash_op(&dir, op, &name),
-                Action::DeleteBranch { dir, name, force, .. } => git::delete_branch(&dir, &name, force),
+            match &a {
+                // Their own messages ("Switched to x", "Fetched all remotes").
+                Action::Checkout { dir, name, remote, .. } => git::checkout(dir, name, *remote),
+                Action::Pull { dir } => git::pull(dir),
+                Action::Fetch { dir } => git::fetch(dir),
+                Action::Stash { dir, op, name } => git::stash_op(dir, op, name),
+                Action::DeleteBranch { dir, name, force, .. } => git::delete_branch(dir, name, *force),
+                // The rest: each command in turn, in the clone where there is one.
+                _ => {
+                    let mut out = String::new();
+                    for c in a.commands() {
+                        out = c.run(a.cwd().map(PathBuf::as_path))?;
+                    }
+                    Ok(out)
+                }
             }
         };
         // The activity log is written here, on the worker: no file IO on the UI thread.
         let work = move || {
-            let r = run();
+            // The commands that actually ran, for the result toast and the activity log.
+            let (r, commands) = gh::recording(run);
             let detail = match &r {
                 Ok(out) => out.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("done").to_owned(),
                 Err(e) => e.clone(),
             };
-            let entry = activity::Entry { at: now(), repo: log_slug, action: log_label, ok: r.is_ok(), detail };
+            let entry = activity::Entry { at: now(), repo: log_slug, action: log_label, ok: r.is_ok(), detail, commands };
             let logged = activity::append(&entry);
             (r, entry, logged)
         };
@@ -260,11 +315,12 @@ impl State {
             let ok = r.is_ok();
             let detail = entry.detail.clone();
             if let Err(e) = logged {
-                s.toast(format!("Couldn't write the activity log: {e}"), true);
+                s.toast(crate::i18n::t(tf!("Couldn't write the activity log: {e}")), true);
             }
+            let ran = s.ran_lines(&entry.commands);
             s.activity.insert(0, entry);
             if !ok {
-                s.toast(format!("{label} failed: {detail}"), true);
+                s.toast(crate::i18n::t(tf!("{label} failed: {detail}")) + &ran, true);
                 return;
             }
             let undo = match &action {
@@ -276,7 +332,7 @@ impl State {
                 _ => None,
             };
             let undo = undo.or_else(|| stash_first.then(|| action.local_dir().map(|d| Undo::StashPop { dir: d.clone() })).flatten());
-            s.toast_undo(if stash_first { format!("Stashed your changes, then: {detail}") } else { detail }, undo);
+            s.toast_undo(crate::i18n::t(if stash_first { tf!("Stashed your changes, then: {detail}") } else { detail }) + &ran, undo);
             s.after(&action);
         });
     }
@@ -302,18 +358,18 @@ impl State {
         let Some(i) = self.toasts.iter().position(|t| t.id == toast) else { return };
         let Some(undo) = self.toasts.remove(i).undo else { return };
         let (label, work): (String, Box<dyn FnOnce() -> Result<String, String> + Send>) = match undo {
-            Undo::ReopenPr { slug, number } => (format!("Reopen #{number}"), Box::new(move || gh::reopen(&slug, number))),
-            Undo::SwitchBack { dir, branch } => (format!("Switch back to {branch}"), Box::new(move || git::checkout(&dir, &branch, false))),
-            Undo::RestoreBranch { dir, name, sha } => (format!("Restore {name}"), Box::new(move || git::restore_branch(&dir, &name, &sha))),
+            Undo::ReopenPr { slug, number } => (tf!("Reopen #{number}"), Box::new(move || gh::reopen_cmd(&slug, number).run(None))),
+            Undo::SwitchBack { dir, branch } => (tf!("Switch back to {branch}"), Box::new(move || git::checkout(&dir, &branch, false))),
+            Undo::RestoreBranch { dir, name, sha } => (tf!("Restore {name}"), Box::new(move || git::restore_branch(&dir, &name, &sha))),
             Undo::StashPop { dir } => ("Pop stash".into(), Box::new(move || git::stash_op(&dir, "pop", "stash@{0}"))),
             Undo::Prefs(p) => {
                 self.prefs = *p;
                 self.save_prefs();
-                self.toast("Undone".into(), false);
+                self.toast(crate::i18n::t("Undone"), false);
                 return;
             }
         };
-        self.act(label, work, |s| s.refresh_page());
+        self.act(crate::i18n::t(label), work, |s| s.refresh_page());
     }
 }
 
@@ -326,20 +382,20 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
     if let Some(dir) = action.local_dir() {
         match git::safety(dir) {
             Ok(Safety { in_progress: Some(what), .. }) => {
-                a.blocked = Some(format!(
+                a.blocked = Some(tf!(
                     "A {what} is half done in this working copy. Finish or abort it in your terminal or editor (git {what} --continue or --abort) first."
                 ));
             }
             Ok(st) => {
                 if !st.changed.is_empty() {
-                    a.risk.because(Level::Medium, format!("{} uncommitted change(s) would get in the way", st.changed.len()));
+                    a.risk.because(Level::Medium, tf!("{} uncommitted change(s) would get in the way", st.changed.len()));
                     a.dirty = st.changed;
                 }
                 if st.orphaned > 0 {
-                    a.risk.because(Level::Medium, format!("You're on a detached HEAD with {} commit(s) on no branch: switching away makes them hard to find", st.orphaned));
+                    a.risk.because(Level::Medium, tf!("You're on a detached HEAD with {} commit(s) on no branch: switching away makes them hard to find", st.orphaned));
                 }
             }
-            Err(e) => a.blocked = Some(format!("Couldn't read the working copy: {e}")),
+            Err(e) => a.blocked = Some(tf!("Couldn't read the working copy: {e}")),
         }
     }
 
@@ -377,20 +433,20 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
                 .filter(|env| risk::is_production(env, envs.as_ref().is_some_and(|e| e.protected.contains(env)), &ctx.prefs.prod_names))
                 .collect();
             if let Some(env) = prod.first() {
-                a.risk.because(Level::High, format!("This commit is deployed to {env}, a production environment: re-running or cancelling can change what's live"));
+                a.risk.because(Level::High, tf!("This commit is deployed to {env}, a production environment: re-running or cancelling can change what's live"));
                 a.word = Some((*env).clone());
             } else if risk::looks_like_deploy(workflow) {
-                a.risk.because(Level::Medium, format!("\"{workflow}\" looks like a deploy workflow"));
+                a.risk.because(Level::Medium, tf!("\"{workflow}\" looks like a deploy workflow"));
                 if !deployed_to.is_empty() {
-                    a.risk.reasons.push(format!("This commit was deployed to: {}", deployed_to.join(", ")));
+                    a.risk.reasons.push(tf!("This commit was deployed to: {}", deployed_to.join(", ")));
                 }
             }
         }
-        Action::Stash { op: "drop", name, .. } => a.risk.because(Level::Medium, format!("Dropping {name} deletes those changes for good")),
+        Action::Stash { op: "drop", name, .. } => a.risk.because(Level::Medium, tf!("Dropping {name} deletes those changes for good")),
         Action::DeleteBranch { name, force: true, unpushed, .. } => {
-            a.risk.because(Level::High, format!("{name} isn't merged: deleting it with -D loses work no remote has"));
+            a.risk.because(Level::High, tf!("{name} isn't merged: deleting it with -D loses work no remote has"));
             for c in unpushed.iter().take(8) {
-                a.risk.reasons.push(format!("  • {c}"));
+                a.risk.reasons.push(tf!("  • {c}"));
             }
             a.word = Some(name.clone());
         }
@@ -417,7 +473,7 @@ fn assess_pr(r: &mut Risk, slug: &str, number: u64, ctx: &Context, merging: bool
     };
     let s = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
     if s("state") != "OPEN" {
-        r.because(Level::High, format!("It's no longer open ({}): someone acted on it meanwhile", s("state").to_lowercase()));
+        r.because(Level::High, tf!("It's no longer open ({}): someone acted on it meanwhile", crate::i18n::t(s("state").to_lowercase())));
     }
     let checks: Vec<crate::model::Check> = serde_json::from_value(v["statusCheckRollup"].clone()).unwrap_or_default();
     let failing = checks.iter().filter(|c| c.outcome() == Outcome::Failure).count();
@@ -433,12 +489,13 @@ fn assess_pr(r: &mut Risk, slug: &str, number: u64, ctx: &Context, merging: bool
 
     if !merging {
         // A summary rather than warnings (approve from the queue, close).
-        r.reasons.push(format!("Checks: {passing} passing, {failing} failing, {running} running"));
-        r.reasons.push(format!("+{add} −{del} in {} files", files.len()));
+        r.reasons.push(tf!("Checks: {passing} passing, {failing} failing, {running} running"));
+        r.reasons.push(tf!("+{add} −{del} in {} files", files.len()));
     }
     let found = risk::sensitive_files(files.iter().map(|(p, c)| (p.as_str(), *c)), &ctx.prefs.sensitive);
     for (path, what) in found.iter().take(6) {
-        r.because(if merging { Level::High } else { Level::Low }, format!("Changes {what}: {path}"));
+        let what = crate::i18n::t(what.as_str());
+        r.because(if merging { Level::High } else { Level::Low }, tf!("Changes {what}: {path}"));
     }
     if !merging {
         return;
@@ -448,9 +505,9 @@ fn assess_pr(r: &mut Risk, slug: &str, number: u64, ctx: &Context, merging: bool
         r.because(Level::High, "It's still a draft");
     }
     if failing > 0 {
-        r.because(Level::High, format!("{failing} of {} checks are failing", checks.len()));
+        r.because(Level::High, tf!("{failing} of {} checks are failing", checks.len()));
     } else if running > 0 {
-        r.because(Level::Medium, format!("{running} check(s) are still running"));
+        r.because(Level::Medium, tf!("{running} check(s) are still running"));
     }
     match s("reviewDecision").as_str() {
         "CHANGES_REQUESTED" => r.because(Level::High, "A reviewer requested changes"),
@@ -469,9 +526,9 @@ fn assess_pr(r: &mut Risk, slug: &str, number: u64, ctx: &Context, merging: bool
         let protected = meta.protected.contains(&base);
         if protected || base == meta.default_branch {
             let rules = gh::branch_rules(slug, &base);
-            let what = if protected { "protected" } else { "the default branch" };
-            let rule_text = if rules.is_empty() { String::new() } else { format!(" (rules: {})", rules.join(", ")) };
-            r.because(Level::High, format!("{base} is {what}{rule_text}"));
+            let what = crate::i18n::t(if protected { "protected" } else { "the default branch" });
+            let rule_text = if rules.is_empty() { String::new() } else { tf!(" (rules: {})", rules.join(", ")) };
+            r.because(Level::High, tf!("{base} is {what}{rule_text}"));
             let problems = failing > 0 || s("reviewDecision") != "APPROVED";
             if meta.admin && problems {
                 r.because(Level::High, "You're an admin, so GitHub would let this through anyway. Your team's rules say it shouldn't");
@@ -482,7 +539,8 @@ fn assess_pr(r: &mut Risk, slug: &str, number: u64, ctx: &Context, merging: bool
     if let Ok(mut diff) = gh::run("gh", &["pr", "diff", &n, "-R", slug], None) {
         gh::cap(&mut diff, 2_000_000);
         for (file, line, what) in risk::secret_lines(&diff).into_iter().take(4) {
-            r.because(Level::High, format!("Possible {what} added in {file}: {line}"));
+            let what = crate::i18n::t(what);
+            r.because(Level::High, tf!("Possible {what} added in {file}: {line}"));
         }
     }
 }

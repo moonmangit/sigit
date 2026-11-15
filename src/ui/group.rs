@@ -1,7 +1,8 @@
 //! A group's dashboard (B5): CI health on each repo's default branch, what's deployed on each
 //! environment, commits not yet on production, and every open PR in the group.
 
-use rune::{El, TextStyle, col, el, row, spacer, text};
+use rune::{El, TextStyle, col, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Kit, Spinner};
 
 use super::overlays::hint;
@@ -19,11 +20,14 @@ fn env_outcome(state: &str) -> Outcome {
     }
 }
 
+/// The deployments grid's last column ("Not on production yet").
+const DRIFT_W: f32 = 200.0;
+
 pub fn view(s: &State, k: &Kit) -> El {
     let Some(name) = s.group_cur.as_deref() else { return empty(k, "Pick a group") };
     let Some(group) = s.prefs.groups.iter().find(|g| g.name == name) else { return empty(k, "This group no longer exists") };
     if group.repos.is_empty() {
-        return empty(k, "This group is empty: right-click repos in the sidebar to add them");
+        return super::empty_state(k, "group-empty", &super::I_DASH, "This group is empty", "Right-click any repository in the sidebar and choose Add to group to see its pull requests and runs here.", None);
     }
     let t = now();
     let short = |slug: &str| slug.split_once('/').map_or(slug.to_owned(), |(_, n)| n.to_owned());
@@ -44,18 +48,18 @@ pub fn view(s: &State, k: &Kit) -> El {
     let mut deploy = col().w_full().gap(6.0).child(
         env_names.iter().fold(row().w_full().gap(8.0).child(el().w(200.0)), |r, e| {
             let prod = risk::is_production(e, false, &s.prefs.prod_names);
-            r.child(text(if prod { format!("{e} (prod)") } else { e.clone() }).font(k.ty.small_medium).color(if prod { k.c.danger.fg } else { k.c.text_muted }).w(170.0).truncate())
-        }).child(text("Not on production yet").font(k.ty.small_medium).color(k.c.text_muted)),
+            r.child(text(if prod { tf!("{e} (prod)") } else { e.clone() }).font(k.ty.small_medium).color(if prod { k.c.danger.fg } else { k.c.text_muted }).truncate().help_when_truncated(e.clone()).w(0.0).grow(1.0).min_w(0.0))
+        }).child(text("Not on production yet").font(k.ty.small_medium).color(k.c.text_muted).w(DRIFT_W).truncate()),
     );
     let mut prs = col().w_full().gap(2.0);
     let mut pr_count = 0;
     for slug in &group.repos {
         let l = s.group_data.get(slug);
-        let label = row().w(200.0).gap(6.0).center_y().child(text(short(slug)).font(k.ty.ui_medium).color(k.c.text_base).truncate().shrink().help(slug.clone()));
+        let label = row().w(200.0).gap(6.0).center_y().child(text(short(slug)).font(k.ty.ui_medium).color(k.c.text_base).truncate().shrink().help(crate::i18n::t(slug.clone())));
         let Some(d) = l.and_then(|l| l.data.as_ref()) else {
             let state: El = match l {
                 Some(l) if l.loading => Spinner::new().size(12.0).build(k),
-                Some(Load { error: Some(e), .. }) => muted(k, format!("couldn't load: {e}")).truncate(),
+                Some(Load { error: Some(e), .. }) => muted(k, tf!("couldn't load: {e}")).truncate(),
                 _ => muted(k, "—"),
             };
             health = health.child(row().w_full().gap(8.0).center_y().child(label.clone()).child(state));
@@ -73,7 +77,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                     .py(2.0)
                     .radius(999.0)
                     .hover(k.c.hover)
-                    .help(format!("{} on {}: {} · {}", r.workflow_name, d.default_branch, if r.outcome().is_running() { r.status.clone() } else { r.conclusion.clone() }, ago_str(&r.created_at, t)))
+                    .help(crate::i18n::t(tf!("{} on {}: {} · {}", r.workflow_name, d.default_branch, if r.outcome().is_running() { r.status.clone() } else { r.conclusion.clone() }, ago_str(&r.created_at, t))))
                     .on_press(move |s: &mut State| s.open_run(&slug2, id))
                     .child(status_mark(k, r.outcome()))
                     .child(text(r.workflow_name.clone()).font(k.ty.text_xsmall).color(k.c.text_muted)),
@@ -85,7 +89,7 @@ pub fn view(s: &State, k: &Kit) -> El {
         let (slug3, slug4) = (slug.clone(), slug.clone());
         health = health.child(
             row()
-                .key(format!("h-{slug}"))
+                .key(tf!("h-{slug}"))
                 .w_full()
                 .gap(8.0)
                 .center_y()
@@ -94,28 +98,34 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .child(dots.grow(1.0).shrink()),
         );
         // Deployments.
-        let mut r = row().key(format!("d-{slug}")).w_full().gap(8.0).center_y().child(label.clone().hover(k.c.hover).on_press(move |s: &mut State| s.select_repo(&slug4, Page::Envs)));
+        let mut r = row().key(tf!("d-{slug}")).w_full().gap(8.0).center_y().child(label.clone().hover(k.c.hover).on_press(move |s: &mut State| s.select_repo(&slug4, Page::Envs)));
         for e in &env_names {
             let latest = d.envs.deployments.iter().find(|x| x.environment == *e);
             r = r.child(match latest {
                 Some(dep) => row()
-                    .w(170.0)
+                    .w(0.0)
+                    .grow(1.0)
+                    .min_w(0.0)
                     .gap(6.0)
                     .center_y()
-                    .help(format!("{e}: {} by {} · {}", dep.state.to_lowercase(), dep.creator, ago(dep.created_at, t)))
+                    .help(crate::i18n::t(tf!("{e}: {} {} ({}) by {} · {}", dep.state.to_lowercase(), dep.git_ref, dep.sha.get(..7).unwrap_or_default(), dep.creator, ago(dep.created_at, t))))
                     .child(el().size(8.0, 8.0).radius(4.0).fill(outcome_color(k, env_outcome(&dep.state))))
-                    .child(text(dep.git_ref.clone()).font(k.ty.text_xsmall).color(k.c.text_base).truncate().shrink())
-                    .child(text(dep.sha.get(..7).unwrap_or_default().to_owned()).font(TextStyle { size: 11.0, ..k.ty.mono }).color(k.c.text_faint)),
-                None => row().w(170.0).child(muted(k, "—")),
+                    .child(text(dep.git_ref.clone()).font(k.ty.text_xsmall).color(k.c.text_base).truncate().shrink()),
+                None => row().w(0.0).grow(1.0).min_w(0.0).child(muted(k, "—")),
             });
         }
         let drift = d.drift.iter().map(|(env, _, n)| match n {
-            Some(0) => format!("{env}: up to date"),
-            Some(n) => format!("{env}: {n} commit(s) behind {}", d.default_branch),
-            None => format!("{env}: unknown"),
+            Some(0) => tf!("{env}: up to date"),
+            Some(n) => tf!("{env}: {n} commit(s) behind {}", d.default_branch),
+            None => tf!("{env}: unknown"),
         }).collect::<Vec<_>>().join(" · ");
         let behind = d.drift.iter().any(|(_, _, n)| n.is_some_and(|n| n > 0));
-        r = r.child(if drift.is_empty() { muted(k, "no production deploys") } else { chip(k, drift, if behind { Some(Outcome::Running) } else { Some(Outcome::Success) }) });
+        // A short label in the cell (the most commits any production env is behind); every env's
+        // detail on hover.
+        let most = d.drift.iter().filter_map(|(_, _, n)| *n).max().unwrap_or(0);
+        let short_label = if behind { tf!("{most} commit{} behind", if most == 1 { "" } else { "s" }) } else if d.drift.iter().all(|(_, _, n)| n.is_none()) { "unknown".to_owned() } else { "up to date".to_owned() };
+        let drift_cell = if drift.is_empty() { muted(k, "no production deploys") } else { chip(k, short_label, if behind { Some(Outcome::Running) } else { Some(Outcome::Success) }).help(crate::i18n::t(drift)) };
+        r = r.child(row().w(DRIFT_W).min_w(0.0).child(drift_cell));
         deploy = deploy.child(r);
         // PRs.
         for p in &d.prs {
@@ -124,7 +134,7 @@ pub fn view(s: &State, k: &Kit) -> El {
             let (o, passed, total) = p.checks();
             let found = risk::sensitive_files(p.files.iter().map(|f| (f.path.as_str(), f.additions + f.deletions)), &s.prefs.sensitive);
             let mut line = row()
-                .key(format!("p-{slug}-{n}"))
+                .key(tf!("p-{slug}-{n}"))
                 .w_full()
                 .gap(10.0)
                 .px(8.0)
@@ -134,13 +144,13 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .hover(k.c.hover)
                 .on_press(move |s: &mut State| s.open_pr(&slug5, n))
                 .child(text(short(slug)).font(k.ty.small).color(k.c.text_muted).w(160.0).truncate())
-                .child(text(format!("#{n}")).font(k.ty.small).color(k.c.text_faint).w(50.0))
+                .child(text(tf!("#{n}")).font(k.ty.small).color(k.c.text_faint).w(50.0))
                 .child(text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).truncate().grow(1.0).shrink());
             for label in risk::chip_labels(&found) {
-                line = line.child(chip(k, format!("⚠ {label}"), Some(Outcome::Running)));
+                line = line.child(chip(k, tf!("⚠ {label}", label = crate::i18n::t(label)), Some(Outcome::Running)));
             }
             line = line
-                .child(if total > 0 { row().gap(4.0).center_y().child(status_mark(k, o)).child(muted(k, format!("{passed}/{total}"))) } else { muted(k, "—") })
+                .child(if total > 0 { row().gap(4.0).center_y().child(status_mark(k, o)).child(muted(k, tf!("{passed}/{total}"))) } else { muted(k, "—") })
                 .child(text(p.author.login.clone()).font(k.ty.small).color(k.c.text_muted).w(110.0).truncate())
                 .child(muted(k, ago_str(&p.updated_at, t)).w(70.0));
             prs = prs.child(line);
@@ -165,13 +175,13 @@ pub fn view(s: &State, k: &Kit) -> El {
                     .gap(10.0)
                     .center_y()
                     .child(text(name.to_owned()).font(TextStyle { size: 22.0, ..k.ty.ui_medium }).color(k.c.text_strong))
-                    .child(chip(k, format!("{} repos", group.repos.len()), None))
+                    .child(chip(k, tf!("{} repos", group.repos.len()), None))
                     .child(spacer())
                     .child(muted(k, "refreshes every minute while open")),
             )
             .child(panel(k, "g-health", "CI health on default branches", Some(hint(k, "gh-h", "The latest run of each workflow on each repo's default branch. Click a dot to open the run.", 8)), health))
             .child(panel(k, "g-deploy", "Deployments", Some(hint(k, "gh-d", "What's deployed on each environment, and how many commits on the default branch aren't on production yet.", 8)), deploy))
-            .child(panel(k, "g-prs", &format!("Open pull requests ({pr_count})"), Some(hint(k, "gh-p", "Every open PR in the group. ⚠ marks sensitive files.", 8)), prs)),
+            .child(panel(k, "g-prs", &tf!("Open pull requests ({pr_count})"), Some(hint(k, "gh-p", "Every open PR in the group. ⚠ marks sensitive files.", 8)), prs)),
     )
 }
 

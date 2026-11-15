@@ -42,7 +42,7 @@ impl State {
 
     /// Make another signed-in account the one gh (and so this app) uses, then reload.
     pub fn switch_account(&mut self, host: String, login: String) {
-        self.act(format!("Switching to {login}"), move || gh::switch_account(&host, &login), |s| {
+        self.act(crate::i18n::t(tf!("Switching to {login}")), move || gh::switch_account(&host, &login), |s| {
             s.load_accounts();
             s.refresh_page();
         });
@@ -52,12 +52,12 @@ impl State {
     pub fn save_git_identity(&mut self) {
         let (name, email) = (self.git_name.text.trim().to_owned(), self.git_email.text.trim().to_owned());
         if !email.is_empty() && !email.contains('@') {
-            self.toast("That email doesn't look right".into(), true);
+            self.toast(crate::i18n::t("That email doesn't look right"), true);
             return;
         }
         let saved = (name.clone(), email.clone());
-        self.act(
-            "Saving git identity".into(),
+        self.act(crate::i18n::t(
+            "Saving git identity"),
             move || {
                 git::set_global("user.name", &name)?;
                 git::set_global("user.email", &email)?;
@@ -74,8 +74,8 @@ impl State {
     /// Delete the on-disk cache; what's on screen stays until the next launch.
     pub fn clear_cache(&mut self) {
         match cache::clear() {
-            Ok(()) => self.toast("Cache cleared. The next launch starts empty and loads everything fresh.".into(), false),
-            Err(e) => self.toast(format!("Couldn't clear the cache: {e}"), true),
+            Ok(()) => self.toast(crate::i18n::t("Cache cleared. The next launch starts empty and loads everything fresh."), false),
+            Err(e) => self.toast(crate::i18n::t(tf!("Couldn't clear the cache: {e}")), true),
         }
     }
 
@@ -83,6 +83,6 @@ impl State {
     pub fn reset_layout(&mut self) {
         self.prefs.splits.clear();
         self.save_prefs();
-        self.toast("Section sizes reset".into(), false);
+        self.toast(crate::i18n::t("Section sizes reset"), false);
     }
 }

@@ -2,7 +2,8 @@
 //! sidebar header, on each of its repos (also in Pinned and your groups) and in the repo header,
 //! and the "Customize" dialog that sets it.
 
-use rune::{Color, El, TextStyle, col, el, row, spacer, text};
+use rune::{Color, El, TextStyle, col, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Button, ButtonVariant, Dialog, Kit, TextInput};
 
 use super::{hue, muted};
@@ -44,7 +45,7 @@ pub fn badge(s: &State, k: &Kit, owner: &str, size: f32) -> Option<El> {
 pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let Some((owner, picked)) = &s.owner_edit else { return };
     let typed = s.owner_hex.text.trim();
-    let typed = if typed.is_empty() || typed.starts_with('#') { typed.to_owned() } else { format!("#{typed}") };
+    let typed = if typed.is_empty() || typed.starts_with('#') { typed.to_owned() } else { tf!("#{typed}") };
     let color = if parse(&typed).is_some() { typed.clone() } else { picked.clone() };
     let icon: String = s.owner_icon.text.trim().chars().take(2).collect();
 
@@ -57,7 +58,7 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             .center()
             .border(if color.is_empty() { 2.0 } else { 1.0 }, if color.is_empty() { k.c.border_focus } else { k.c.border_base })
             .hover(k.c.hover)
-            .help("No colour (default look)")
+            .help(crate::i18n::t("No colour (default look)"))
             .on_press(|s: &mut State| {
                 if let Some(e) = s.owner_edit.as_mut() {
                     e.1.clear();
@@ -70,13 +71,13 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         let on = color.eq_ignore_ascii_case(&hex);
         let h2 = hex.clone();
         sw = sw.child(
-            el().key(format!("sw-{i}"))
+            el().key(tf!("sw-{i}"))
                 .size(28.0, 28.0)
                 .radius(8.0)
                 .fill(parse(&hex).unwrap_or(k.c.surface_base))
                 .border(if on { 2.5 } else { 0.0 }, k.c.text_strong)
                 .hover(k.c.hover)
-                .help(hex.clone())
+                .help(crate::i18n::t(hex.clone()))
                 .on_press(move |s: &mut State| {
                     if let Some(e) = s.owner_edit.as_mut() {
                         e.1 = h2.clone();
@@ -86,8 +87,8 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         );
     }
     let hex_input = TextInput::new(&s.owner_hex)
-        .placeholder("#rrggbb")
-        .label("Custom colour")
+        .placeholder(crate::i18n::t("#rrggbb"))
+        .label(crate::i18n::t("Custom colour"))
         .width(Some(120.0))
         .invalid(!typed.is_empty() && parse(&typed).is_none())
         .on_edit(|s: &mut State| &mut s.owner_hex)
@@ -100,7 +101,7 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         let on = icon == *ic;
         icons = icons.child(
             row()
-                .key(format!("ic-{i}"))
+                .key(tf!("ic-{i}"))
                 .size(32.0, 32.0)
                 .radius(8.0)
                 .center()
@@ -112,8 +113,8 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         );
     }
     let icon_input = TextInput::new(&s.owner_icon)
-        .placeholder("emoji or 2 letters")
-        .label("Icon")
+        .placeholder(crate::i18n::t("emoji or 2 letters"))
+        .label(crate::i18n::t("Icon"))
         .width(Some(160.0))
         .on_edit(|s: &mut State| &mut s.owner_icon)
         .on_submit(|s: &mut State, _| s.save_owner_edit(false))
@@ -150,10 +151,10 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             row()
                 .w_full()
                 .gap(8.0)
-                .child(Button::new("Reset to default").variant(ButtonVariant::GhostMuted).help("Remove the colour and icon (Undo brings them back)").on_press(|s: &mut State| s.save_owner_edit(true)).build(k).key("o-reset"))
+                .child(Button::new(crate::i18n::t("Reset to default")).variant(ButtonVariant::GhostMuted).help(crate::i18n::t("Remove the colour and icon (Undo brings them back)")).on_press(|s: &mut State| s.save_owner_edit(true)).build(k).key("o-reset"))
                 .child(spacer())
-                .child(Button::new("Cancel").variant(ButtonVariant::Outline).on_press(|s: &mut State| s.owner_edit = None).build(k).key("o-cancel"))
-                .child(Button::new("Save").variant(ButtonVariant::Submit).on_press(|s: &mut State| s.save_owner_edit(false)).build(k).key("o-save")),
+                .child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.owner_edit = None).build(k).key("o-cancel"))
+                .child(Button::new(crate::i18n::t("Save")).variant(ButtonVariant::Submit).on_press(|s: &mut State| s.save_owner_edit(false)).build(k).key("o-save")),
         );
-    Dialog::new("owner", format!("Customize {owner}")).open(true).fit().width(520.0).on_close(|s: &mut State| s.owner_edit = None).child(body).build(k, layer);
+    Dialog::new("owner", crate::i18n::t(tf!("Customize {owner}"))).open(true).fit().width(520.0).on_close(|s: &mut State| s.owner_edit = None).child(body).build(k, layer);
 }

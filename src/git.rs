@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use crate::gh::{cap, run};
+use crate::gh::{Cmd, cap, run};
 use crate::model::{Branch, Cleanup, Commit, CommitDetail, LocalStatus, Stash};
 
 const SEP: char = '\u{1f}'; // unit separator: can't appear in names or subjects
@@ -142,24 +142,47 @@ pub fn status(dir: &Path) -> Result<LocalStatus, String> {
     Ok(st)
 }
 
+pub fn fetch_cmd() -> Cmd {
+    Cmd::new("git", &["fetch", "--all", "--prune"])
+}
+
 pub fn fetch(dir: &Path) -> Result<String, String> {
-    git(dir, &["fetch", "--all", "--prune"]).map(|_| "Fetched all remotes".into())
+    fetch_cmd().run(Some(dir)).map(|_| "Fetched all remotes".into())
 }
 
 /// Fast-forward only: a pull here never creates a merge commit.
+pub fn pull_cmd() -> Cmd {
+    Cmd::new("git", &["pull", "--ff-only"])
+}
+
 pub fn pull(dir: &Path) -> Result<String, String> {
-    git(dir, &["pull", "--ff-only"]).map(|o| o.lines().last().unwrap_or("Up to date").to_owned())
+    pull_cmd().run(Some(dir)).map(|o| o.lines().last().unwrap_or("Up to date").to_owned())
+}
+
+/// What a checkout runs: a local branch is `git switch name`; a remote one (`origin/x`) is
+/// `git switch x` when x exists here, else `git switch --track origin/x`.
+pub fn checkout_cmds(name: &str, remote: bool) -> Vec<Cmd> {
+    if remote {
+        let local = name.split_once('/').map_or(name, |(_, b)| b);
+        vec![Cmd::new("git", &["switch", local]), Cmd::new("git", &["switch", "--track", name])]
+    } else {
+        vec![Cmd::new("git", &["switch", name])]
+    }
 }
 
 /// Switch to a branch. A remote branch (`origin/x`) becomes a local tracking branch `x`.
 pub fn checkout(dir: &Path, name: &str, remote: bool) -> Result<String, String> {
-    if remote {
-        let local = name.split_once('/').map_or(name, |(_, b)| b);
-        git(dir, &["switch", local]).or_else(|_| git(dir, &["switch", "--track", name]))?;
-        Ok(format!("Switched to {local}"))
-    } else {
-        git(dir, &["switch", name]).map(|_| format!("Switched to {name}"))
+    let cmds = checkout_cmds(name, remote);
+    let local = name.split_once('/').filter(|_| remote).map_or(name, |(_, b)| b);
+    // The first that works: the second is only for a remote branch with no local copy yet.
+    let mut last = Err(String::new());
+    for c in &cmds {
+        last = c.run(Some(dir));
+        if last.is_ok() {
+            break;
+        }
     }
+    last.map(|_| format!("Switched to {local}"))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -213,8 +236,12 @@ fn porcelain_path(l: &str) -> Option<&str> {
     Some(path.split('\t').next().unwrap_or(path))
 }
 
+pub fn stash_push_cmd(message: &str) -> Cmd {
+    Cmd::new("git", &["stash", "push", "--include-untracked", "-m", message])
+}
+
 pub fn stash_push(dir: &Path, message: &str) -> Result<String, String> {
-    git(dir, &["stash", "push", "--include-untracked", "-m", message]).map(|_| format!("Stashed: {message}"))
+    stash_push_cmd(message).run(Some(dir)).map(|_| format!("Stashed: {message}"))
 }
 
 pub fn stashes(dir: &Path) -> Result<Vec<Stash>, String> {
@@ -229,8 +256,12 @@ pub fn stashes(dir: &Path) -> Result<Vec<Stash>, String> {
 }
 
 /// `op`: "apply", "pop" or "drop".
+pub fn stash_op_cmd(op: &str, name: &str) -> Cmd {
+    Cmd::new("git", &["stash", op, name])
+}
+
 pub fn stash_op(dir: &Path, op: &str, name: &str) -> Result<String, String> {
-    git(dir, &["stash", op, name]).map(|_| format!("Stash {op}: {name}"))
+    stash_op_cmd(op, name).run(Some(dir)).map(|_| format!("Stash {op}: {name}"))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -263,13 +294,21 @@ pub fn cleanup(dir: &Path, default: &str, now: i64, keep: impl Fn(&str) -> bool)
 }
 
 /// `-d` refuses unmerged branches; `-D` (force) deletes anyway.
+pub fn delete_branch_cmd(name: &str, force: bool) -> Cmd {
+    Cmd::new("git", &["branch", if force { "-D" } else { "-d" }, name])
+}
+
 pub fn delete_branch(dir: &Path, name: &str, force: bool) -> Result<String, String> {
-    git(dir, &["branch", if force { "-D" } else { "-d" }, name]).map(|_| format!("Deleted branch {name}"))
+    delete_branch_cmd(name, force).run(Some(dir)).map(|_| format!("Deleted branch {name}"))
 }
 
 /// Undo a delete: the branch again, at the commit it pointed to.
+pub fn restore_branch_cmd(name: &str, sha: &str) -> Cmd {
+    Cmd::new("git", &["branch", name, sha])
+}
+
 pub fn restore_branch(dir: &Path, name: &str, sha: &str) -> Result<String, String> {
-    git(dir, &["branch", name, sha]).map(|_| format!("Restored branch {name}"))
+    restore_branch_cmd(name, sha).run(Some(dir)).map(|_| format!("Restored branch {name}"))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -432,11 +471,12 @@ pub fn global_identity() -> (String, String) {
 }
 
 /// Set (or, with an empty value, unset) a global git setting.
+pub fn set_global_cmd(key: &str, value: &str) -> Cmd {
+    if value.is_empty() { Cmd::new("git", &["config", "--global", "--unset", key]) } else { Cmd::new("git", &["config", "--global", key, value]) }
+}
+
 pub fn set_global(key: &str, value: &str) -> Result<(), String> {
-    if value.is_empty() {
-        // Unsetting a key that isn't set fails: nothing to do either way.
-        let _ = crate::gh::run("git", &["config", "--global", "--unset", key], None);
-        return Ok(());
-    }
-    crate::gh::run("git", &["config", "--global", key, value], None).map(|_| ())
+    let r = set_global_cmd(key, value).run(None);
+    // Unsetting a key that isn't set fails: nothing to do either way.
+    if value.is_empty() { Ok(()) } else { r.map(|_| ()) }
 }

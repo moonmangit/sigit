@@ -3,6 +3,7 @@
 
 mod actions;
 mod branches;
+pub mod cmd;
 mod commits;
 mod envs;
 mod group;
@@ -16,7 +17,9 @@ mod pulse;
 mod settings;
 mod sidebar;
 
-use rune::{Color, Cx, El, Icon, ScrollSpec, TextStyle, col, el, oklch, rich, row, spacer, text};
+use cmd::CmdTip;
+use rune::{Color, Cx, El, Icon, ScrollSpec, TextStyle, col, el, oklch, rich, row, spacer};
+use crate::i18n::text;
 use rune_kit::shell::{SplitView, Toolbar};
 use rune_kit::syntax::{SyntaxTheme, highlight};
 use rune_kit::{
@@ -49,6 +52,8 @@ icon!(I_BACK, "g-back", r#"<path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor"
 icon!(I_FWD, "g-fwd", r#"<path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 icon!(I_LOGO, "g-logo", r#"<circle cx="4.5" cy="4" r="1.6" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="4.5" cy="12" r="1.6" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="11.5" cy="6.5" r="1.6" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4.5 5.6V10.4M11.5 8.1C11.5 10 9 10.2 6 11.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/>"#);
 icon!(I_COPY, "g-copy", r#"<rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M10.5 5.5V3.9C10.5 3.1 9.9 2.5 9.1 2.5H3.9C3.1 2.5 2.5 3.1 2.5 3.9V9.1C2.5 9.9 3.1 10.5 3.9 10.5H5.5" stroke="currentColor" stroke-width="1.2" fill="none"/>"#);
+icon!(I_PR, "g-pr", r#"<circle cx="4.5" cy="3.8" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="4.5" cy="12.2" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="11.5" cy="12.2" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M4.5 5.3V10.7M11.5 10.7V6.5C11.5 5.4 10.6 4.5 9.5 4.5H7.5M8.8 3.2L7.5 4.5L8.8 5.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
+icon!(I_CMD, "g-cmd", r#"<path d="M3 4.5L6.5 8L3 11.5M8 11.5H13" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 icon!(I_EXTERNAL, "g-ext", r#"<path d="M9 2.5H13.5V7M13.5 2.5L7.5 8.5M11.5 9.5V13.5H2.5V4.5H6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 
 // ---------------------------------------------------------------------------------------------
@@ -98,18 +103,18 @@ pub fn with_clear(input: TextInput, text: &str, edit: fn(&mut State) -> &mut run
 
 /// A PR's checks, as one clear chip: ✓ passed / ✗ failing / ● running / no checks.
 pub fn ci_chip(k: &Kit, ci: crate::model::Ci) -> El {
-    chip(k, ci.label(), ci.outcome()).help(match ci {
+    chip(k, ci.label(), ci.outcome()).help(crate::i18n::t(match ci {
         crate::model::Ci::Passed => "Every check on the latest commit passed: ready to review",
         crate::model::Ci::Failing => "A check on the latest commit failed: not ready to review",
         crate::model::Ci::Running => "Checks are still running on the latest commit",
         crate::model::Ci::None => "No checks ran on it (Actions may be waiting for approval): not counted as passed",
-    })
+    }))
 }
 
 /// A branch chip with a 🛡 when the branch is protected or the default (A2).
 pub fn branch_chip(s: &State, k: &Kit, name: &str, color: Color) -> El {
     if s.is_protected(name) {
-        ref_pill(k, &format!("🛡 {name}"), name, hue(6)).help("Protected or default branch: changes to it need extra care (merges are High risk). Click to copy its name.")
+        ref_pill(k, &tf!("🛡 {name}"), name, hue(6)).help(crate::i18n::t("Protected or default branch: changes to it need extra care (merges are High risk). Click to copy its name."))
     } else {
         ref_chip(k, name, color)
     }
@@ -122,14 +127,18 @@ pub fn ref_chip(k: &Kit, name: &str, color: Color) -> El {
 
 /// A ref pill showing `shown` (with a 🛡 or 🏷, say) that copies `value` when clicked.
 pub fn ref_pill(k: &Kit, shown: &str, value: &str, color: Color) -> El {
-    let pill = row()
-        .px(6.0)
-        .py(1.0)
-        .radius(4.0)
-        .fill(Color { a: 0.16, ..color })
-        .border(1.0, Color { a: 0.45, ..color })
-        .child(text(shown.to_owned()).font(TextStyle { size: 11.0, ..k.ty.mono }).color(k.c.text_base));
-    click_to_copy(pill, k, value.to_owned(), "name")
+    click_to_copy(pill_body(k, shown, color, false), k, value.to_owned(), "name")
+}
+
+/// [`ref_chip`] for a narrow table column: a long name ends in "…" instead of being cut off.
+pub fn ref_chip_fit(k: &Kit, name: &str, color: Color) -> El {
+    click_to_copy(pill_body(k, name, color, true), k, name.to_owned(), "name").help_when_truncated(name.to_owned())
+}
+
+fn pill_body(k: &Kit, shown: &str, color: Color, fit: bool) -> El {
+    let label = text(shown.to_owned()).font(TextStyle { size: 11.0, ..k.ty.mono }).color(k.c.text_base);
+    let pill = row().px(6.0).py(1.0).radius(4.0).fill(Color { a: 0.16, ..color }).border(1.0, Color { a: 0.45, ..color });
+    if fit { pill.shrink().child(label.truncate().shrink()) } else { pill.child(label) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -139,18 +148,19 @@ pub fn ref_pill(k: &Kit, shown: &str, value: &str, color: Color) -> El {
 /// Put `value` on the clipboard and say so ("Copied commit SHA: 3f2a9c1…").
 fn copy_now(s: &mut State, tx: &mut rune::Tx, value: &str, what: &str) {
     tx.copy(value.to_owned());
+    let what = crate::i18n::t(what);
     let shown: String = value.chars().take(60).collect();
     let more = if value.chars().count() > 60 { "…" } else { "" };
-    s.toast(format!("Copied {what}: {shown}{more}"), false);
+    s.toast(crate::i18n::t(tf!("Copied {what}: {shown}{more}")), false);
 }
 
 /// A small copy icon next to something people often paste elsewhere (a link, a SHA, a path).
 pub fn copy_button(k: &Kit, key: &str, value: String, what: &str) -> El {
-    let what = what.to_owned();
+    let what = crate::i18n::t(what);
     IconButton::new(&I_COPY)
         .variant(IconButtonVariant::GhostMuted)
-        .label(format!("Copy {what}"))
-        .help(format!("Copy {what}"))
+        .label(crate::i18n::t(tf!("Copy {what}")))
+        .help(crate::i18n::t(tf!("Copy {what}")))
         .on_press_tx(move |s: &mut State, tx| copy_now(s, tx, &value, &what))
         .build(k)
         .key(key.to_owned())
@@ -158,14 +168,43 @@ pub fn copy_button(k: &Kit, key: &str, value: String, what: &str) -> El {
 
 /// Makes `e` (a name, a SHA, a path) copy `value` when clicked, with a hint on hover.
 pub fn click_to_copy(e: El, k: &Kit, value: String, what: &str) -> El {
+    let shown = crate::i18n::t(what);
     let what = what.to_owned();
-    e.hover(k.c.hover).help(format!("Click to copy {what}")).on_press_tx(move |s: &mut State, tx| copy_now(s, tx, &value, &what))
+    e.hover(k.c.hover).help(tf!("Click to copy {what}", what = shown)).on_press_tx(move |s: &mut State, tx| copy_now(s, tx, &value, &what))
 }
 
 /// Lane / series colours: evenly spaced hues, one lightness.
 pub fn hue(i: usize) -> Color {
     const H: [f32; 8] = [250.0, 150.0, 30.0, 300.0, 200.0, 90.0, 0.0, 330.0];
     oklch(0.68, 0.14, H[i % H.len()])
+}
+
+/// A button's tooltip: `help` and the commands `action` runs (see [`cmd::CmdTip`]).
+pub fn action_help(help: &str, action: &crate::guard::Action) -> cmd::Tip {
+    cmd::Tip::new(crate::i18n::t(help), action.command_lines(false))
+}
+
+/// The gh / git commands an action runs, as terminal lines ("$ gh pr merge 12 --squash"), with a
+/// button to copy them all. Empty when Settings hides commands.
+pub fn command_block(s: &State, k: &Kit, key: &str, title: &str, lines: &[String]) -> El {
+    if !s.prefs.show_commands || lines.is_empty() {
+        return row();
+    }
+    let list = cmd::lines(k, lines, 12.0).w(0.0).grow(1.0);
+    col()
+        .key(key.to_owned())
+        .w_full()
+        .gap(6.0)
+        .child(row().w_full().center_y().child(text(title.to_owned()).font(k.ty.small_medium).color(k.c.text_muted)).child(spacer()).child(copy_button(k, &format!("{key}-copy"), lines.join("\n"), "commands")))
+        .child(row().w_full().padding(10.0).radius(k.radius.md).fill(k.c.bg_base).border(1.0, k.c.border_weak).child(list))
+}
+
+/// Label / value pairs under a detail's title (Status, Branch, Commit…), labels in one
+/// column so the values line up.
+pub fn facts(k: &Kit, pairs: Vec<(&str, El)>) -> El {
+    pairs.into_iter().fold(col().w_full().gap(7.0), |c, (label, value)| {
+        c.child(row().w_full().gap(12.0).center_y().child(text(label.to_owned()).font(k.ty.small).color(k.c.text_faint).w(76.0)).child(row().shrink().min_w(0.0).child(value)))
+    })
 }
 
 /// A bordered surface with a title row.
@@ -224,27 +263,27 @@ pub fn diffstat(k: &Kit, add: u64, del: u64) -> El {
     row()
         .gap(6.0)
         .center_y()
-        .child(text(format!("+{add}")).font(k.ty.text_xsmall_medium).color(k.c.success.fg))
-        .child(text(format!("−{del}")).font(k.ty.text_xsmall_medium).color(k.c.danger.fg))
+        .child(text(tf!("+{add}")).font(k.ty.text_xsmall_medium).color(k.c.success.fg))
+        .child(text(tf!("−{del}")).font(k.ty.text_xsmall_medium).color(k.c.danger.fg))
         .child(bar)
 }
 
 /// The bottom of a list that may have more rows on GitHub: "Load N more".
 pub fn load_more(k: &Kit, key: &str, shown: usize, page: usize, loading: bool, more: fn(&mut State)) -> El {
     let mut r = row().key(key.to_owned()).w_full().px(12.0).py(8.0).gap(10.0).center_y().border(1.0, k.c.border_weak);
-    r = r.child(muted(k, format!("Showing {shown}")));
+    r = r.child(muted(k, tf!("Showing {shown}")));
     r = r.child(spacer());
     if loading {
         r = r.child(Spinner::new().size(12.0).build(k));
     }
-    r.child(Button::new(format!("Load {page} more")).variant(ButtonVariant::Outline).disabled(loading).on_press(more).build(k).key("more"))
+    r.child(Button::new(crate::i18n::t(tf!("Load {page} more"))).variant(ButtonVariant::Outline).disabled(loading).on_press(more).build(k).key("more"))
 }
 
 pub fn ext_button(k: &Kit, key: &str, url: String) -> El {
     IconButton::new(&I_EXTERNAL)
         .variant(IconButtonVariant::GhostMuted)
-        .label("Open on GitHub")
-        .help("Open on GitHub")
+        .label(crate::i18n::t("Open on GitHub"))
+        .help(crate::i18n::t("Open on GitHub"))
         .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
         .build(k)
         .key(key.to_owned())
@@ -277,7 +316,19 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         Theme::Light => false,
         Theme::Dark => true,
     };
+    crate::i18n::apply(s.prefs.language);
     let mut k = Kit::neutral(dark);
+    // The kit sets 11 pt small text on a 12 pt line, which crams any description that wraps
+    // onto a second line; give it room to breathe.
+    k.ty.small.line_height = 16.0;
+    k.ty.small_medium.line_height = 16.0;
+    if crate::i18n::is_thai() {
+        // Thai stacks vowels and tone marks above and below the letters: every style gets about
+        // 1.6× its size so wrapped lines don't touch.
+        for st in [&mut k.ty.ui, &mut k.ty.ui_medium, &mut k.ty.ui_compact, &mut k.ty.small, &mut k.ty.small_medium, &mut k.ty.body, &mut k.ty.body_medium, &mut k.ty.text_small, &mut k.ty.text_small_medium, &mut k.ty.text_xsmall, &mut k.ty.text_xsmall_medium] {
+            st.line_height = st.line_height.max((st.size * 1.6).round());
+        }
+    }
     // A darker backdrop behind every modal (dialogs, the guide, the palette) so what's in
     // front stands out; the kit's default is 30% black.
     k.c.scrim = Color::BLACK.alpha(if dark { 0.62 } else { 0.48 });
@@ -299,29 +350,32 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     overlays::guide(s, &k, &mut layer);
     overlays::grace_banner(s, &k, &mut layer);
     overlays::toasts(s, &k, &mut layer);
+    cmd::tip_layer(s, &k, &mut layer);
+    // Every plain tooltip in the same card look, fading in and out a little.
+    cx.help_look(cmd::help_look(&k));
 
     let title = match (s.page, s.cur.as_deref(), s.group_cur.as_deref()) {
-        (Page::Group, _, Some(g)) => format!("Group · {g}"),
-        (Page::Inbox, ..) | (_, None, _) => "Inbox".to_owned(),
-        (p, Some(slug), _) => format!("{slug} · {}", p.label()),
+        (Page::Group, _, Some(g)) => tf!("Group · {g}"),
+        (Page::Inbox, ..) | (_, None, _) => crate::i18n::t("Inbox"),
+        (p, Some(slug), _) => tf!("{slug} · {}", crate::i18n::t(p.label())),
     };
     let mut trailing = row().gap(10.0).center_y();
     for b in &s.busy {
-        trailing = trailing.child(row().gap(6.0).center_y().child(Spinner::new().size(12.0).build(&k)).child(muted(&k, format!("{b}…"))));
+        trailing = trailing.child(row().gap(6.0).center_y().child(Spinner::new().size(12.0).build(&k)).child(muted(&k, tf!("{b}…"))));
     }
     let watching = s.watches.len();
     if watching > 0 {
         trailing = trailing.child(
-            chip(&k, format!("👁 {watching}"), None)
-                .help(format!("Watching {watching}: {}. Manage in Settings → Notifications.", s.watches.iter().map(|w| w.label.as_str()).collect::<Vec<_>>().join(", ")))
+            chip(&k, tf!("👁 {watching}"), None)
+                .help(crate::i18n::t(tf!("Watching {watching}: {}. Manage in Settings → Notifications.", s.watches.iter().map(|w| w.label.as_str()).collect::<Vec<_>>().join(", "))))
                 .on_press(|s: &mut State| s.open_settings(crate::settings::NOTIFICATIONS)),
         );
     }
     trailing = trailing.child(
         IconButton::new(&I_REFRESH)
             .variant(IconButtonVariant::GhostMuted)
-            .label("Refresh")
-            .help("Refresh")
+            .label(crate::i18n::t("Refresh"))
+            .help(crate::i18n::t("Refresh"))
             .shortcut("Ctrl+R")
             .on_press(|s: &mut State| s.refresh_page())
             .build(&k)
@@ -332,11 +386,11 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     let nav = |icon: &'static Icon, key: &str, label: &str, shortcut: &str, to: Option<&crate::Place>, go: fn(&mut State)| {
         IconButton::new(icon)
             .variant(IconButtonVariant::GhostMuted)
-            .label(label.to_owned())
-            .help(match to {
-                Some(p) => format!("{label} to {}", p.label()),
-                None => format!("Nothing to go {}", label.to_lowercase()),
-            })
+            .label(crate::i18n::t(label.to_owned()))
+            .help(crate::i18n::t(match to {
+                Some(p) => tf!("{label} to {}", p.label(), label = crate::i18n::t(label)),
+                None => tf!("Nothing to go {}", crate::i18n::t(label.to_lowercase())),
+            }))
             .shortcut(shortcut.to_owned())
             .disabled(to.is_none())
             .on_press(go)
@@ -355,12 +409,13 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     };
     let shell = SplitView::new(body.fill(k.c.bg_base))
         .sidebar(&s.sidebar, |s: &mut State| &mut s.sidebar, sidebar::view(s, &k))
-        .toolbar(Toolbar::new().leading(leading).title(title).trailing(trailing))
+        .toolbar(Toolbar::new().leading(leading).title(crate::i18n::t(title)).trailing(trailing))
         .frame_inset(8.0)
         .toolbar_in_panel()
         .build(&k);
     cx.caption_color(if dark { Color::WHITE } else { Color::BLACK });
-    let bar = titlebar(s, &k, cx.chrome_insets());
+    let ready = !s.setup.covers_app() && onboarding::splash_message(s).is_none();
+    let bar = titlebar(&k, cx.chrome_insets(), ready);
     // Setup missing something, or a first run: that screen takes the window.
     let main = if s.setup.covers_app() {
         onboarding::view(s, &k)
@@ -369,24 +424,30 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     } else {
         shell
     };
-    let mut app = col().key("app").w_full().h_full().fill(k.c.page).child(bar).child(col().w_full().grow(1.0).min_h(0.0).child(main));
+    let mut app = col()
+        .key("app")
+        .w_full()
+        .h_full()
+        .fill(k.c.page).child(bar).child(col().w_full().grow(1.0).min_h(0.0).child(main));
     if let Some(anchor) = menu_anchor {
         app = app.child(anchor.absolute(0.0, 0.0));
     }
-    rune_kit::root(app, layer)
+    // Window focus is only told to the root element, which `rune_kit::root` makes: coming back
+    // to the window checks the page again.
+    rune_kit::root(app, layer).on_window_focus(|s: &mut State, focused, _| s.window_focus(focused))
 }
 
 /// New group / rename group: a name field and Save.
 fn group_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let Some(edit) = &s.group_edit else { return };
     let title = match (&edit.rename, &edit.add) {
-        (Some(old), _) => format!("Rename {old}"),
-        (None, Some(slug)) => format!("New group with {slug}"),
+        (Some(old), _) => tf!("Rename {old}"),
+        (None, Some(slug)) => tf!("New group with {slug}"),
         (None, None) => "New group".to_owned(),
     };
     let input = TextInput::new(&s.group_name)
-        .placeholder("e.g. Payments, Mobile, Platform")
-        .label("Group name")
+        .placeholder(crate::i18n::t("e.g. Payments, Mobile, Platform"))
+        .label(crate::i18n::t("Group name"))
         .width(None)
         .on_edit(|s: &mut State| &mut s.group_name)
         .on_submit(|s: &mut State, _| s.finish_group_edit());
@@ -408,22 +469,22 @@ fn group_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                 .w_full()
                 .gap(8.0)
                 .child(spacer())
-                .child(Button::new("Cancel").variant(ButtonVariant::Outline).on_press(|s: &mut State| s.group_edit = None).build(k).key("g-cancel"))
-                .child(Button::new("Save").variant(ButtonVariant::Submit).on_press(|s: &mut State| s.finish_group_edit()).build(k).key("g-save")),
+                .child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.group_edit = None).build(k).key("g-cancel"))
+                .child(Button::new(crate::i18n::t("Save")).variant(ButtonVariant::Submit).on_press(|s: &mut State| s.finish_group_edit()).build(k).key("g-save")),
         );
-    Dialog::new("group", title).open(true).fit().width(440.0).on_close(|s: &mut State| s.group_edit = None).child(body).build(k, layer);
+    Dialog::new("group", crate::i18n::t(title)).open(true).fit().width(440.0).on_close(|s: &mut State| s.group_edit = None).child(body).build(k, layer);
 }
 
 /// The Inbox: Activity (your tracked repos over a range) and Needs you (queue, notifications).
 fn inbox_page(s: &State, k: &Kit) -> El {
     let needs = s.review_queue().len() + s.visible_notifs().len();
-    let tabs = SegmentedControl::new(&["Activity".to_owned(), format!("Needs you ({needs})")], Some(s.inbox_tab))
-        .label("Inbox view")
+    let tabs = SegmentedControl::new(&crate::i18n::all(&["Activity".to_owned(), tf!("Needs you ({needs})")]), Some(s.inbox_tab))
+        .label(crate::i18n::t("Inbox view"))
         .fit()
         .on_pick(|s: &mut State, i, _| s.inbox_tab = i)
         .build(k)
         .key("inbox-tabs")
-        .help("Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs.");
+        .help(crate::i18n::t("Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs."));
     let body = if s.inbox_tab == 0 { pulse::view(s, k) } else { inbox::view(s, k) };
     col().key("inbox-page").w_full().h_full().child(row().w_full().px(24.0).pt(14.0).child(tabs)).child(col().w_full().grow(1.0).min_h(0.0).child(body))
 }
@@ -474,6 +535,7 @@ fn freshness(s: &State) -> Option<Fresh> {
                 }
             }
         }
+        Page::Commits | Page::Branches if s.repo().is_some_and(|r| r.path.is_none()) => return None,
         page => {
             let d = s.rd()?;
             f.add(&d.status);
@@ -511,7 +573,7 @@ fn freshness(s: &State) -> Option<Fresh> {
 
 /// Header (repo, branch, local state, fetch/pull) + page tabs + the page.
 fn repo_page(s: &State, k: &Kit, page: Page) -> El {
-    let Some(repo) = s.repo() else { return empty(k, "Pick a repository") };
+    let Some(repo) = s.repo() else { return empty_state(k, "no-repo", &I_REPO, "Pick a repository", "Choose one in the sidebar, or press Ctrl+K to jump to any repo by name.", None) };
     let d = s.rd();
     let mut head = row().key("repo-head").w_full().gap(10.0).center_y().flex_wrap();
     if let Some(b) = org::badge(s, k, repo.owner(), 22.0) {
@@ -519,29 +581,29 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
     }
     head = head.child(text(repo.slug.clone()).font(TextStyle { size: 18.0, ..k.ty.ui_medium }).color(k.c.text_strong));
     if let Some(st) = d.and_then(|d| d.status.data.as_ref()) {
-        head = head.child(branch_chip(s, k, &st.branch, hue(0)).help("The branch your local clone is on"));
+        head = head.child(branch_chip(s, k, &st.branch, hue(0)).help(crate::i18n::t("The branch your local clone is on")));
         if st.changed > 0 {
-            head = head.child(chip(k, format!("{} changed", st.changed), Some(Outcome::Running)));
+            head = head.child(chip(k, tf!("{} changed", st.changed), Some(Outcome::Running)));
         }
         if st.ahead > 0 || st.behind > 0 {
-            head = head.child(chip(k, format!("↑{} ↓{}", st.ahead, st.behind), None));
+            head = head.child(chip(k, tf!("↑{} ↓{}", st.ahead, st.behind), None));
         }
     } else if repo.path.is_none() {
-        head = head.child(chip(k, "GitHub only", None).help("No local clone added: Commits and Branches need one (right-click → or + in the sidebar)"));
+        head = head.child(chip(k, "GitHub only", None).help(crate::i18n::t("No local clone added: Commits and Branches need one (right-click → or + in the sidebar)")));
     }
     head = head.child(spacer());
     if repo.path.is_some() {
         head = head
-            .child(Button::new("Fetch").variant(ButtonVariant::Outline).help("Download new commits and branches from every remote (git fetch --all --prune). Changes nothing locally.").on_press(|s: &mut State| s.fetch()).build(k).key("fetch"))
-            .child(Button::new("Pull").variant(ButtonVariant::Outline).help("Fast-forward your current branch (git pull --ff-only): never creates a merge commit. Checks for uncommitted changes first.").on_press(|s: &mut State| s.pull()).build(k).key("pull"));
+            .child({ let tip = s.with_commands(crate::i18n::t("Download new commits and branches from every remote. Changes nothing locally."), &[crate::git::fetch_cmd().line()]); Button::new(crate::i18n::t("Fetch")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.fetch()).build(k).key("fetch").cmd_tip(s, tip) })
+            .child({ let tip = s.with_commands(crate::i18n::t("Fast-forward your current branch: never creates a merge commit. Checks for uncommitted changes first."), &[crate::git::pull_cmd().line()]); Button::new(crate::i18n::t("Pull")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.pull()).build(k).key("pull").cmd_tip(s, tip) });
     }
     head = head
-        .child(copy_button(k, "repo-clone", format!("https://github.com/{}.git", repo.slug), "clone URL"))
-        .child(ext_button(k, "repo-open", format!("https://github.com/{}", repo.slug)));
+        .child(copy_button(k, "repo-clone", tf!("https://github.com/{}.git", repo.slug), "clone URL"))
+        .child(ext_button(k, "repo-open", tf!("https://github.com/{}", repo.slug)));
 
     let idx = Page::REPO.iter().position(|p| *p == page);
-    let tabs = SegmentedControl::new(&Page::REPO.map(|p| p.label()), idx)
-        .label("Repository view")
+    let tabs = SegmentedControl::new(&crate::i18n::all(&Page::REPO.map(|p| p.label())), idx)
+        .label(crate::i18n::t("Repository view"))
         .fit()
         .on_pick(|s: &mut State, i, _| s.show(Page::REPO[i]))
         .build(k)
@@ -564,19 +626,37 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         .gap(12.0)
         .child(head)
         .child(row().w_full().child(tabs))
-        .child(col().key(format!("page:{page:?}")).w_full().grow(1.0).min_h(0.0).child(body))
+        .child(col().key(tf!("page:{page:?}")).w_full().grow(1.0).min_h(0.0).child(body))
 }
 
 fn no_clone(k: &Kit, slug: &str) -> El {
-    col()
-        .key("no-clone")
+    empty_state(
+        k,
+        "no-clone",
+        &I_REPO,
+        "No local clone",
+        &tf!("Commits and branches read a local copy of {slug}. Point sigit at a folder where you already cloned it; nothing is downloaded or changed."),
+        Some(Button::new(crate::i18n::t("Locate local clone…")).variant(ButtonVariant::Contrast).on_press_tx(crate::ask_local_repo).build(k).key("locate")),
+    )
+}
+
+/// A page or panel with nothing to show yet: an icon on a soft tile, a title, one or two
+/// lines of explanation, and the action that fills it (if any).
+pub fn empty_state(k: &Kit, key: &str, icon: &'static Icon, title: &str, body: &str, action: Option<El>) -> El {
+    let mut c = col()
+        .key(key.to_owned())
         .w_full()
-        .py(60.0)
+        .py(56.0)
+        .px(24.0)
         .items_center()
         .gap(10.0)
-        .child(text("No local clone").font(TextStyle { size: 18.0, ..k.ty.ui_medium }).color(k.c.text_base))
-        .child(muted(k, format!("Commits and branches read a local copy of {slug}. Point at one you already have:")))
-        .child(Button::new("Locate local clone…").variant(ButtonVariant::Contrast).on_press_tx(crate::ask_local_repo).build(k).key("locate"))
+        .child(row().size(48.0, 48.0).radius(k.radius.lg).center().fill(k.c.surface_base).border(1.0, k.c.border_weak).child(rune::icon(icon, 22.0).color(k.c.icon_base)))
+        .child(text(title.to_owned()).font(TextStyle { size: 17.0, ..k.ty.ui_medium }).color(k.c.text_strong).pt(4.0))
+        .child(text(body.to_owned()).font(k.ty.ui).color(k.c.text_muted).wrap().align(rune::Align::Center).max_w(460.0));
+    if let Some(a) = action {
+        c = c.child(row().pt(6.0).child(a));
+    }
+    c
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -602,12 +682,8 @@ pub const TITLEBAR_HEIGHT: f32 = 38.0;
 /// The band across the top: the app's mark and name, and a command bar in the middle that
 /// opens the palette. The whole band moves the window (double-click maximizes, right-click
 /// opens the window menu); it stays clear of the window's own buttons (`insets`).
-fn titlebar(s: &State, k: &Kit, insets: rune::ChromeInsets) -> El {
-    let here = match (s.page, s.cur.as_deref(), s.group_cur.as_deref()) {
-        (Page::Group, _, Some(g)) => format!("Group · {g}"),
-        (Page::Inbox, ..) | (_, None, _) => "Inbox".to_owned(),
-        (p, Some(slug), _) => format!("{slug} · {}", p.label()),
-    };
+/// `ready`: the app is past setup (the command bar and app buttons have something to act on).
+fn titlebar(k: &Kit, insets: rune::ChromeInsets, ready: bool) -> El {
     let brand = row()
         .gap(8.0)
         .center_y()
@@ -626,11 +702,11 @@ fn titlebar(s: &State, k: &Kit, insets: rune::ChromeInsets) -> El {
         .border(1.0, k.c.border_weak)
         .hover(k.c.hover)
         .role("button")
-        .label("Command palette")
-        .help("Jump to any repo, #PR, branch or group, or run a command")
+        .label(crate::i18n::t("Command palette"))
+        .help(crate::i18n::t("Jump to any repo, #PR, branch or group, or run a command"))
         .on_press(|s: &mut State| s.open_palette())
         .child(rune::icon(k.glyph.search, 13.0).color(k.c.icon_faint))
-        .child(text(format!("Search or jump to…  ({here})")).font(k.ty.small).color(k.c.text_muted).truncate().shrink())
+        .child(text("Search or jump to a repo, PR, branch or command…").font(k.ty.small).color(k.c.text_muted).truncate().shrink())
         .child(spacer())
         .child(text("Ctrl+K").font(k.ty.text_xsmall_medium).color(k.c.text_faint));
     let side = || row().w(0.0).grow(1.0).center_y();
@@ -644,8 +720,8 @@ fn titlebar(s: &State, k: &Kit, insets: rune::ChromeInsets) -> El {
         .center_y()
         .window_drag()
         .child(side().child(brand))
-        .child(row().w(0.0).grow(1.4).min_w(200.0).center().child(command))
-        .child(side().child(spacer()).child(app_buttons(k)))
+        .child(row().w(0.0).grow(1.4).min_w(200.0).center().child(if ready { command } else { row() }))
+        .child(side().child(spacer()).child(if ready { app_buttons(k) } else { row() }))
 }
 
 /// App-wide buttons at the title bar's end, before the window's own: the guide and Settings.
@@ -656,8 +732,8 @@ fn app_buttons(k: &Kit) -> El {
         .child(
             IconButton::new(&I_HELP)
                 .variant(IconButtonVariant::GhostMuted)
-                .label("Guide")
-                .help("Guide: what every feature does")
+                .label(crate::i18n::t("Guide"))
+                .help(crate::i18n::t("Guide: what every feature does"))
                 .shortcut("F1")
                 .on_press(|s: &mut State| s.guide_open = true)
                 .build(k)
@@ -666,8 +742,8 @@ fn app_buttons(k: &Kit) -> El {
         .child(
             IconButton::new(&I_GEAR)
                 .variant(IconButtonVariant::GhostMuted)
-                .label("Settings")
-                .help("Settings: appearance, accounts, git identity, safety, notifications")
+                .label(crate::i18n::t("Settings"))
+                .help(crate::i18n::t("Settings: appearance, accounts, git identity, safety, notifications"))
                 .shortcut("Ctrl+,")
                 .on_press(|s: &mut State| s.open_settings(s.settings_sec))
                 .build(k)

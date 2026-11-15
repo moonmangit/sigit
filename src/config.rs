@@ -33,6 +33,27 @@ impl Theme {
     }
 }
 
+/// The interface language. System follows the computer's preferred languages.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Language {
+    #[default]
+    System,
+    English,
+    Thai,
+}
+
+impl Language {
+    pub const ALL: [Language; 3] = [Language::System, Language::English, Language::Thai];
+    /// Each language names itself, so you can find yours whatever the app is showing.
+    pub fn label(self) -> &'static str {
+        match self {
+            Language::System => "System",
+            Language::English => "English",
+            Language::Thai => "ไทย",
+        }
+    }
+}
+
 /// A group you made: any repos, from any owners.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Group {
@@ -56,6 +77,7 @@ pub struct OwnerStyle {
 #[serde(default)]
 pub struct Prefs {
     pub theme: Theme,
+    pub language: Language,
     pub pinned: Vec<String>,
     pub groups: Vec<Group>,
     /// Environment names that mean production (A4), besides protected environments.
@@ -90,12 +112,16 @@ pub struct Prefs {
     pub zoom: f32,
     /// Repos shown per organization in the sidebar before "Show more" (0: all).
     pub org_limit: usize,
+    /// Show the gh / git command behind each action: in its tooltip, before it runs, and in
+    /// the result and the activity log.
+    pub show_commands: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
         Prefs {
             theme: Theme::System,
+            language: Language::System,
             pinned: Vec::new(),
             groups: Vec::new(),
             prod_names: ["prod", "production", "live", "release"].map(String::from).to_vec(),
@@ -110,6 +136,7 @@ impl Default for Prefs {
             splits: Default::default(),
             zoom: 1.0,
             org_limit: 7,
+            show_commands: true,
             collapsed: Vec::new(),
             owner_order: Vec::new(),
             owner_styles: Vec::new(),

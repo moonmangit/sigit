@@ -1,12 +1,14 @@
 //! Actions: a bar per recent run (height = duration, colour = outcome), the run list, and a
 //! run's jobs and steps on a shared timeline, with re-run and cancel.
 
+use super::cmd::CmdTip;
 use std::borrow::Cow;
 
-use rune::{El, TextStyle, col, el, row, spacer, text};
+use rune::{El, TextStyle, col, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Button, ButtonVariant, Cell, Kit, Table, TableColumn};
 
-use super::{chip, empty, ext_button, hue, muted, outcome_color, pending, ref_chip, side_pane, status_mark};
+use super::{chip, empty, ext_button, hue, muted, outcome_color, pending, side_pane, status_mark};
 use crate::model::{Outcome, Run, ago_str, duration, now, parse_time};
 use crate::daily::WatchTarget;
 use crate::guard::Action;
@@ -22,7 +24,7 @@ pub fn view(s: &State, k: &Kit) -> El {
     }
     let all = runs(s);
     if all.is_empty() {
-        return empty(k, "No workflow runs in this repository");
+        return super::empty_state(k, "runs-empty", &super::I_REFRESH, "No workflow runs", "GitHub Actions hasn't run anything in this repository yet. Runs show here, newest first, as soon as a workflow starts.", None);
     }
     let now = now();
 
@@ -39,14 +41,14 @@ pub fn view(s: &State, k: &Kit) -> El {
         let id = run.database_id;
         let selected = s.run_sel == Some(id);
         r.child(
-            el().key(format!("b-{i}"))
+            el().key(tf!("b-{i}"))
                 .grow(1.0)
                 .h(h)
                 .radius(2.0)
                 .fill(rune::Color { a: if selected { 1.0 } else { 0.75 }, ..outcome_color(k, o) })
                 .border(if selected { 1.5 } else { 0.0 }, k.c.text_strong)
                 .hover(k.c.hover)
-                .help(format!("{} · {} · {}", run.workflow_name, run.display_title, duration(run.duration(now))))
+                .help(crate::i18n::t(tf!("{} · {} · {}", run.workflow_name, run.display_title, duration(run.duration(now)))))
                 .on_press(move |s: &mut State| s.select_run(id)),
         )
     });
@@ -63,7 +65,7 @@ pub fn view(s: &State, k: &Kit) -> El {
             row()
                 .w_full()
                 .gap(28.0)
-                .child(stat("Success rate", format!("{:.0}%", ok as f32 / done.len().max(1) as f32 * 100.0)))
+                .child(stat("Success rate", tf!("{:.0}%", ok as f32 / done.len().max(1) as f32 * 100.0)))
                 .child(stat("Median duration", duration(median)))
                 .child(stat("Running", all.iter().filter(|r| r.outcome().is_running()).count().to_string()))
                 .child(stat("Runs shown", all.len().to_string()))
@@ -80,21 +82,21 @@ pub fn view(s: &State, k: &Kit) -> El {
         |s: &State, i| Cow::Owned(runs(s).get(i).map_or_else(String::new, |r| r.database_id.to_string())),
     )
     .name("Workflow runs")
-    .column(TableColumn::new("status", "").width(36.0).resizable(false))
-    .column(TableColumn::new("title", "Run").flex(3.0).min(200.0))
-    .column(TableColumn::new("workflow", "Workflow").width(140.0).min(90.0))
-    .column(TableColumn::new("branch", "Branch").width(160.0).min(90.0))
-    .column(TableColumn::new("event", "Event").width(110.0).min(70.0))
-    .column(TableColumn::new("dur", "Duration").width(90.0).resizable(false))
-    .column(TableColumn::new("ago", "Started").width(84.0).resizable(false))
+    .column(TableColumn::new("status", crate::i18n::t("")).width(36.0).resizable(false))
+    .column(TableColumn::new("title", crate::i18n::t("Run")).flex(3.0).min(200.0))
+    .column(TableColumn::new("workflow", crate::i18n::t("Workflow")).width(140.0).min(90.0))
+    .column(TableColumn::new("branch", crate::i18n::t("Branch")).width(160.0).min(90.0))
+    .column(TableColumn::new("event", crate::i18n::t("Event")).width(110.0).min(70.0))
+    .column(TableColumn::new("dur", crate::i18n::t("Duration")).width(90.0).resizable(false))
+    .column(TableColumn::new("ago", crate::i18n::t("Started")).width(84.0).resizable(false))
     .cell(move |s: &State, i, col| {
         let Some(r) = runs(s).get(i) else { return Cell::text("") };
         let k = &kc;
         match col {
             "status" => Cell::el(status_mark(k, r.outcome())),
-            "title" => Cell::text(format!("{}  #{}", r.display_title, r.number)),
+            "title" => Cell::text(tf!("{}  #{}", r.display_title, r.number)),
             "workflow" => Cell::text(r.workflow_name.clone()).muted(),
-            "branch" => Cell::el(ref_chip(k, &r.head_branch, hue(1))),
+            "branch" => Cell::el(super::ref_chip_fit(k, &r.head_branch, hue(1))),
             "event" => Cell::text(r.event.clone()).muted(),
             "dur" => Cell::text(duration(r.duration(now))).mono().muted(),
             _ => Cell::text(ago_str(&r.created_at, now)).muted(),
@@ -139,25 +141,26 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             .child(super::copy_button(k, "run-copy", run.url.clone(), "link to this run"))
             .child(ext_button(k, "run-open", run.url.clone())),
     );
-    c = c.child(
-        row()
-            .w_full()
-            .gap(6.0)
-            .center_y()
-            .flex_wrap()
-            .child(chip(k, if o.is_running() { run.status.clone() } else { run.conclusion.clone() }, Some(o)))
-            .child(muted(k, format!("{} #{} · {} ·", run.workflow_name, run.number, run.event)))
-            .child(ref_chip(k, &run.head_branch, hue(1)))
-            .child(super::click_to_copy(text(run.head_sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_muted), k, run.head_sha.clone(), "commit SHA"))
-            .child(muted(k, format!("· {} · {}", ago_str(&run.created_at, now), duration(run.duration(now))))),
-    );
+    let status = chip(k, if o.is_running() { run.status.clone() } else { run.conclusion.clone() }, Some(o));
+    let sha = super::click_to_copy(text(run.head_sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_base), k, run.head_sha.clone(), "commit SHA");
+    c = c.child(super::facts(
+        k,
+        vec![
+            ("Status", status),
+            ("Workflow", text(tf!("{} #{}", run.workflow_name, run.number)).font(k.ty.small).color(k.c.text_base)),
+            ("Trigger", text(run.event.replace('_', " ")).font(k.ty.small).color(k.c.text_base)),
+            ("Branch", super::ref_chip_fit(k, &run.head_branch, hue(1))),
+            ("Commit", sha),
+            ("Started", text(tf!("{} · took {}", ago_str(&run.created_at, now), duration(run.duration(now)))).font(k.ty.small).color(k.c.text_base)),
+        ],
+    ));
 
     // A4: say so up front when this looks like a deploy.
     if risk::looks_like_deploy(&run.workflow_name) {
-        c = c.child(chip(k, "deploy workflow: re-run / cancel are checked against production", Some(Outcome::Running)).help("Re-running or cancelling a run whose commit is deployed to a production environment needs the environment name typed"));
+        c = c.child(chip(k, "deploy workflow: re-run / cancel are checked against production", Some(Outcome::Running)).help(crate::i18n::t("Re-running or cancelling a run whose commit is deployed to a production environment needs the environment name typed")));
     }
     if s.flaky(&run) {
-        c = c.child(chip(k, "Probably flaky: the same workflow on this commit has both failed and passed", Some(Outcome::Running)).help("A failure that passes on re-run usually isn't caused by the code"));
+        c = c.child(chip(k, "Probably flaky: the same workflow on this commit has both failed and passed", Some(Outcome::Running)).help(crate::i18n::t("A failure that passes on re-run usually isn't caused by the code")));
     }
     let mut actions = row().w_full().gap(8.0).flex_wrap();
     let base = |failed_only: bool| Action::Rerun {
@@ -171,45 +174,45 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     if o == Outcome::Failure {
         let a = base(true);
         actions = actions.child(
-            Button::new("Re-run failed jobs")
+            { let tip = super::action_help("Run only the jobs that failed again", &a); Button::new(crate::i18n::t("Re-run failed jobs"))
                 .variant(ButtonVariant::Submit)
-                .help("Run only the jobs that failed again (gh run rerun --failed)")
+                
                 .on_press(move |s: &mut State| s.request(a.clone()))
                 .build(k)
-                .key("rerun-failed"),
+                .key("rerun-failed").cmd_tip(s, tip) },
         );
     }
     if !o.is_running() {
         let a = base(false);
         actions = actions.child(
-            Button::new("Re-run all jobs")
+            { let tip = super::action_help("Run the whole workflow again on the same commit", &a); Button::new(crate::i18n::t("Re-run all jobs"))
                 .variant(ButtonVariant::Outline)
-                .help("Run the whole workflow again on the same commit")
+                
                 .on_press(move |s: &mut State| s.request(a.clone()))
                 .build(k)
-                .key("rerun-all"),
+                .key("rerun-all").cmd_tip(s, tip) },
         );
     } else {
         let a = Action::CancelRun { slug: slug.clone(), id, title: run.display_title.clone(), workflow: run.workflow_name.clone(), sha: run.head_sha.clone() };
         actions = actions.child(
-            Button::new("Cancel run")
+            { let tip = super::action_help("Stop every job where it is (asks first)", &a); Button::new(crate::i18n::t("Cancel run"))
                 .variant(ButtonVariant::Danger)
-                .help("Stop every job where it is (asks first)")
+                
                 .on_press(move |s: &mut State| s.request(a.clone()))
                 .build(k)
-                .key("cancel"),
+                .key("cancel").cmd_tip(s, tip) },
         );
     }
     // B6: watch it.
     let target = WatchTarget::Run { slug: slug.clone(), id };
     let watched = s.is_watched(&target);
-    let label = format!("{} #{}", run.workflow_name, run.number);
+    let label = tf!("{} #{}", run.workflow_name, run.number);
     if o.is_running() || watched {
         actions = actions.child(
-            Button::new(if watched { "Watching" } else { "Watch" })
+            Button::new(crate::i18n::t(if watched { "Watching" } else { "Watch" }))
                 .variant(if watched { ButtonVariant::Contrast } else { ButtonVariant::Ghost })
                 .icon(&super::I_EYE)
-                .help("Get a desktop notification when this run finishes")
+                .help(crate::i18n::t("Get a desktop notification when this run finishes"))
                 .on_press(move |s: &mut State| s.toggle_watch(target.clone(), label.clone()))
                 .build(k)
                 .key("watch"),
@@ -222,12 +225,12 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     }
     if o == Outcome::Failure {
         let body: El = if s.triage_for != Some(id) {
-            Button::new("Show why it failed")
+            { let tip = s.with_commands(crate::i18n::t("Load the failing steps' last log lines"), &[crate::gh::failed_log_cmd(&slug, id).line()]); Button::new(crate::i18n::t("Show why it failed"))
                 .variant(ButtonVariant::Outline)
-                .help("Load the failing steps' last log lines (gh run view --log-failed)")
+                
                 .on_press(move |s: &mut State| s.load_triage(id))
                 .build(k)
-                .key("load-triage")
+                .key("load-triage").cmd_tip(s, tip) }
         } else if let Some(p) = pending(k, &s.triage) {
             p
         } else {
@@ -238,7 +241,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                 let bad = ["error", "failed", "panicked", "fatal", "exception", "assert"].iter().any(|w| lower.contains(w));
                 lines = lines.child(
                     text(l.to_owned())
-                        .key(format!("log-{i}"))
+                        .key(tf!("log-{i}"))
                         .font(rune::TextStyle { size: 11.5, ..k.ty.mono })
                         .color(if bad { k.c.danger.fg } else { k.c.text_muted })
                         .fill(if bad { k.c.danger.bg } else { rune::Color::TRANSPARENT }),
@@ -254,7 +257,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                 .border(1.0, k.c.border_weak)
                 .clip_rounded(k.radius.md)
                 .child(col().w_full().padding(10.0).child(lines).scroll_x())
-                .child(row().w_full().px(10.0).pb(8.0).child(spacer()).child(rune_kit::Button::new("Copy").variant(ButtonVariant::GhostMuted).help("Copy the log lines").on_press_tx(move |_: &mut State, tx| {
+                .child(row().w_full().px(10.0).pb(8.0).child(spacer()).child(rune_kit::Button::new(crate::i18n::t("Copy")).variant(ButtonVariant::GhostMuted).help(crate::i18n::t("Copy the log lines")).on_press_tx(move |_: &mut State, tx| {
                     tx.copy(log.clone());
                 }).build(k).key("copy-log")))
         };
@@ -302,7 +305,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
         let url = j.url.clone();
         timeline = timeline.child(
             row()
-                .key(format!("job-{ji}"))
+                .key(tf!("job-{ji}"))
                 .w_full()
                 .gap(8.0)
                 .pt(6.0)
@@ -310,7 +313,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                 .hover(k.c.hover)
                 .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
                 .child(row().w(202.0).gap(6.0).center_y().child(status_mark(k, jo)).child(text(j.name.clone()).font(k.ty.ui_medium).color(k.c.text_base).truncate().shrink()))
-                .child(col().grow(1.0).child(bar(format!("jb-{ji}"), &j.started_at, &j.completed_at, jo, 12.0)))
+                .child(col().grow(1.0).child(bar(tf!("jb-{ji}"), &j.started_at, &j.completed_at, jo, 12.0)))
                 .child(text(duration(jd.max(0))).font(k.ty.text_xsmall).color(k.c.text_muted).w(56.0)),
         );
         // Steps: every step of a failed job, otherwise only the long ones.
@@ -322,12 +325,12 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             }
             timeline = timeline.child(
                 row()
-                    .key(format!("st-{ji}-{si}"))
+                    .key(tf!("st-{ji}-{si}"))
                     .w_full()
                     .gap(8.0)
                     .center_y()
                     .child(row().w(202.0).pl(20.0).child(text(st.name.clone()).font(k.ty.text_xsmall).color(if so == Outcome::Failure { k.c.danger.fg } else { k.c.text_muted }).truncate().shrink()))
-                    .child(col().grow(1.0).child(bar(format!("sb-{ji}-{si}"), &st.started_at, &st.completed_at, so, 6.0)))
+                    .child(col().grow(1.0).child(bar(tf!("sb-{ji}-{si}"), &st.started_at, &st.completed_at, so, 6.0)))
                     .child(text(duration(sd.max(0))).font(k.ty.text_xsmall).color(k.c.text_faint).w(56.0)),
             );
         }

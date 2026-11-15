@@ -48,7 +48,7 @@ pub fn parse(v: &str) -> Option<(u64, u64, u64)> {
 
 /// The latest published release (not a draft or pre-release): (tag, page).
 fn latest() -> Result<(String, String), String> {
-    let out = gh::run("gh", &["api", &format!("repos/{}/releases/latest", repo())], None).map_err(|e| if e.contains("404") || e.contains("Not Found") { "No releases published yet".to_owned() } else { e })?;
+    let out = check_cmd().run(None).map_err(|e| if e.contains("404") || e.contains("Not Found") { "No releases published yet".to_owned() } else { e })?;
     let v: serde_json::Value = serde_json::from_str(&out).map_err(|e| e.to_string())?;
     let tag = v["tag_name"].as_str().ok_or("unexpected answer from GitHub")?.to_owned();
     let url = v["html_url"].as_str().unwrap_or_default().to_owned();
@@ -60,7 +60,7 @@ pub fn verdict(tag: &str, url: String) -> Update {
     match (parse(tag), parse(current())) {
         (Some(latest), Some(mine)) if latest > mine => Update::Available { tag: tag.to_owned(), version: tag.trim_start_matches('v').to_owned(), url },
         (Some(_), Some(_)) => Update::UpToDate,
-        _ => Update::Failed(format!("Couldn't read the version \"{tag}\"")),
+        _ => Update::Failed(tf!("Couldn't read the version \"{tag}\"")),
     }
 }
 
@@ -69,6 +69,16 @@ pub fn verdict(tag: &str, url: String) -> Update {
 // ---------------------------------------------------------------------------------------------
 
 /// The release file for this system, if the releases have one.
+/// Asks GitHub for the newest release.
+pub fn check_cmd() -> gh::Cmd {
+    gh::Cmd::new("gh", &["api", &format!("repos/{}/releases/latest", repo())])
+}
+
+/// Downloads this system's build of `tag` and the checksums into `dir`.
+pub fn download_cmd(tag: &str, asset: &str, dir: &str) -> gh::Cmd {
+    gh::Cmd::new("gh", &["release", "download", tag, "--repo", repo(), "--pattern", asset, "--pattern", "SHA256SUMS.txt", "--dir", dir, "--clobber"])
+}
+
 pub fn asset() -> Option<&'static str> {
     if cfg!(all(windows, target_arch = "x86_64")) {
         Some("sigit-windows-x64.zip")
@@ -120,8 +130,9 @@ pub fn install(tag: &str) -> Result<PathBuf, String> {
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let dir = work.to_string_lossy().into_owned();
-    gh::run("gh", &["release", "download", tag, "--repo", repo(), "--pattern", asset, "--pattern", "SHA256SUMS.txt", "--dir", &dir, "--clobber"], None)
-        .map_err(|e| format!("Download failed: {e}"))?;
+    download_cmd(tag, asset, &dir)
+        .run(None)
+        .map_err(|e| tf!("Download failed: {e}"))?;
     let zip = work.join(asset);
     let sums = std::fs::read_to_string(work.join("SHA256SUMS.txt")).map_err(|_| "The release has no checksums".to_owned())?;
     let bytes = std::fs::read(&zip).map_err(|e| e.to_string())?;
@@ -142,7 +153,7 @@ pub fn verify(name: &str, bytes: &[u8], sums: &str) -> Result<(), String> {
             let (hash, file) = l.trim().split_once(char::is_whitespace)?;
             (file.trim().trim_start_matches('*') == name).then(|| hash.to_ascii_lowercase())
         })
-        .ok_or_else(|| format!("{name} isn't in the release's checksums"))?;
+        .ok_or_else(|| tf!("{name} isn't in the release's checksums"))?;
     let got: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
     if got == want { Ok(()) } else { Err("The download doesn't match its checksum, so it wasn't installed".into()) }
 }
@@ -180,12 +191,12 @@ fn replace(target: &Path, unpacked: &Path) -> Result<(), String> {
         // Installed where this account can't write (Program Files for all users, or
         // /Applications for a standard Mac account): do the swap with the system's permission.
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return swap_as_admin(target, &new, &old),
-        Err(e) => return Err(format!("Couldn't move the current version aside: {e}")),
+        Err(e) => return Err(tf!("Couldn't move the current version aside: {e}")),
     }
     if let Err(e) = copy_into_place(&new, target) {
         remove(target);
         let _ = std::fs::rename(&old, target);
-        return Err(format!("Couldn't put the new version in place: {e}"));
+        return Err(tf!("Couldn't put the new version in place: {e}"));
     }
     Ok(())
 }
@@ -207,7 +218,7 @@ fn swap_as_admin(target: &Path, new: &Path, old: &Path) -> Result<(), String> {
         Err(e) if e.to_lowercase().contains("canceled") || e.to_lowercase().contains("cancelled") => {
             Err("sigit is installed for all users, so updating needs administrator permission, which wasn't given".into())
         }
-        Err(e) => Err(format!("Couldn't replace sigit even with administrator permission: {e}")),
+        Err(e) => Err(tf!("Couldn't replace sigit even with administrator permission: {e}")),
     }
 }
 
@@ -258,7 +269,7 @@ fn swap_as_admin(target: &Path, new: &Path, old: &Path) -> Result<(), String> {
     match gh::run("osascript", &["-e", &script], None) {
         Ok(_) => Ok(()),
         Err(e) if e.contains("-128") || e.to_lowercase().contains("cancel") => Err("Updating needs an administrator's password, which wasn't given".into()),
-        Err(e) => Err(format!("Couldn't replace sigit even with administrator permission: {e}")),
+        Err(e) => Err(tf!("Couldn't replace sigit even with administrator permission: {e}")),
     }
 }
 

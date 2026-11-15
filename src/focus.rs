@@ -42,7 +42,7 @@ impl State {
                     s.focus_run = Some((slug, run));
                     s.keep_focused_run();
                 }
-                Err(e) => s.toast(format!("Couldn't load that run: {e}"), true),
+                Err(e) => s.toast(crate::i18n::t(tf!("Couldn't load that run: {e}")), true),
             });
         }
     }
@@ -59,7 +59,7 @@ impl State {
             let (key, slug) = (slug.to_owned(), slug.to_owned());
             jobs::spawn(self, move || gh::pr_full(&key, n), move |s, r| match r {
                 Ok(pr) => s.focus_pr = Some((slug, pr)),
-                Err(e) => s.toast(format!("Couldn't load that pull request: {e}"), true),
+                Err(e) => s.toast(crate::i18n::t(tf!("Couldn't load that pull request: {e}")), true),
             });
         }
     }
@@ -106,7 +106,7 @@ impl State {
         self.want_failed = None;
         match pick {
             Some(id) => self.open_run(&want.slug, id),
-            None => self.toast("No recent run to show for that".into(), false),
+            None => self.toast(crate::i18n::t("No recent run to show for that"), false),
         }
     }
 

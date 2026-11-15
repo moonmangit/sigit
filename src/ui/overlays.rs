@@ -1,9 +1,11 @@
 //! Everything drawn above the page: the guard dialog (A1), the merge countdown (A6), toasts with
 //! Undo (A6), the command palette (B3) and the guide.
 
+use super::cmd::CmdTip;
 use std::time::Instant;
 
-use rune::{El, Key, TextStyle, col, el, row, spacer, text};
+use rune::{El, Key, TextStyle, col, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Button, ButtonVariant, Dialog, Kit, SegmentedControl, Spinner, Switch, TextInput, scrim};
 
 use super::{chip, muted};
@@ -37,8 +39,8 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                 .center_y()
                 .flex_wrap()
                 .child(
-                    SegmentedControl::new(&MergeMethod::ALL.map(|m| m.label()), i)
-                        .label("Merge method")
+                    SegmentedControl::new(&crate::i18n::all(&MergeMethod::ALL.map(|m| m.label())), i)
+                        .label(crate::i18n::t("Merge method"))
                         .fit()
                         .on_pick(|s: &mut State, i, _| {
                             if let Some(Action::Merge { method, .. }) = s.pending.as_mut().map(|p| &mut p.action) {
@@ -47,11 +49,11 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                         })
                         .build(k)
                         .key("method")
-                        .help("Squash: one commit on the base branch. Merge commit: keeps every commit. Rebase: replays them."),
+                        .help(crate::i18n::t("Squash: one commit on the base branch. Merge commit: keeps every commit. Rebase: replays them.")),
                 )
                 .child(
                     Switch::new(*delete_branch)
-                        .label("Delete branch after")
+                        .label(crate::i18n::t("Delete branch after"))
                         .on_toggle(|s: &mut State| {
                             if let Some(Action::Merge { delete_branch, .. }) = s.pending.as_mut().map(|p| &mut p.action) {
                                 *delete_branch ^= true;
@@ -73,16 +75,16 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                 .center_y()
                 .child(text(level.label()).font(k.ty.ui_medium).color(tone))
                 .child(spacer())
-                .child(muted(k, "Why?").help(
+                .child(muted(k, "Why?").help(crate::i18n::t(
                     "sigit checks the base branch's protection, checks, reviews, changed files, the diff for secrets, \
-                     production deployments and your working copy before anything is sent. Rules: Settings.",
+                     production deployments and your working copy before anything is sent. Rules: Settings."),
                 )),
         );
         if p.risk.reasons.is_empty() {
             box_ = box_.child(muted(k, "Nothing risky found."));
         }
         for (i, r) in p.risk.reasons.iter().enumerate() {
-            box_ = box_.child(row().key(format!("why-{i}")).w_full().gap(6.0).child(text(if r.starts_with("  •") { "" } else { "•" }).font(k.ty.small).color(tone)).child(text(r.clone()).font(k.ty.small).color(k.c.text_base).wrap().shrink()));
+            box_ = box_.child(row().key(tf!("why-{i}")).w_full().gap(6.0).child(text(if r.starts_with("  •") { "" } else { "•" }).font(k.ty.small).color(tone)).child(text(r.clone()).font(k.ty.small).color(k.c.text_base).wrap().shrink()));
         }
         body = body.child(box_);
     }
@@ -95,7 +97,7 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             list = list.child(text(f.clone()).font(k.ty.mono).color(k.c.text_muted).truncate());
         }
         if p.dirty.len() > 20 {
-            list = list.child(muted(k, format!("…and {} more", p.dirty.len() - 20)));
+            list = list.child(muted(k, tf!("…and {} more", p.dirty.len() - 20)));
         }
         body = body.child(muted(k, "You have uncommitted changes. Stash them first (they're kept safe, and Undo or Branches → Stashes brings them back), or cancel:").wrap()).child(list);
     }
@@ -106,10 +108,10 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             col()
                 .w_full()
                 .gap(6.0)
-                .child(text(format!("Type {word} to confirm")).font(k.ty.small_medium).color(k.c.text_base))
+                .child(text(tf!("Type {word} to confirm")).font(k.ty.small_medium).color(k.c.text_base))
                 .child(
                     TextInput::new(&s.typed)
-                        .placeholder(word.clone())
+                        .placeholder(crate::i18n::t(word.clone()))
                         .width(None)
                         .invalid(!s.typed.text.is_empty() && s.typed.text.trim() != word)
                         .on_edit(|s: &mut State| &mut s.typed)
@@ -124,35 +126,39 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         );
     }
 
+    // What will run, as you'd type it (with the stash first when that's the way on offer).
+    let stash_first = !p.dirty.is_empty() && p.blocked.is_none();
+    body = body.child(super::command_block(s, k, "guard-cmds", "Runs", &p.action.command_lines(stash_first)));
+
     let verb = match &p.action {
-        Action::Merge { .. } => if s.prefs.grace_secs > 0 { format!("Merge in {}s", s.prefs.grace_secs) } else { "Merge".into() },
+        Action::Merge { .. } => if s.prefs.grace_secs > 0 { tf!("Merge in {}s", s.prefs.grace_secs) } else { "Merge".into() },
         Action::Close { .. } => "Close pull request".into(),
         Action::Approve { .. } => "Approve".into(),
         Action::CancelRun { .. } => "Cancel run".into(),
         Action::Rerun { .. } => "Re-run".into(),
         Action::DeleteBranch { .. } => "Delete branch".into(),
-        Action::Stash { op, .. } => format!("{}{} stash", op[..1].to_uppercase(), &op[1..]),
+        Action::Stash { op, .. } => tf!("{}{} stash", op[..1].to_uppercase(), &op[1..]),
         other => other.label(),
     };
-    let mut buttons = row().w_full().gap(8.0).child(spacer()).child(Button::new("Cancel").variant(ButtonVariant::Outline).on_press(|s: &mut State| s.pending = None).build(k).key("no"));
+    let mut buttons = row().w_full().gap(8.0).child(spacer()).child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.pending = None).build(k).key("no"));
     if !p.dirty.is_empty() && p.blocked.is_none() {
         buttons = buttons.child(
-            Button::new("Stash and continue")
+            { let tip = s.with_commands(crate::i18n::t("Stashes your changes first, then runs it. Undo pops the stash back."), &p.action.command_lines(true)); Button::new(crate::i18n::t("Stash and continue"))
                 .variant(ButtonVariant::Submit)
-                .help("git stash push --include-untracked, then the action. Undo pops the stash back.")
+                
                 .on_press(|s: &mut State| s.confirm(true))
                 .build(k)
-                .key("stash-go"),
+                .key("stash-go").cmd_tip(s, tip) },
         );
     } else {
         buttons = buttons.child(
-            Button::new(verb)
+            Button::new(crate::i18n::t(verb))
                 .variant(if level == Level::High { ButtonVariant::Danger } else { ButtonVariant::Submit })
                 .disabled(!s.can_confirm())
-                .help(match level {
+                .help(crate::i18n::t(match level {
                     Level::High => "Type the name above to enable",
                     _ => "Runs it now",
-                })
+                }))
                 .on_press(|s: &mut State| s.confirm(false))
                 .build(k)
                 .key("yes"),
@@ -160,11 +166,11 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     }
     body = body.child(buttons);
     let title = match level {
-        _ if p.checking => format!("{}?", p.action.label()),
-        Level::High => format!("⚠ {}?", p.action.label()),
-        _ => format!("{}?", p.action.label()),
+        _ if p.checking => tf!("{}?", p.action.label()),
+        Level::High => tf!("⚠ {}?", p.action.label()),
+        _ => tf!("{}?", p.action.label()),
     };
-    Dialog::new("guard", title).description(p.action.subject()).open(true).fit().width(560.0).on_close(|s: &mut State| s.pending = None).child(body).build(k, layer);
+    Dialog::new("guard", crate::i18n::t(title)).description(crate::i18n::t(p.action.subject())).open(true).fit().width(560.0).on_close(|s: &mut State| s.pending = None).child(body).build(k, layer);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -184,17 +190,18 @@ pub fn grace_banner(s: &State, k: &Kit, layer: &mut Vec<El>) {
         .border(1.0, k.c.warning.icon)
         .center_y()
         .child(Spinner::new().size(14.0).color(k.c.warning.icon).build(k))
-        .child(text(format!("{} in {left}s…", g.action.label())).font(k.ty.ui_medium).color(k.c.text_base))
+        .child(text(tf!("{} in {left}s…", g.action.label())).font(k.ty.ui_medium).color(k.c.text_base))
         .child(muted(k, "nothing has been sent yet"))
         .child(
-            Button::new("Cancel")
+            Button::new(crate::i18n::t("Cancel"))
                 .variant(ButtonVariant::Danger)
                 .shortcut("Esc")
-                .help("Stop it: nothing reaches GitHub")
+                .help(crate::i18n::t("Stop it: nothing reaches GitHub"))
                 .on_press(|s: &mut State| s.cancel_grace())
                 .build(k)
                 .key("grace-cancel"),
         );
+    let bar = super::cmd::CmdTip::cmd_tip(bar, s, s.with_commands(crate::i18n::t("Runs when the countdown ends"), &g.action.command_lines(false)));
     layer.push(col().key("grace-layer").absolute(0.0, 0.0).w_full().h_full().padding(24.0).items_center().child(spacer()).child(bar));
 }
 
@@ -209,7 +216,7 @@ pub fn toasts(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let stack = s.toasts.iter().fold(col().gap(8.0).items_end(), |c, t| {
         let tone = if t.error { k.c.danger.icon } else { k.c.success.icon };
         let mut r = row()
-            .key(format!("toast-{}", t.id))
+            .key(tf!("toast-{}", t.id))
             .max_w(480.0)
             .gap(10.0)
             .px(14.0)
@@ -218,14 +225,25 @@ pub fn toasts(s: &State, k: &Kit, layer: &mut Vec<El>) {
             .fill(k.c.surface_raised)
             .border(1.0, k.c.border_weak)
             .center_y()
-            .child(el().size(8.0, 8.0).radius(4.0).fill(tone))
-            .child(text(t.text.clone()).font(k.ty.small).color(k.c.text_base).wrap().shrink());
-        if t.error {
-            r = r.child(super::copy_button(k, &format!("toast-copy-{}", t.id), t.text.clone(), "error message"));
+            .child(el().size(8.0, 8.0).radius(4.0).fill(tone).self_start().mt(5.0));
+        // The message, then the commands it ran ("$ …" lines) in mono.
+        let (cmds, words): (Vec<&str>, Vec<&str>) = t.text.lines().partition(|l| l.starts_with("$ "));
+        let mut msg = col().gap(4.0).shrink().min_w(0.0).child(text(words.join("\n")).font(k.ty.small).color(k.c.text_base).wrap());
+        if !cmds.is_empty() {
+            let shown: Vec<String> = cmds.iter().map(|c| c.trim_start_matches("$ ").to_owned()).collect();
+            msg = msg.child(super::cmd::lines(k, &shown, 11.0).pt(2.0));
         }
-        if t.undo.is_some() {
+        r = r.child(msg);
+        if !cmds.is_empty() && !t.error {
+            let all = cmds.iter().map(|c| c.trim_start_matches("$ ")).collect::<Vec<_>>().join("\n");
+            r = r.child(super::copy_button(k, &tf!("toast-cmd-{}", t.id), all, "commands"));
+        }
+        if t.error {
+            r = r.child(super::copy_button(k, &tf!("toast-copy-{}", t.id), t.text.clone(), "error message"));
+        }
+        if let Some(undo) = &t.undo {
             let id = t.id;
-            r = r.child(Button::new("Undo").variant(ButtonVariant::Outline).help("Take it back (available for 10 s)").on_press(move |s: &mut State| s.run_undo(id)).build(k).key("undo"));
+            r = r.child({ let tip = s.with_commands(crate::i18n::t("Take it back (available for 10 s)"), &undo.command_lines()); Button::new(crate::i18n::t("Undo")).variant(ButtonVariant::Outline).on_press(move |s: &mut State| s.run_undo(id)).build(k).key("undo").cmd_tip(s, tip) });
         }
         c.child(r.token_motion(k.motion.overlay))
     });
@@ -243,7 +261,7 @@ pub fn palette(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let items = s.palette_items();
     let sel = s.palette_sel.min(items.len().saturating_sub(1));
     let input = TextInput::new(&s.palette_q)
-        .placeholder("Jump to a repo, #PR, branch, group, or type a command…")
+        .placeholder(crate::i18n::t("Jump to a repo, #PR, branch, group, or type a command…"))
         .leading_icon(k.glyph.search)
         .large()
         .width(None)
@@ -272,18 +290,29 @@ pub fn palette(s: &State, k: &Kit, layer: &mut Vec<El>) {
     }
     for (i, (item, title, hint)) in items.into_iter().enumerate() {
         let on = i == sel;
+        use crate::daily::PaletteItem as P;
+        let glyph: &'static rune::Icon = match &item {
+            P::Repo(_) => &super::I_REPO,
+            P::Pr(_) => &super::I_PR,
+            P::Branch(_) => &super::I_LOGO,
+            P::Group(_) => &super::I_DASH,
+            P::Page(_) => &super::I_FWD,
+            P::Command(_) => &super::I_CMD,
+        };
+        let mark = row().size(24.0, 24.0).radius(k.radius.sm).center().fill(if on { k.c.surface_base } else { k.c.layer_01 }).child(rune::icon(glyph, 14.0).color(if on { k.c.icon_base } else { k.c.icon_faint }));
         list = list.child(
             row()
-                .key(format!("pal-{i}"))
+                .key(tf!("pal-{i}"))
                 .w_full()
-                .px(10.0)
-                .py(7.0)
+                .px(8.0)
+                .py(5.0)
                 .gap(10.0)
                 .radius(k.radius.md)
                 .center_y()
                 .fill(if on { k.c.surface_hover } else { rune::Color::TRANSPARENT })
                 .hover(k.c.hover)
                 .on_press_tx(move |s: &mut State, tx| s.run_palette(item.clone(), tx))
+                .child(mark)
                 .child(text(title).font(k.ty.ui).color(k.c.text_base).truncate().shrink())
                 .child(spacer())
                 .child(text(hint).font(k.ty.text_xsmall).color(k.c.text_faint)),
@@ -369,7 +398,7 @@ pub const GUIDE: [(&str, &[&str]); 11] = [
     ("Settings & shortcuts", &[
         "Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email), Safety (production names, sensitive paths, merge countdown), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About.",
         "Sections side by side (a list and its detail, the Activity panels, each repo's cards, Needs you) have a handle between them: drag it to resize, double-click it to reset. Sizes are remembered.",
-        "Next to Back / Forward, \"updated 2m ago\" says how fresh the page is (\"cached\" = from last session, red = the last update failed). Pages keep what they loaded: opening one again reloads only what's gone stale (PRs 2 min, runs 1 min or 15 s while running, local git 20 s, Activity 5 min). Click it or press Ctrl+R to reload everything now.",
+        "Next to Back / Forward, \"updated 2m ago\" says how fresh the page is (\"cached\" = from last session, red = the last update failed). Pages show what they loaded at once, and check again in the background whenever you open one or come back to the window, so you rarely need Refresh (Activity at most once a minute). While a page stays open it re-checks on its own (PRs 2 min, runs 1 min or 15 s while running, local git 20 s, Activity 5 min). Click it or press Ctrl+R to reload everything now.",
         "Back / Forward (top left of the toolbar, or Alt+← / Alt+→) step through the pages and repos you visited, like a browser.",
         "Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Inbox / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.",
         "Pins, groups, settings, the cache and the activity log are saved on this computer only. Settings → Data & storage shows the folder and opens it.",
@@ -385,7 +414,7 @@ pub fn guide(s: &State, k: &Kit, layer: &mut Vec<El>) {
     for (i, (title, _)) in GUIDE.iter().enumerate() {
         nav = nav.child(
             row()
-                .key(format!("g-{i}"))
+                .key(tf!("g-{i}"))
                 .w_full()
                 .px(10.0)
                 .py(7.0)
@@ -399,17 +428,17 @@ pub fn guide(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let (title, paras) = GUIDE[sec];
     let mut content = col().grow(1.0).shrink().gap(12.0).child(text(title).font(TextStyle { size: 18.0, ..k.ty.ui_medium }).color(k.c.text_strong));
     for (i, p) in paras.iter().enumerate() {
-        content = content.child(text(*p).key(format!("gp-{i}")).font(k.ty.body).color(k.c.text_base).wrap().w_full());
+        content = content.child(text(*p).key(tf!("gp-{i}")).font(k.ty.body).color(k.c.text_base).wrap().w_full());
     }
     let last = sec + 1 == GUIDE.len();
     let footer = row()
         .w_full()
         .gap(8.0)
-        .child(muted(k, format!("{} of {}", sec + 1, GUIDE.len())))
+        .child(muted(k, tf!("{} of {}", sec + 1, GUIDE.len())))
         .child(spacer())
-        .child(Button::new("Back").variant(ButtonVariant::Outline).disabled(sec == 0).on_press(|s: &mut State| s.guide_sec = s.guide_sec.saturating_sub(1)).build(k).key("g-back"))
+        .child(Button::new(crate::i18n::t("Back")).variant(ButtonVariant::Outline).disabled(sec == 0).on_press(|s: &mut State| s.guide_sec = s.guide_sec.saturating_sub(1)).build(k).key("g-back"))
         .child(
-            Button::new(if last { "Done" } else { "Next" })
+            Button::new(crate::i18n::t(if last { "Done" } else { "Next" }))
                 .variant(ButtonVariant::Submit)
                 .on_press(move |s: &mut State| {
                     if last {
@@ -428,7 +457,7 @@ pub fn guide(s: &State, k: &Kit, layer: &mut Vec<El>) {
         .gap(16.0)
         .child(row().w_full().gap(20.0).items_start().child(nav).child(content))
         .child(footer);
-    Dialog::new("guide", "sigit guide").description("What each feature does and how to use it. F1 opens this any time.").open(true).fit().width(820.0).on_close(close_guide).child(body).build(k, layer);
+    Dialog::new("guide", crate::i18n::t("sigit guide")).description(crate::i18n::t("What each feature does and how to use it. F1 opens this any time.")).open(true).fit().width(820.0).on_close(close_guide).child(body).build(k, layer);
 }
 
 fn close_guide(s: &mut State) {
@@ -448,7 +477,7 @@ pub fn hint(k: &Kit, key: &str, tip: &str, section: usize) -> El {
         .center()
         .border(1.0, k.c.border_base)
         .hover(k.c.hover)
-        .help(format!("{tip}\n(click for the guide)"))
+        .help(crate::i18n::t(tf!("{tip}\n(click for the guide)")))
         .on_press(move |s: &mut State| {
             s.guide_open = true;
             s.guide_sec = section;
@@ -463,21 +492,21 @@ pub fn fresh_chip(k: &Kit, f: &crate::ui::Fresh) -> El {
     let age = f.at.map(|t| crate::model::ago(t, now));
     let (label, tone) = match (&age, f.loading, f.cached, &f.error) {
         (None, true, ..) => ("loading…".to_owned(), None),
-        (Some(a), true, ..) => (format!("updating · {a}"), None),
-        (_, false, _, Some(_)) => (age.as_ref().map_or("load failed".into(), |a| format!("update failed · {a}")), Some(Outcome::Failure)),
-        (Some(a), false, true, None) => (format!("cached · {a}"), Some(Outcome::Running)),
-        (Some(a), false, false, None) => (format!("updated {a}"), Some(Outcome::Success)),
+        (Some(a), true, ..) => (tf!("updating · {a}"), None),
+        (_, false, _, Some(_)) => (age.as_ref().map_or("load failed".into(), |a| tf!("update failed · {a}")), Some(Outcome::Failure)),
+        (Some(a), false, true, None) => (tf!("cached · {a}"), Some(Outcome::Running)),
+        (Some(a), false, false, None) => (tf!("updated {a}"), Some(Outcome::Success)),
         (None, false, ..) => ("not loaded".to_owned(), None),
     };
     let mut help = match (f.cached, &f.error) {
-        (_, Some(e)) => format!("The last update failed: {e}
+        (_, Some(e)) => tf!("The last update failed: {e}
 Showing what loaded before."),
         (true, None) => "From last session's cache; fresh data replaces it as it loads.".to_owned(),
         _ => "What this page shows is kept in memory (and on disk between sessions).".to_owned(),
     };
-    help.push_str(&format!(
+    help.push_str(&tf!(
         "
-Opening a page reloads only what's older than {}; the page re-checks every 30 s. Actions always re-read GitHub first.
+Opening this page or coming back to the window shows what's cached and checks GitHub again in the background; while it stays open it re-checks every {}. Actions always re-read GitHub first.
 Click (or Ctrl+R) to reload everything now.",
         crate::model::duration(f.ttl)
     ));
@@ -489,6 +518,6 @@ Click (or Ctrl+R) to reload everything now.",
         .key("freshness")
         .hover(k.c.hover)
         .radius(999.0)
-        .help(help)
+        .help(crate::i18n::t(help))
         .on_press(|s: &mut State| s.refresh_page())
 }

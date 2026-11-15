@@ -15,7 +15,8 @@
 
 use std::borrow::Cow;
 
-use rune::{El, Icon, el, row, spacer, text};
+use rune::{El, Icon, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::shell::{Reorder, Sidebar, SidebarRow};
 use rune_kit::{IconButton, IconButtonVariant, Kit, MenuItem, Spinner, TextInput, context_menu, glyphs};
 
@@ -37,8 +38,8 @@ impl Section {
     fn fold(&self) -> String {
         match self {
             Section::Pinned => "pinned".into(),
-            Section::Group(g) => format!("g:{g}"),
-            Section::Owner(o) => format!("o:{o}"),
+            Section::Group(g) => tf!("g:{g}"),
+            Section::Owner(o) => tf!("o:{o}"),
         }
     }
 }
@@ -170,15 +171,15 @@ fn items(s: &State) -> Vec<Item> {
 
 fn key(s: &State, i: usize) -> Cow<'static, str> {
     Cow::Owned(match items(s).get(i) {
-        Some(Item::Header { section, .. }) => format!("h:{}", section.fold()),
-        Some(Item::Repo { idx, section, .. }) => format!("r:{}:{}", section.fold(), s.repos[*idx].slug),
-        Some(Item::Missing { slug, group }) => format!("m:{group}:{slug}"),
-        Some(Item::More { owner, .. }) => format!("more:{owner}"),
-        Some(Item::Less { owner }) => format!("less:{owner}"),
+        Some(Item::Header { section, .. }) => tf!("h:{}", section.fold()),
+        Some(Item::Repo { idx, section, .. }) => tf!("r:{}:{}", section.fold(), s.repos[*idx].slug),
+        Some(Item::Missing { slug, group }) => tf!("m:{group}:{slug}"),
+        Some(Item::More { owner, .. }) => tf!("more:{owner}"),
+        Some(Item::Less { owner }) => tf!("less:{owner}"),
         Some(Item::Searching) => "searching".into(),
         Some(Item::HitsHeader(_)) => "hits".into(),
-        Some(Item::Hit(h)) => format!("hit:{}", s.repo_hits.1[*h].full_name),
-        Some(Item::Nothing) | None => format!("empty:{i}"),
+        Some(Item::Hit(h)) => tf!("hit:{}", s.repo_hits.1[*h].full_name),
+        Some(Item::Nothing) | None => tf!("empty:{i}"),
     })
 }
 
@@ -196,9 +197,9 @@ static I_GROUP: Icon = Icon {
 fn header(s: &State, k: &Kit, section: &Section, count: usize, folded: bool) -> El {
     let fold = section.fold();
     let (label, icon): (String, Option<&'static Icon>) = match section {
-        Section::Pinned => ("PINNED".into(), Some(&I_PIN)),
-        Section::Group(g) => (g.to_uppercase(), Some(&I_GROUP)),
-        Section::Owner(o) => (o.to_uppercase(), None),
+        Section::Pinned => ("Pinned".into(), Some(&I_PIN)),
+        Section::Group(g) => (g.clone(), Some(&I_GROUP)),
+        Section::Owner(o) => (o.clone(), None),
     };
     let mut r = row()
         .w_full()
@@ -209,9 +210,10 @@ fn header(s: &State, k: &Kit, section: &Section, count: usize, folded: bool) -> 
         .center_y()
         .radius(k.radius.md)
         .hover(k.c.hover)
+        .hover_group()
         .role("button")
-        .label(format!("{label}, {count} repositories"))
-        .help("Click to fold or unfold. Right-click to reorder or customize.")
+        .label(crate::i18n::t(tf!("{label}, {count} repositories")))
+        .help(crate::i18n::t("Click to fold or unfold. Right-click to reorder or customize."))
         .on_press(move |s: &mut State| s.toggle_fold(&fold))
         .child(rune::icon(if folded { &glyphs::TRIANGLE_RIGHT } else { &glyphs::TRIANGLE_DOWN }, 10.0).color(k.c.icon_faint));
     if let Some(i) = icon {
@@ -223,7 +225,7 @@ fn header(s: &State, k: &Kit, section: &Section, count: usize, folded: bool) -> 
         r = r.child(b);
     }
     r = r
-        .child(text(label).font(k.ty.text_xsmall_medium).color(k.c.text_muted).truncate().shrink())
+        .child(text(label).font(k.ty.text_small_medium).color(k.c.text_muted).truncate().shrink())
         .child(spacer())
         .child(text(count.to_string()).font(k.ty.text_xsmall).color(k.c.text_faint));
     // Your groups: a dashboard button, and their own menu (rename, delete).
@@ -232,11 +234,12 @@ fn header(s: &State, k: &Kit, section: &Section, count: usize, folded: bool) -> 
         r = r.child(
             IconButton::new(&super::I_DASH)
                 .variant(IconButtonVariant::GhostMuted)
-                .label("Open dashboard")
-                .help("Group dashboard: CI, deployments and open PRs across these repos")
+                .label(crate::i18n::t("Open dashboard"))
+                .help(crate::i18n::t("Group dashboard: CI, deployments and open PRs across these repos"))
                 .on_press(move |s: &mut State| s.open_group(&g2))
                 .build(k)
-                .key("dash"),
+                .key("dash")
+                .group_opacity(0.0, 1.0),
         );
         let g = g.clone();
         r = r.on_secondary_press(move |s: &mut State, p, _| s.menu = Some((MenuTarget::Group(g.clone()), p)));
@@ -267,8 +270,8 @@ fn more_row(k: &Kit, label: String, tip: &str, f: impl Fn(&mut State) + 'static)
         .radius(k.radius.md)
         .hover(k.c.hover)
         .role("button")
-        .label(label.clone())
-        .help(tip.to_owned())
+        .label(crate::i18n::t(label.clone()))
+        .help(crate::i18n::t(tip.to_owned()))
         .on_press(f)
         .child(text("⋯").font(k.ty.ui).color(k.c.text_faint))
         .child(text(label).font(k.ty.small).color(k.c.text_accent))
@@ -277,9 +280,9 @@ fn more_row(k: &Kit, label: String, tip: &str, f: impl Fn(&mut State) + 'static)
 /// Every section's fold key, for "collapse all".
 fn fold_keys(s: &State) -> Vec<String> {
     let mut keys = vec!["pinned".to_owned()];
-    keys.extend(s.prefs.groups.iter().map(|g| format!("g:{}", g.name)));
+    keys.extend(s.prefs.groups.iter().map(|g| tf!("g:{}", g.name)));
     for r in &s.repos {
-        let k = format!("o:{}", r.owner());
+        let k = tf!("o:{}", r.owner());
         if !keys.contains(&k) {
             keys.push(k);
         }
@@ -341,7 +344,7 @@ fn repo_row(s: &State, k: &Kit, idx: usize, section: &Section, slot: Option<(usi
             Section::Owner(_) => {}
         }
     }
-    r.build(k).help(tip).on_secondary_press(move |s: &mut State, p, _| s.menu = Some((MenuTarget::Repo(menu_slug.clone()), p)))
+    r.build(k).help(crate::i18n::t(tip)).on_secondary_press(move |s: &mut State, p, _| s.menu = Some((MenuTarget::Repo(menu_slug.clone()), p)))
 }
 
 fn build(s: &State, i: usize, k: &Kit) -> El {
@@ -362,8 +365,8 @@ fn build(s: &State, i: usize, k: &Kit) -> El {
                 .child(
                     IconButton::new(&glyphs::CLOSE)
                         .variant(IconButtonVariant::GhostMuted)
-                        .label("Remove from group")
-                        .help("Not reachable: remove it from this group")
+                        .label(crate::i18n::t("Remove from group"))
+                        .help(crate::i18n::t("Not reachable: remove it from this group"))
                         .on_press(move |s: &mut State| s.toggle_in_group(&group2, &slug2))
                         .build(k),
                 )
@@ -391,7 +394,7 @@ fn build(s: &State, i: usize, k: &Kit) -> El {
         Item::Nothing => row().h(ROW).px(10.0).center_y().child(muted(k, "No repositories match")),
         Item::More { owner, hidden } => {
             let o = owner.clone();
-            more_row(k, format!("Show {hidden} more"), "Recently opened repos stay on top. Or type in the search box to find any repo.", move |s: &mut State| {
+            more_row(k, tf!("Show {hidden} more"), "Recently opened repos stay on top. Or type in the search box to find any repo.", move |s: &mut State| {
                 s.expanded_orgs.insert(o.clone());
             })
         }
@@ -406,12 +409,12 @@ fn build(s: &State, i: usize, k: &Kit) -> El {
 
 pub fn view(s: &State, k: &Kit) -> El {
     let reviews = s.inbox.data.as_ref().map_or(0, |i| i.review_requested.len());
-    let mut inbox = SidebarRow::new("Inbox").icon(&I_INBOX).height(32.0).selected(s.page == Page::Inbox).on_select(|s: &mut State, _| s.show(Page::Inbox));
+    let mut inbox = SidebarRow::new(crate::i18n::t("Inbox")).icon(&I_INBOX).height(32.0).selected(s.page == Page::Inbox).on_select(|s: &mut State, _| s.show(Page::Inbox));
     if reviews > 0 {
         inbox = inbox.trailing(chip(k, reviews.to_string(), Some(Outcome::Running)));
     }
     let filter = TextInput::new(&s.repo_filter)
-        .placeholder("Search repositories")
+        .placeholder(crate::i18n::t("Search repositories"))
         .leading_icon(k.glyph.search)
         .width(None)
         .on_edit(|s: &mut State| &mut s.repo_filter)
@@ -421,15 +424,15 @@ pub fn view(s: &State, k: &Kit) -> El {
         .key("repo-filter");
     let new_group = IconButton::new(&I_GROUP)
         .variant(IconButtonVariant::GhostMuted)
-        .label("New group")
-        .help("New group…")
+        .label(crate::i18n::t("New group"))
+        .help(crate::i18n::t("New group…"))
         .on_press(|s: &mut State| s.open_group_dialog(None, None))
         .build(k)
         .key("new-group");
     let add = IconButton::new(&I_PLUS)
         .variant(IconButtonVariant::GhostMuted)
-        .label("Add local repo")
-        .help("Add a local clone…")
+        .label(crate::i18n::t("Add local repo"))
+        .help(crate::i18n::t("Add a local clone…"))
         .on_press_tx(crate::ask_local_repo)
         .build(k)
         .key("add-repo");
@@ -437,8 +440,8 @@ pub fn view(s: &State, k: &Kit) -> El {
     let all_folded = keys.iter().all(|k| s.collapsed.contains(k));
     let fold_all = IconButton::new(if all_folded { &glyphs::CHEVRON_DOWN } else { &glyphs::CHEVRON_UP })
         .variant(IconButtonVariant::GhostMuted)
-        .label(if all_folded { "Expand all" } else { "Collapse all" })
-        .help(if all_folded { "Expand all sections" } else { "Collapse all sections (remembered)" })
+        .label(crate::i18n::t(if all_folded { "Expand all" } else { "Collapse all" }))
+        .help(crate::i18n::t(if all_folded { "Expand all sections" } else { "Collapse all sections (remembered)" }))
         .on_press(move |s: &mut State| s.toggle_fold_all(keys.clone()))
         .build(k)
         .key("fold-all");
@@ -449,7 +452,7 @@ pub fn view(s: &State, k: &Kit) -> El {
         .px(8.0)
         .gap(2.0)
         .center_y()
-        .child(text(format!("REPOSITORIES · {}", s.repos.len())).font(k.ty.text_xsmall_medium).color(k.c.text_faint))
+        .child(text(tf!("Repositories · {}", s.repos.len())).font(k.ty.text_xsmall_medium).color(k.c.text_faint))
         .child(spacer())
         .child(fold_all)
         .child(new_group)
@@ -457,7 +460,7 @@ pub fn view(s: &State, k: &Kit) -> El {
     let count = items(s).len();
     let kc = k.clone();
     Sidebar::new()
-        .label("Navigation")
+        .label(crate::i18n::t("Navigation"))
         .header(inbox.build(k).key("nav-inbox"))
         .header(head)
         .header(rune::col().w_full().px(8.0).pb(6.0).child(filter))
@@ -476,32 +479,32 @@ pub fn context(s: &State, k: &Kit, layer: &mut Vec<El>) -> Option<El> {
             let pinned = s.prefs.pinned.contains(slug);
             let sl = slug.clone();
             menu = menu
-                .group_label(slug.clone())
-                .item(MenuItem::new(if pinned { "Unpin" } else { "Pin to top" }).icon(&I_PIN).on_select(move |s: &mut State| {
+                .group_label(crate::i18n::t(slug.clone()))
+                .item(MenuItem::new(crate::i18n::t(if pinned { "Unpin" } else { "Pin to top" })).icon(&I_PIN).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.toggle_pin(&sl);
                 }))
                 .separator()
-                .group_label("Groups");
+                .group_label(crate::i18n::t("Groups"));
             for g in &s.prefs.groups {
                 let (gn, sl) = (g.name.clone(), slug.clone());
-                menu = menu.item(MenuItem::new(g.name.clone()).checked(g.repos.contains(slug)).on_select(move |s: &mut State| {
+                menu = menu.item(MenuItem::new(crate::i18n::t(g.name.clone())).checked(g.repos.contains(slug)).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.toggle_in_group(&gn, &sl);
                 }));
             }
             let sl = slug.clone();
-            menu = menu.item(MenuItem::new("New group with this repo…").icon(&I_GROUP).on_select(move |s: &mut State| {
+            menu = menu.item(MenuItem::new(crate::i18n::t("New group with this repo…")).icon(&I_GROUP).on_select(move |s: &mut State| {
                 s.menu = None;
                 s.open_group_dialog(None, Some(sl.clone()));
             }));
             let (sl, tracked) = (slug.clone(), s.is_tracked(slug));
-            menu = menu.separator().item(MenuItem::new(if tracked { "Stop tracking in Activity" } else { "Track in Activity" }).checked(tracked).on_select(move |s: &mut State| {
+            menu = menu.separator().item(MenuItem::new(crate::i18n::t(if tracked { "Stop tracking in Activity" } else { "Track in Activity" })).checked(tracked).on_select(move |s: &mut State| {
                 s.menu = None;
                 s.toggle_tracked(&sl);
             }));
-            let url = format!("https://github.com/{slug}");
-            menu = menu.separator().item(MenuItem::new("Open on GitHub").on_select_tx(move |s: &mut State, tx| {
+            let url = tf!("https://github.com/{slug}");
+            menu = menu.separator().item(MenuItem::new(crate::i18n::t("Open on GitHub")).on_select_tx(move |s: &mut State, tx| {
                 s.menu = None;
                 crate::open_url(tx, &url);
             }));
@@ -512,30 +515,30 @@ pub fn context(s: &State, k: &Kit, layer: &mut Vec<El>) -> Option<El> {
             let last = order.len().saturating_sub(1);
             let (o1, o2, o3, o4) = (owner.clone(), owner.clone(), owner.clone(), owner.clone());
             menu = menu
-                .group_label(owner.clone())
-                .item(MenuItem::new("Move up").icon(&glyphs::CHEVRON_UP).disabled(i == 0).on_select(move |s: &mut State| {
+                .group_label(crate::i18n::t(owner.clone()))
+                .item(MenuItem::new(crate::i18n::t("Move up")).icon(&glyphs::CHEVRON_UP).disabled(i == 0).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.move_owner(&o1, Some(-1));
                 }))
-                .item(MenuItem::new("Move down").icon(&glyphs::CHEVRON_DOWN).disabled(i >= last).on_select(move |s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Move down")).icon(&glyphs::CHEVRON_DOWN).disabled(i >= last).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.move_owner(&o2, Some(1));
                 }))
-                .item(MenuItem::new("Move to top").disabled(i == 0).on_select(move |s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Move to top")).disabled(i == 0).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.move_owner(&o3, None);
                 }))
-                .item(MenuItem::new("Reset order").description("you first, then A–Z").disabled(s.prefs.owner_order.is_empty()).on_select(|s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Reset order")).description(crate::i18n::t("you first, then A–Z")).disabled(s.prefs.owner_order.is_empty()).on_select(|s: &mut State| {
                     s.menu = None;
                     s.reset_owner_order();
                 }))
                 .separator()
-                .item(MenuItem::new("Customize colour & icon…").on_select(move |s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Customize colour & icon…")).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.open_owner_edit(&o4);
                 }));
-            let url = format!("https://github.com/{owner}");
-            menu = menu.separator().item(MenuItem::new("Open on GitHub").on_select_tx(move |s: &mut State, tx| {
+            let url = tf!("https://github.com/{owner}");
+            menu = menu.separator().item(MenuItem::new(crate::i18n::t("Open on GitHub")).on_select_tx(move |s: &mut State, tx| {
                 s.menu = None;
                 crate::open_url(tx, &url);
             }));
@@ -545,25 +548,25 @@ pub fn context(s: &State, k: &Kit, layer: &mut Vec<El>) -> Option<El> {
             let i = s.prefs.groups.iter().position(|g| g.name == *name).unwrap_or(0);
             let last = s.prefs.groups.len().saturating_sub(1);
             menu = menu
-                .group_label(name.clone())
-                .item(MenuItem::new("Move group up").icon(&glyphs::CHEVRON_UP).disabled(i == 0).on_select(move |s: &mut State| {
+                .group_label(crate::i18n::t(name.clone()))
+                .item(MenuItem::new(crate::i18n::t("Move group up")).icon(&glyphs::CHEVRON_UP).disabled(i == 0).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.move_group(&n4, -1);
                 }))
-                .item(MenuItem::new("Move group down").icon(&glyphs::CHEVRON_DOWN).disabled(i >= last).on_select(move |s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Move group down")).icon(&glyphs::CHEVRON_DOWN).disabled(i >= last).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.move_group(&n5, 1);
                 }))
                 .separator()
-                .item(MenuItem::new("Open dashboard").icon(&super::I_DASH).on_select(move |s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Open dashboard")).icon(&super::I_DASH).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.open_group(&n3);
                 }))
-                .item(MenuItem::new("Rename…").on_select(move |s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Rename…")).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.open_group_dialog(Some(n1.clone()), None);
                 }))
-                .item(MenuItem::new("Delete group").danger(true).on_select(move |s: &mut State| {
+                .item(MenuItem::new(crate::i18n::t("Delete group")).danger(true).on_select(move |s: &mut State| {
                     s.menu = None;
                     s.delete_group(&n2);
                 }));

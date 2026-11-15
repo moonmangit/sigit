@@ -1,7 +1,8 @@
 //! The setup screen (git or gh missing, or not signed in) and the first-run welcome. Both take
 //! the window below the title bar; see `crate::onboarding` for the checks.
 
-use rune::{El, TextStyle, col, el, row, spacer, text};
+use rune::{El, TextStyle, col, el, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Button, ButtonVariant, Kit, SegmentedControl, Spinner};
 
 use super::{muted, scroll};
@@ -35,7 +36,7 @@ pub fn splash(k: &Kit, message: &str) -> El {
         .child(super::app_mark(88.0))
         .child(text("sigit").font(TextStyle { size: 30.0, ..k.ty.ui_medium }).color(k.c.text_strong))
         .child(row().gap(10.0).center_y().child(Spinner::new().size(14.0).build(k)).child(muted(k, message.to_owned())))
-        .child(text(format!("Version {}", crate::update::current())).font(k.ty.text_xsmall).color(k.c.text_faint))
+        .child(text(tf!("Version {}", crate::update::current())).font(k.ty.text_xsmall).color(k.c.text_faint))
 }
 
 pub fn view(s: &State, k: &Kit) -> El {
@@ -86,7 +87,7 @@ fn setup(s: &State, k: &Kit, p: &Preflight) -> El {
     let status = if s.setup_busy {
         row().gap(8.0).center_y().child(Spinner::new().size(12.0).build(k)).child(muted(k, "Checking…"))
     } else {
-        row().child(muted(k, format!("Checks again by itself every {RECHECK_SECS} s")))
+        row().child(muted(k, tf!("Checks again by itself every {RECHECK_SECS} s")))
     };
     let mut c = col()
         .w_full()
@@ -100,7 +101,7 @@ fn setup(s: &State, k: &Kit, p: &Preflight) -> El {
                 .center_y()
                 .child(status)
                 .child(spacer())
-                .child(Button::new("Check now").variant(ButtonVariant::Submit).disabled(s.setup_busy).on_press(|s: &mut State| s.run_preflight()).build(k).key("check-now")),
+                .child(Button::new(crate::i18n::t("Check now")).variant(ButtonVariant::Submit).disabled(s.setup_busy).on_press(|s: &mut State| s.run_preflight()).build(k).key("check-now")),
         );
     if p.git.is_err() || p.gh.is_err() {
         c = c.child(muted(k, "Just installed something and it still says missing? Close and reopen sigit: it only sees programs that were on your PATH when it started.").wrap().w_full());
@@ -130,7 +131,7 @@ fn step(k: &Kit, n: usize, title: &str, state: &Result<String, String>, enabled:
         }
     }
     row()
-        .key(format!("step-{n}"))
+        .key(tf!("step-{n}"))
         .w_full()
         .gap(14.0)
         .padding(16.0)
@@ -146,16 +147,16 @@ fn install(k: &Kit, tool: &'static str) -> El {
     let (cmd, url) = install_hint(tool);
     let mut c = col().w_full().gap(8.0);
     if let Some(cmd) = cmd {
-        c = c.child(command(k, &format!("cmd-{tool}"), cmd, true));
+        c = c.child(command(k, &tf!("cmd-{tool}"), cmd, true));
     }
     c.child(
         row().child(
-            Button::new(format!("Download from {}", url.trim_start_matches("https://")))
+            Button::new(crate::i18n::t(tf!("Download from {}", url.trim_start_matches("https://"))))
                 .variant(ButtonVariant::Outline)
                 .icon(&super::I_EXTERNAL)
                 .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, url))
                 .build(k)
-                .key(format!("dl-{tool}")),
+                .key(tf!("dl-{tool}")),
         ),
     )
 }
@@ -179,17 +180,17 @@ fn command(k: &Kit, key: &str, cmd: &'static str, runnable: bool) -> El {
                 .child(text(cmd).font(k.ty.mono).color(k.c.text_base).truncate()),
         )
         .child(
-            Button::new("Copy")
+            Button::new(crate::i18n::t("Copy"))
                 .variant(ButtonVariant::Outline)
-                .help("Copy the command")
+                .help(crate::i18n::t("Copy the command"))
                 .on_press_tx(move |s: &mut State, tx| {
                     tx.copy(cmd);
-                    s.toast(format!("Copied `{cmd}`"), false);
+                    s.toast(crate::i18n::t(tf!("Copied `{cmd}`")), false);
                 })
                 .build(k),
         );
     if runnable && (cfg!(windows) || cfg!(target_os = "macos")) {
-        r = r.child(Button::new("Run in terminal").variant(ButtonVariant::Outline).help("Open a terminal window running it").on_press(move |s: &mut State| s.run_in_terminal(cmd)).build(k));
+        r = r.child(Button::new(crate::i18n::t("Run in terminal")).variant(ButtonVariant::Outline).help(crate::i18n::t("Open a terminal window running it")).on_press(move |s: &mut State| s.run_in_terminal(cmd)).build(k));
     }
     r
 }
@@ -227,20 +228,27 @@ fn welcome(s: &State, k: &Kit, p: &Preflight) -> El {
         .gap(12.0)
         .center_y()
         .child(col().w(0.0).grow(1.0).gap(2.0).child(text("Theme").font(k.ty.ui_medium).color(k.c.text_base)).child(muted(k, "Change it any time in Settings (Ctrl+,).")))
-        .child(SegmentedControl::new(&Theme::ALL.map(|t| t.label()), theme_i).label("Theme").fit().on_pick(|s: &mut State, i, _| s.set_theme(Theme::ALL[i])).build(k).key("w-theme"));
+        .child(SegmentedControl::new(&crate::i18n::all(&Theme::ALL.map(|t| t.label())), theme_i).label(crate::i18n::t("Theme")).fit().on_pick(|s: &mut State, i, _| s.set_theme(Theme::ALL[i])).build(k).key("w-theme"));
+    let language = row()
+        .w_full()
+        .gap(12.0)
+        .center_y()
+        .child(col().w(0.0).grow(1.0).gap(2.0).child(text("Language").font(k.ty.ui_medium).color(k.c.text_base)).child(muted(k, "Change it any time in Settings (Ctrl+,).")))
+        .child(super::settings::language_picker(s, k));
     col()
         .w_full()
         .gap(22.0)
-        .child(header(k, "You're all set", &format!("Signed in as {who}. Here's where to start:")))
+        .child(header(k, "You're all set", &tf!("Signed in as {who}. Here's where to start:")))
         .child(features)
         .child(muted(k, "Activity follows your pinned repos and your groups: right-click any repo in the sidebar to pin it, add it to a group, or track it.").wrap().w_full())
+        .child(language)
         .child(theme)
         .child(
             row()
                 .w_full()
                 .gap(10.0)
                 .child(spacer())
-                .child(Button::new("Take the tour").variant(ButtonVariant::Outline).shortcut("F1").on_press(|s: &mut State| s.finish_onboarding(true)).build(k).key("w-tour"))
-                .child(Button::new("Get started").variant(ButtonVariant::Submit).on_press(|s: &mut State| s.finish_onboarding(false)).build(k).key("w-start")),
+                .child(Button::new(crate::i18n::t("Take the tour")).variant(ButtonVariant::Outline).shortcut("F1").on_press(|s: &mut State| s.finish_onboarding(true)).build(k).key("w-tour"))
+                .child(Button::new(crate::i18n::t("Get started")).variant(ButtonVariant::Submit).on_press(|s: &mut State| s.finish_onboarding(false)).build(k).key("w-start")),
         )
 }

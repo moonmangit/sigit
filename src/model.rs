@@ -524,13 +524,13 @@ pub fn parse_time(s: &str) -> Option<i64> {
 pub fn ago(then: i64, now: i64) -> String {
     let s = (now - then).max(0);
     match s {
-        0..60 => "just now".into(),
-        60..3_600 => format!("{}m ago", s / 60),
-        3_600..86_400 => format!("{}h ago", s / 3_600),
-        86_400..604_800 => format!("{}d ago", s / 86_400),
-        604_800..2_592_000 => format!("{}w ago", s / 604_800),
-        2_592_000..31_536_000 => format!("{}mo ago", s / 2_592_000),
-        _ => format!("{}y ago", s / 31_536_000),
+        0..60 => crate::i18n::t("just now"),
+        60..3_600 => tf!("{}m ago", s / 60),
+        3_600..86_400 => tf!("{}h ago", s / 3_600),
+        86_400..604_800 => tf!("{}d ago", s / 86_400),
+        604_800..2_592_000 => tf!("{}w ago", s / 604_800),
+        2_592_000..31_536_000 => tf!("{}mo ago", s / 2_592_000),
+        _ => tf!("{}y ago", s / 31_536_000),
     }
 }
 
@@ -541,9 +541,9 @@ pub fn ago_str(iso: &str, now: i64) -> String {
 /// "42s", "3m 05s", "1h 02m".
 pub fn duration(secs: i64) -> String {
     match secs {
-        s if s < 60 => format!("{s}s"),
-        s if s < 3_600 => format!("{}m {:02}s", s / 60, s % 60),
-        s => format!("{}h {:02}m", s / 3_600, (s % 3_600) / 60),
+        s if s < 60 => tf!("{s}s"),
+        s if s < 3_600 => tf!("{}m {:02}s", s / 60, s % 60),
+        s => tf!("{}h {:02}m", s / 3_600, (s % 3_600) / 60),
     }
 }
 

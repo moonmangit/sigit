@@ -1,0 +1,1032 @@
+# Thai catalog for sigit: English<TAB>Thai, one per line. See src/i18n.rs.
+# Placeholders ({n}, {}, {0}) carry the same values as in the English; Thai may reorder them.
+# Git and GitHub terms (PR, commit, branch, merge, workflow, CI) stay in English, as Thai
+# developers use them.
+  • {c}	  • {c}
+ (from latest 300/repo)	 (จาก 300 รายการล่าสุดต่อ repo)
+ (rules: {})	 (กฎ: {})
+ ({deploy_fail} failed)	 (ล้มเหลว {deploy_fail})
+(detached)	(detached)
+1–4 weeks	1–4 สัปดาห์
+1–7 days	1–7 วัน
+10 s	10 วิ
+3 s	3 วิ
+5 s	5 วิ
+30 days	30 วัน
+7 days	7 วัน
+< 1 day	< 1 วัน
+> 4 weeks	> 4 สัปดาห์
++{add} −{del} in {} files	+{add} −{del} ใน {} ไฟล์
+, {f} failed	, ล้มเหลว {f}
+A Windows notification when a watched run finishes or a watched PR changes. Shown while the app is open, even minimized.	แจ้งเตือนของ Windows เมื่อ run ที่ติดตามเสร็จ หรือ PR ที่ติดตามมีการเปลี่ยนแปลง แสดงขณะเปิดแอปอยู่ แม้จะย่อหน้าต่างไว้
+A branch on GitHub (click to copy)	branch บน GitHub (คลิกเพื่อคัดลอก)
+A check failed on the latest commit: not worth reviewing yet	มี check ที่ล้มเหลวใน commit ล่าสุด: ยังไม่ควรรีวิว
+A check on the latest commit failed: not ready to review	check ใน commit ล่าสุดล้มเหลว: ยังไม่พร้อมรีวิว
+A failed run shows 'Why it failed': the failing steps' last log lines, with errors highlighted. 'Probably flaky' means the same workflow on the same commit has both failed and passed.	run ที่ล้มเหลวจะแสดง 'ทำไมถึงล้มเหลว': log บรรทัดท้าย ๆ ของ step ที่ล้มเหลว พร้อมไฮไลต์ error ส่วน 'น่าจะ flaky' หมายถึง workflow เดียวกันบน commit เดียวกันเคยทั้งล้มเหลวและผ่าน
+A failure that passes on re-run usually isn't caused by the code	ความล้มเหลวที่ผ่านเมื่อ re-run มักไม่ได้เกิดจากโค้ด
+A fast desktop view of your pull requests, Actions, environments and commits, built with Rust and Rune.	แอปเดสก์ท็อปที่รวดเร็วสำหรับดู pull request, Actions, environment และ commit ของคุณ สร้างด้วย Rust และ Rune
+A group needs a name	กลุ่มต้องมีชื่อ
+A local branch (click to copy)	branch ในเครื่อง (คลิกเพื่อคัดลอก)
+A reviewer asked for changes	ผู้รีวิวขอให้แก้ไข
+A reviewer requested changes	ผู้รีวิวขอให้แก้ไข
+A tag (click to copy)	tag (คลิกเพื่อคัดลอก)
+A {what} is half done in this working copy. Finish or abort it in your terminal or editor (git {what} --continue or --abort) first.	การ {what} ใน working copy นี้ยังค้างอยู่ ให้ทำต่อหรือยกเลิกใน terminal หรือ editor ก่อน (git {what} --continue หรือ --abort)
+AWS access key	AWS access key
+About	เกี่ยวกับ
+Accounts	บัญชี
+Actions	Actions
+Actions & CI triage	Actions และการวิเคราะห์ CI
+Actions health	สุขภาพของ Actions
+Active	ใช้งานอยู่
+Activity	ความเคลื่อนไหว
+Activity follows your pinned repos and your groups: right-click any repo in the sidebar to pin it, add it to a group, or track it.	หน้าความเคลื่อนไหวติดตาม repo ที่ปักหมุดและกลุ่มของคุณ: คลิกขวาที่ repo ใดก็ได้ในแถบข้างเพื่อปักหมุด เพิ่มเข้ากลุ่ม หรือติดตาม
+Activity log	บันทึกการทำงาน
+Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs.	ความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตาม · รอคุณอยู่: งานรีวิว การแจ้งเตือน และ PR ของคุณ
+Add a local clone…	เพิ่ม clone ในเครื่อง…
+Add a repo: type to search	เพิ่ม repo: พิมพ์เพื่อค้นหา
+Add local repo	เพิ่ม repo ในเครื่อง
+After you confirm a merge it waits this long with a Cancel button. Nothing is sent until it runs out.	หลังยืนยันการ merge จะรอตามเวลานี้พร้อมปุ่มยกเลิก ไม่มีอะไรถูกส่งจนกว่าจะหมดเวลา
+All	ทั้งหมด
+All branches	ทุก branch
+All caught up	ไม่มีอะไรค้างแล้ว
+All tracked ({})	ที่ติดตามทั้งหมด ({})
+All your tracked repos, or just one of your groups	repo ที่ติดตามทั้งหมด หรือเฉพาะกลุ่มใดกลุ่มหนึ่ง
+Also in this range	ในช่วงนี้ยังมี
+Alt+← / Alt+→	Alt+← / Alt+→
+Appearance	การแสดงผล
+Apply	นำไปใช้
+Approve	อนุมัติ
+Approve #{number}	อนุมัติ #{number}
+Approve this PR. Anything in the comment box becomes the review's message.	อนุมัติ PR นี้ ข้อความในช่องความคิดเห็นจะกลายเป็นข้อความของการรีวิว
+Approved	อนุมัติแล้ว
+Approved and checks green	อนุมัติแล้วและ check ผ่านหมด
+Approved, mergeable	อนุมัติแล้ว พร้อม merge
+Asking gh who you're signed in as…	กำลังถาม gh ว่าคุณเข้าสู่ระบบด้วยบัญชีใด…
+Assigned issues	issue ที่มอบหมายให้คุณ
+Author	ผู้เขียน
+Author identity	ข้อมูลผู้เขียน
+Back	ย้อนกลับ
+Back / Forward (top left of the toolbar, or Alt+← / Alt+→) step through the pages and repos you visited, like a browser.	ย้อนกลับ / ไปข้างหน้า (มุมซ้ายบนของแถบเครื่องมือ หรือ Alt+← / Alt+→) เลื่อนผ่านหน้าและ repo ที่เคยเปิด เหมือนเบราว์เซอร์
+Back / forward	ย้อนกลับ / ไปข้างหน้า
+Back to the first few	กลับไปแสดงแค่ไม่กี่รายการแรก
+Behind / ahead	ตามหลัง / นำหน้า
+Block the merge until changes are made. Write what should change in the comment box first.	กันไม่ให้ merge จนกว่าจะแก้ไข เขียนสิ่งที่ควรแก้ในช่องความคิดเห็นก่อน
+Branch	Branch
+Branches	Branch
+Branches in your clone. Double-click to check one out.	branch ใน clone ของคุณ ดับเบิลคลิกเพื่อ checkout
+Branches on GitHub (origin/…). Double-click makes a local tracking branch.	branch บน GitHub (origin/…) ดับเบิลคลิกเพื่อสร้าง branch ในเครื่องที่ติดตาม branch นั้น
+Branches: Local, Remote, Stashes and Clean up. Checkout asks first if you have uncommitted changes, and offers Stash and continue.	Branch: ในเครื่อง, Remote, Stash และล้างข้อมูล การ checkout จะถามก่อนถ้ามีการแก้ไขที่ยังไม่ commit และมีตัวเลือก Stash แล้วทำต่อ
+Built in, always on	มีในตัว เปิดใช้เสมอ
+CI action	การดำเนินการ CI
+CI health on default branches	สุขภาพ CI บน branch หลัก
+CI on {branch}	CI บน {branch}
+CI/CD workflow	workflow CI/CD
+CI: {}	CI: {}
+Cache	แคช
+Cache cleared. The next launch starts empty and loads everything fresh.	ล้างแคชแล้ว การเปิดครั้งถัดไปจะเริ่มใหม่และโหลดทุกอย่างใหม่ทั้งหมด
+Can't do this right now	ทำรายการนี้ไม่ได้ในตอนนี้
+Cancel	ยกเลิก
+Cancel run	ยกเลิก run
+Cancel run {id}	ยกเลิก run {id}
+Cancelling stops every job in the run where it is	การยกเลิกจะหยุดทุก job ใน run ทันที
+Change it any time in Settings (Ctrl+,).	เปลี่ยนได้ทุกเมื่อในการตั้งค่า (Ctrl+,)
+Changes	การเปลี่ยนแปลง
+Changes requested	ขอให้แก้ไข
+Changes you put aside (git stash). Apply keeps the stash, Pop removes it.	การแก้ไขที่พักไว้ (git stash) Apply จะเก็บ stash ไว้ ส่วน Pop จะลบออก
+Changes {what}: {path}	แก้ไข{what}: {path}
+Check for updates	ตรวจหาอัปเดต
+Check now	ตรวจตอนนี้
+Check out locally	checkout ในเครื่อง
+Check out {b}	checkout {b}
+Check out {}	checkout {}
+Checked before anything is sent: protected or default base branch and its rules, failing or running checks, missing approval, drafts, conflicts, files like workflows, migrations, Terraform, .env, and anything in the diff that looks like a secret.	ตรวจก่อนส่งทุกครั้ง: base branch ที่ถูกป้องกันหรือเป็น branch หลักและกฎของมัน, check ที่ล้มเหลวหรือกำลังรัน, การขาดการอนุมัติ, draft, conflict, ไฟล์อย่าง workflow, migration, Terraform, .env และอะไรก็ตามใน diff ที่ดูเหมือนข้อมูลลับ
+Checking GitHub and your working copy…	กำลังตรวจ GitHub และ working copy ของคุณ…
+Checking git and the GitHub CLI…	กำลังตรวจ git และ GitHub CLI…
+Checking out a branch here watches its CI for the rest of the day.	การ checkout branch จากที่นี่จะติดตาม CI ของ branch นั้นไปจนหมดวัน
+Checking…	กำลังตรวจ…
+Checkout #{number}	checkout #{number}
+Checkout {name}	checkout {name}
+Checkout {}	checkout {}
+Checks	Check
+Checks ({checks})	Check ({checks})
+Checks again by itself every {RECHECK_SECS} s	ตรวจซ้ำเองทุก {RECHECK_SECS} วินาที
+Checks are still running on the latest commit	check ใน commit ล่าสุดยังรันอยู่
+Checks failing	check ล้มเหลว
+Checks protection, CI, reviews, sensitive files and secrets first; then a countdown you can cancel	ตรวจการป้องกัน, CI, การรีวิว, ไฟล์สำคัญ และข้อมูลลับก่อน แล้วนับถอยหลังซึ่งยกเลิกได้
+Checks running	check กำลังรัน
+Checks still running on the latest commit	check ใน commit ล่าสุดยังรันอยู่
+Checks: {passing} passing, {failing} failing, {running} running	Check: ผ่าน {passing}, ล้มเหลว {failing}, กำลังรัน {running}
+Choose a local git repository	เลือก git repository ในเครื่อง
+Choose one in the sidebar, or press Ctrl+K to jump to any repo by name.	เลือกจากแถบข้าง หรือกด Ctrl+K เพื่อไปยัง repo ใดก็ได้ด้วยชื่อ
+Choose which repos this page follows	เลือก repo ที่หน้านี้ติดตาม
+Clean up	ล้างข้อมูล
+Clean up lists local branches that are merged, gone upstream, or untouched for 90 days. Merged ones delete safely. Unmerged ones list the commits you'd lose and need the name typed. Remote branches are never deleted.	ล้างข้อมูลจะแสดง branch ในเครื่องที่ merge แล้ว, ถูกลบจาก upstream หรือไม่ได้แตะเลย 90 วัน ที่ merge แล้วลบได้อย่างปลอดภัย ที่ยังไม่ merge จะแสดง commit ที่จะหายไปและต้องพิมพ์ชื่อเพื่อยืนยัน branch บน remote จะไม่ถูกลบ
+Clear cache	ล้างแคช
+Click a section header to fold it; the ^ above the list collapses or expands everything. Folds are remembered.	คลิกหัวข้อส่วนเพื่อพับเก็บ ปุ่ม ^ เหนือรายการจะพับหรือกางทั้งหมด ระบบจำสถานะการพับไว้
+Click the ▦ button on a group's header (or pick it in Ctrl+K) for its dashboard: CI health per repo, deployments per environment, commits not yet on production, and every open PR in the group.	คลิกปุ่ม ▦ บนหัวกลุ่ม (หรือเลือกใน Ctrl+K) เพื่อเปิดแดชบอร์ด: สุขภาพ CI ของแต่ละ repo, deployment ของแต่ละ environment, commit ที่ยังไม่ขึ้น production และ PR ที่เปิดอยู่ทั้งหมดในกลุ่ม
+Click to copy {what}	คลิกเพื่อคัดลอก{what}
+Click to fold or unfold. Right-click to reorder or customize.	คลิกเพื่อพับหรือกาง คลิกขวาเพื่อจัดลำดับหรือปรับแต่ง
+Close #{number}	ปิด #{number}
+Close a window, the palette, or cancel a merge countdown	ปิดหน้าต่าง, palette หรือยกเลิกการนับถอยหลัง merge
+Close pull request	ปิด pull request
+Close without merging (Undo reopens it)	ปิดโดยไม่ merge (เลิกทำจะเปิดกลับมา)
+Closed	ปิดแล้ว
+Closing a PR, checking out, deleting a local branch and pin/group edits show Undo for 10 seconds.	การปิด PR, checkout, ลบ branch ในเครื่อง และการแก้ไขหมุด/กลุ่ม จะแสดงปุ่มเลิกทำนาน 10 วินาที
+Closing stops reviews and CI on it (you can reopen it)	การปิดจะหยุดการรีวิวและ CI (เปิดกลับได้)
+Code changes	การเปลี่ยนแปลงโค้ด
+Collapse all	พับทั้งหมด
+Collapse all sections (remembered)	พับทุกส่วน (จำไว้)
+Colour	สี
+Command palette	Command palette
+Command palette: jump to a repo, #PR, branch or group	Command palette: ไปยัง repo, #PR, branch หรือกลุ่ม
+Comment	แสดงความคิดเห็น
+Comment on #{number}	แสดงความคิดเห็นใน #{number}
+Commit	Commit
+Commits	Commit
+Commits and branches read a local copy of {slug}. Point sigit at a folder where you already cloned it; nothing is downloaded or changed.	หน้า Commit และ Branch อ่านจากสำเนาในเครื่องของ {slug} ให้ชี้ sigit ไปยังโฟลเดอร์ที่คุณ clone ไว้แล้ว ไม่มีการดาวน์โหลดหรือเปลี่ยนแปลงอะไร
+Commits and merges per day	commit และ merge ต่อวัน
+Commits on default branches	commit บน branch หลัก
+Commits, branches & clean-up	Commit, branch และการล้างข้อมูล
+Commits: the graph of every branch. Click a commit for its files and diff. 🛡 marks protected branches.	Commit: กราฟของทุก branch คลิก commit เพื่อดูไฟล์และ diff 🛡 คือ branch ที่ถูกป้องกัน
+Conversation	การสนทนา
+Copied `{cmd}`	คัดลอก `{cmd}` แล้ว
+Copied version info	คัดลอกข้อมูลเวอร์ชันแล้ว
+Copied {what}: {shown}{more}	คัดลอก{what}แล้ว: {shown}{more}
+Copy	คัดลอก
+Copy sigit's, gh's and git's versions and your system, for a bug report	คัดลอกเวอร์ชันของ sigit, gh, git และระบบของคุณ สำหรับรายงานบั๊ก
+Copy the command	คัดลอกคำสั่ง
+Copy the log lines	คัดลอกบรรทัด log
+Copy version info	คัดลอกข้อมูลเวอร์ชัน
+Copy {what}	คัดลอก{what}
+Couldn't clear the cache: {e}	ล้างแคชไม่สำเร็จ: {e}
+Couldn't load activity: {e}	โหลดความเคลื่อนไหวไม่สำเร็จ: {e}
+Couldn't load that pull request: {e}	โหลด pull request นั้นไม่สำเร็จ: {e}
+Couldn't load that run: {e}	โหลด run นั้นไม่สำเร็จ: {e}
+Couldn't load this	โหลดส่วนนี้ไม่สำเร็จ
+Couldn't move the current version aside: {e}	ย้ายเวอร์ชันปัจจุบันออกไม่สำเร็จ: {e}
+Couldn't put the new version in place: {e}	วางเวอร์ชันใหม่ไม่สำเร็จ: {e}
+Couldn't read the pull request's current state from GitHub	อ่านสถานะปัจจุบันของ pull request จาก GitHub ไม่สำเร็จ
+Couldn't read the version "{tag}"	อ่านเวอร์ชัน "{tag}" ไม่สำเร็จ
+Couldn't read the working copy: {e}	อ่าน working copy ไม่สำเร็จ: {e}
+Couldn't replace sigit even with administrator permission: {e}	แทนที่ sigit ไม่สำเร็จแม้ได้สิทธิ์ผู้ดูแลระบบแล้ว: {e}
+Couldn't save preferences: {e}	บันทึกการตั้งค่าไม่สำเร็จ: {e}
+Couldn't save the repo list: {e}	บันทึกรายการ repo ไม่สำเร็จ: {e}
+Couldn't write the activity log: {e}	เขียนบันทึกการทำงานไม่สำเร็จ: {e}
+Counting PRs opened and merged {label}…	กำลังนับ PR ที่เปิดและ merge {label}…
+Ctrl+2 … 6	Ctrl+2 … 6
+Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Inbox / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.	Ctrl+K palette · F1 คู่มือ · Ctrl+R รีเฟรช · Alt+←/→ ย้อนกลับ/ไปข้างหน้า · Ctrl+1…6 กล่องงาน / PR / Actions / Environment / Commit / Branch · Esc ปิด palette หรือยกเลิกการนับถอยหลัง merge
+Current branch	branch ปัจจุบัน
+Custom	กำหนดเอง
+Custom colour	สีกำหนดเอง
+Customize colour & icon…	ปรับแต่งสีและไอคอน…
+Customize {owner}	ปรับแต่ง {owner}
+Dark	มืด
+Data & storage	ข้อมูลและพื้นที่จัดเก็บ
+Date	วันที่
+Delete	ลบ
+Delete all {} merged	ลบที่ merge แล้วทั้งหมด {} รายการ
+Delete branch	ลบ branch
+Delete branch after	ลบ branch หลัง merge
+Delete branch {name}	ลบ branch {name}
+Delete group	ลบกลุ่ม
+Delete local branch {name}	ลบ branch ในเครื่อง {name}
+Delete this stash for good (asks first)	ลบ stash นี้ถาวร (ถามก่อน)
+Deleted group {name}	ลบกลุ่ม {name} แล้ว
+Deployments	Deployment
+Deployments & releases	Deployment และ release
+Deployments over time	Deployment ตามช่วงเวลา
+Deployments, and how many failed	Deployment และจำนวนที่ล้มเหลว
+Desktop	เดสก์ท็อป
+Desktop notifications	การแจ้งเตือนบนเดสก์ท็อป
+Done	เสร็จ
+Double-click a branch to check it out. 🛡 marks protected or default branches.	ดับเบิลคลิก branch เพื่อ checkout 🛡 คือ branch ที่ถูกป้องกันหรือเป็น branch หลัก
+Double-click a handle	ดับเบิลคลิกที่ตัวจับ
+Download failed: {e}	ดาวน์โหลดไม่สำเร็จ: {e}
+Download from {}	ดาวน์โหลดจาก {}
+Download new commits and branches from every remote (git fetch --all --prune). Changes nothing locally.	ดาวน์โหลด commit และ branch ใหม่จากทุก remote (git fetch --all --prune) ไม่เปลี่ยนอะไรในเครื่อง
+Downloading and installing {version}… If sigit is installed for all users, {} asks for permission to replace it.	กำลังดาวน์โหลดและติดตั้ง {version}… หากติดตั้ง sigit ไว้สำหรับผู้ใช้ทุกคน {} จะขอสิทธิ์เพื่อแทนที่
+Draft	Draft
+Drafts	Draft
+Drag pinned repos, or repos inside one of your groups, to put them in your own order. Right-click a group's header to move the whole group up or down.	ลาก repo ที่ปักหมุด หรือ repo ในกลุ่ม เพื่อจัดลำดับเอง คลิกขวาที่หัวกลุ่มเพื่อย้ายทั้งกลุ่มขึ้นหรือลง
+Drag to reorder this group · Right-click for more	ลากเพื่อจัดลำดับกลุ่มนี้ · คลิกขวาเพื่อดูเพิ่ม
+Drag to reorder your pinned repos · Right-click for more	ลากเพื่อจัดลำดับ repo ที่ปักหมุด · คลิกขวาเพื่อดูเพิ่ม
+Drag to resize · double-click to reset	ลากเพื่อปรับขนาด · ดับเบิลคลิกเพื่อรีเซ็ต
+Drop	ทิ้ง
+Dropping {name} deletes those changes for good	การทิ้ง {name} จะลบการแก้ไขเหล่านั้นถาวร
+Duration	ระยะเวลา
+Each bar is a run: height is duration, colour is the result. Click one to open it.	แต่ละแท่งคือหนึ่ง run: ความสูงคือระยะเวลา สีคือผลลัพธ์ คลิกเพื่อเปิด
+Each organization shows its 7 repos you opened most recently (then the most recently pushed), with 'Show N more' for the rest. The search box always looks through all of them.	แต่ละองค์กรแสดง 7 repo ที่คุณเปิดล่าสุด (ตามด้วยที่ push ล่าสุด) และมี 'แสดงอีก N' สำหรับที่เหลือ ช่องค้นหาจะค้นจากทั้งหมดเสมอ
+Each workflow in this range, the ones with failures first. Click one to open its latest failed run (or latest run).	แต่ละ workflow ในช่วงนี้ เรียงที่ล้มเหลวไว้ก่อน คลิกเพื่อเปิด run ล่าสุดที่ล้มเหลว (หรือ run ล่าสุด)
+Email	อีเมล
+Empty. It fills as pages load and is saved every few minutes.	ว่างเปล่า จะมีข้อมูลเมื่อหน้าต่าง ๆ โหลด และบันทึกทุกไม่กี่นาที
+English	English
+Enter saves	กด Enter เพื่อบันทึก
+Environments	Environment
+Environments & production	Environment และ production
+Event	Event
+Every action has a risk level. Low runs at once. Needs a look asks first. High shows the reasons in red and you type the repo, branch or environment name to confirm.	ทุกการกระทำมีระดับความเสี่ยง ต่ำจะทำทันที ควรตรวจดูจะถามก่อน สูงจะแสดงเหตุผลเป็นสีแดงและต้องพิมพ์ชื่อ repo, branch หรือ environment เพื่อยืนยัน
+Every check on the latest commit passed: ready to review	ทุก check ใน commit ล่าสุดผ่าน: พร้อมรีวิว
+Every open PR in the group. ⚠ marks sensitive files.	PR ที่เปิดอยู่ทั้งหมดในกลุ่ม ⚠ คือแตะไฟล์สำคัญ
+Every workflow's latest run passed	run ล่าสุดของทุก workflow ผ่าน
+Everything the app did in the last 30 days (activity.jsonl in the settings folder).	ทุกสิ่งที่แอปทำใน 30 วันที่ผ่านมา (activity.jsonl ในโฟลเดอร์การตั้งค่า)
+Everything waiting on you, across your repositories	ทุกอย่างที่รอคุณอยู่ จากทุก repository
+Expand all	กางทั้งหมด
+Expand all sections	กางทุกส่วน
+Failed	ล้มเหลว
+Failed workflow runs in your most active repos	workflow run ที่ล้มเหลวใน repo ที่คุณใช้งานบ่อยที่สุด
+Failing on the default branch right now	กำลังล้มเหลวบน branch หลักตอนนี้
+Failing runs (recent)	run ที่ล้มเหลว (ล่าสุด)
+Fast-forward the current branch	fast-forward branch ปัจจุบัน
+Fast-forward your current branch (git pull --ff-only): never creates a merge commit. Checks for uncommitted changes first.	fast-forward branch ปัจจุบัน (git pull --ff-only): ไม่สร้าง merge commit ตรวจการแก้ไขที่ยังไม่ commit ก่อน
+Fetch	Fetch
+Fetch PR #{number}'s branch and switch to it	fetch branch ของ PR #{number} แล้วสลับไปใช้
+Fetch the PR's branch and switch your local clone to it (gh pr checkout). Asks first if you have uncommitted changes.	fetch branch ของ PR แล้วสลับ clone ในเครื่องไปใช้ (gh pr checkout) ถามก่อนถ้ามีการแก้ไขที่ยังไม่ commit
+Files	ไฟล์
+Files ({files})	ไฟล์ ({files})
+Files changed	ไฟล์ที่เปลี่ยน
+Filter as you type; after a short pause GitHub is searched too, so older PRs turn up. ⚠ chips mark PRs touching sensitive files.	กรองขณะพิมพ์ เมื่อหยุดพิมพ์สักครู่จะค้นใน GitHub ด้วย เพื่อให้เจอ PR เก่า ๆ ป้าย ⚠ คือ PR ที่แตะไฟล์สำคัญ
+Filter by title, author, branch or #	กรองด้วยชื่อ, ผู้เขียน, branch หรือ #
+Following your pinned repos and your groups' repos (the default). Changing the list makes it your own.	กำลังติดตาม repo ที่ปักหมุดและ repo ในกลุ่มของคุณ (ค่าเริ่มต้น) การแก้รายการจะทำให้เป็นรายการของคุณเอง
+Forward	ไปข้างหน้า
+From	ตั้งแต่
+From GitHub. Done marks read there too; snooze is local.	จาก GitHub การกดเสร็จจะทำเครื่องหมายว่าอ่านแล้วบน GitHub ด้วย ส่วนการเลื่อนเตือนมีผลแค่ในเครื่องนี้
+From last session's cache; fresh data replaces it as it loads.	จากแคชของครั้งก่อน ข้อมูลใหม่จะมาแทนเมื่อโหลดเสร็จ
+Fully merged into the default branch: safe to delete	merge เข้า branch หลักครบแล้ว: ลบได้อย่างปลอดภัย
+Get a desktop notification when this run finishes	รับการแจ้งเตือนบนเดสก์ท็อปเมื่อ run นี้เสร็จ
+Get a notification when its checks finish, a review arrives, or it's merged	รับการแจ้งเตือนเมื่อ check เสร็จ มีรีวิวเข้ามา หรือถูก merge
+Get started	เริ่มใช้งาน
+Git	Git
+Git identity saved	บันทึกข้อมูลผู้ใช้ git แล้ว
+GitHub Actions hasn't run anything in this repository yet. Runs show here, newest first, as soon as a workflow starts.	GitHub Actions ยังไม่เคยรันอะไรใน repository นี้ run จะแสดงที่นี่ โดยล่าสุดอยู่บนสุด ทันทีที่ workflow เริ่มทำงาน
+GitHub CLI	GitHub CLI
+GitHub account settings	การตั้งค่าบัญชี GitHub
+GitHub notifications: mentions, comments, CI, review requests	การแจ้งเตือนจาก GitHub: การกล่าวถึง, ความคิดเห็น, CI, คำขอรีวิว
+GitHub only	GitHub เท่านั้น
+GitHub reports it as blocked by branch rules	GitHub แจ้งว่าถูกกฎของ branch บล็อกไว้
+GitHub returned no failed-step log (it may have expired).	GitHub ไม่ส่ง log ของ step ที่ล้มเหลวมา (อาจหมดอายุแล้ว)
+GitHub token	GitHub token
+Go to {}	ไปที่ {}
+Google API key	Google API key
+Group	กลุ่ม
+Group dashboard: CI, deployments and open PRs across these repos	แดชบอร์ดกลุ่ม: CI, deployment และ PR ที่เปิดอยู่ใน repo เหล่านี้
+Group name	ชื่อกลุ่ม
+Group · {g}	กลุ่ม · {g}
+Group: {}	กลุ่ม: {}
+Groups	กลุ่ม
+Groups & dashboards	กลุ่มและแดชบอร์ด
+Groups are yours alone (saved on this computer) and can mix repos from any owners.	กลุ่มเป็นของคุณคนเดียว (บันทึกในเครื่องนี้) และรวม repo จากเจ้าของใดก็ได้
+Guide	คู่มือ
+Guide: what every feature does	คู่มือ: ทุกฟีเจอร์ทำอะไรได้บ้าง
+Hide activity details	ซ่อนรายละเอียดความเคลื่อนไหว
+Hide details	ซ่อนรายละเอียด
+Hide {}	ซ่อน {}
+High risk	ความเสี่ยงสูง
+Hover almost anything for a tooltip. Press F1 (or Ctrl+/) for this guide, and Ctrl+K to jump anywhere.	ชี้เมาส์ที่เกือบทุกอย่างเพื่อดูคำอธิบาย กด F1 (หรือ Ctrl+/) เพื่อเปิดคู่มือนี้ และ Ctrl+K เพื่อไปที่ไหนก็ได้
+How long since your review was requested	นานเท่าไรแล้วตั้งแต่มีคนขอให้คุณรีวิว
+How long they've been open	เปิดมานานเท่าไรแล้ว
+How many of each organization's repos the sidebar lists before "Show more". The ones you opened recently come first; search always shows every match.	จำนวน repo ของแต่ละองค์กรที่แถบข้างแสดงก่อนปุ่ม "แสดงเพิ่ม" ที่เปิดล่าสุดจะขึ้นก่อน การค้นหาจะแสดงทุกรายการที่ตรงเสมอ
+Icon	ไอคอน
+If you're an admin, GitHub would let a merge through its rules anyway. sigit says so and still asks.	ถ้าคุณเป็นผู้ดูแล GitHub จะยอมให้ merge ผ่านกฎได้อยู่ดี sigit จะแจ้งให้ทราบและยังถามก่อนเสมอ
+Inbox	กล่องงาน
+Inbox & notifications	กล่องงานและการแจ้งเตือน
+Inbox view	มุมมองกล่องงาน
+Install Git	ติดตั้ง Git
+Install the GitHub CLI (gh)	ติดตั้ง GitHub CLI (gh)
+Install the GitHub CLI first	ติดตั้ง GitHub CLI ก่อน
+Issue	Issue
+Issues assigned to you	issue ที่มอบหมายให้คุณ
+It has merge conflicts	มี merge conflict
+It has two parts. Overview: totals across every tracked repo, per-day bars, who contributed, and repos at a glance (click one to jump to it). By repository: a section per repo, most changed first, with cards for pull requests, commits and lines, CI per workflow, contributors, and deployments and releases. Fold any section, or all of them.	มีสองส่วน ภาพรวม: ยอดรวมของทุก repo ที่ติดตาม, กราฟรายวัน, ผู้มีส่วนร่วม และ repo แบบสรุป (คลิกเพื่อไปยัง repo นั้น) แยกตาม repository: หนึ่งส่วนต่อหนึ่ง repo เรียงจากที่เปลี่ยนมากที่สุด มีการ์ดของ pull request, commit และจำนวนบรรทัด, CI แยกตาม workflow, ผู้มีส่วนร่วม และ deployment กับ release พับส่วนใดก็ได้ หรือพับทั้งหมด
+It hasn't been approved yet	ยังไม่ได้รับการอนุมัติ
+It never commits or pushes. Anything that changes something goes through safety checks first (see Safety).	ไม่มีการ commit หรือ push เด็ดขาด ทุกการกระทำที่เปลี่ยนแปลงอะไรจะผ่านการตรวจความปลอดภัยก่อน (ดูหัวข้อความปลอดภัย)
+It's no longer open ({}): someone acted on it meanwhile	ไม่ได้เปิดอยู่แล้ว ({}): มีคนดำเนินการไปก่อนหน้านี้
+It's still a draft	ยังเป็น draft อยู่
+Its GitHub branch was deleted	branch บน GitHub ถูกลบแล้ว
+Its `origin` remote isn't on GitHub	remote `origin` ไม่ได้อยู่บน GitHub
+Its branch is behind the base branch	branch ตามหลัง base branch
+Its pull requests, Actions, environments, commits and branches	pull request, Actions, environment, commit และ branch ของ repo นี้
+Its remote branch was deleted (usually after its PR merged): a clean-up candidate	branch บน remote ถูกลบแล้ว (มักเป็นหลัง PR ถูก merge): ควรล้างออก
+J / K	J / K
+J/K move · Enter open · A approve · C comment	J/K เลื่อน · Enter เปิด · A อนุมัติ · C แสดงความคิดเห็น
+Jobs timeline	ไทม์ไลน์ของ job
+Jump to a repo, #PR, branch, group, or type a command…	ไปยัง repo, #PR, branch, กลุ่ม หรือพิมพ์คำสั่ง…
+Jump to any repo, #PR, branch or group, or run a command	ไปยัง repo, #PR, branch หรือกลุ่มใดก็ได้ หรือรันคำสั่ง
+Jump to any repo, pull request, branch or group, or run a command.	ไปยัง repo, pull request, branch หรือกลุ่มใดก็ได้ หรือรันคำสั่ง
+Just installed something and it still says missing? Close and reopen sigit: it only sees programs that were on your PATH when it started.	เพิ่งติดตั้งแต่ยังขึ้นว่าไม่มี? ปิดแล้วเปิด sigit ใหม่: แอปจะเห็นเฉพาะโปรแกรมที่อยู่ใน PATH ตอนเปิดแอป
+Keeping pages fresh	การทำให้หน้าเป็นปัจจุบัน
+Keyboard	คีย์บอร์ด
+Keys (when no text box has focus): J / K move, Enter opens, A approves (with a summary of checks, size and sensitive files first), C opens it with the comment box focused.	ปุ่มลัด (เมื่อไม่ได้พิมพ์ในช่องข้อความ): J / K เลื่อน, Enter เปิด, A อนุมัติ (แสดงสรุป check, ขนาด และไฟล์สำคัญก่อน), C เปิดพร้อมโฟกัสช่องความคิดเห็น
+Kubernetes	Kubernetes
+Kubernetes (Helm)	Kubernetes (Helm)
+Last 30 days	30 วันที่ผ่านมา
+Last 7 days	7 วันที่ผ่านมา
+Last commit	commit ล่าสุด
+Last refresh failed: {e}	รีเฟรชครั้งล่าสุดไม่สำเร็จ: {e}
+Layout	เลย์เอาต์
+Leave a comment (also the body for Approve / Request changes)	เขียนความคิดเห็น (ใช้เป็นข้อความของการอนุมัติ / ขอให้แก้ไขด้วย)
+Let's get sigit set up	มาตั้งค่า sigit กัน
+Light	สว่าง
+Lines added / removed by those commits (latest 300 per repo)	บรรทัดที่เพิ่ม / ลบโดย commit เหล่านั้น (300 รายการล่าสุดต่อ repo)
+Load the failing steps' last log lines (gh run view --log-failed)	โหลด log บรรทัดท้าย ๆ ของ step ที่ล้มเหลว (gh run view --log-failed)
+Load this range (Enter in a date also works)	โหลดช่วงนี้ (กด Enter ในช่องวันที่ก็ได้)
+Load {page} more	โหลดเพิ่มอีก {page}
+Loading Actions runs…	กำลังโหลด run ของ Actions…
+Loading open pull requests…	กำลังโหลด pull request ที่เปิดอยู่…
+Loading repositories… {ready} of {}	กำลังโหลด repository… {ready} จาก {}
+Loading your repositories…	กำลังโหลด repository ของคุณ…
+Local	ในเครื่อง
+Local branches that are merged, gone upstream, or untouched for 90 days.	branch ในเครื่องที่ merge แล้ว, ถูกลบจาก upstream หรือไม่ได้แตะเลย 90 วัน
+Locate local clone…	ระบุตำแหน่ง clone ในเครื่อง…
+Looks for a newer release on github.com/{}.	ตรวจหา release ใหม่บน github.com/{}
+Low risk	ความเสี่ยงต่ำ
+Manage tracked	จัดการที่ติดตาม
+Mark as read on GitHub	ทำเครื่องหมายว่าอ่านแล้วบน GitHub
+Mark done	ทำเครื่องหมายว่าเสร็จ
+Marked as done	ทำเครื่องหมายว่าเสร็จแล้ว
+Median duration	ระยะเวลามัธยฐาน
+Merge	Merge
+Merge #{number}	merge #{number}
+Merge commit	Merge commit
+Merge countdown	นับถอยหลังก่อน merge
+Merge in {}s	merge ใน {} วิ
+Merge method	วิธี merge
+Merged	merge แล้ว
+Merged: safe delete (git branch -d). Undo restores it.	merge แล้ว: ลบได้อย่างปลอดภัย (git branch -d) เลิกทำจะกู้คืนให้
+Merges	การ merge
+Merges wait a few seconds (Settings) with a Cancel button: nothing is sent until the countdown ends. Esc cancels.	การ merge จะรอไม่กี่วินาที (ตั้งค่าได้) พร้อมปุ่มยกเลิก ไม่มีอะไรถูกส่งจนกว่าจะนับถอยหลังจบ กด Esc เพื่อยกเลิก
+Merge…	Merge…
+Merging can't be undone (only reverted with a new commit)	การ merge เลิกทำไม่ได้ (revert ได้ด้วย commit ใหม่เท่านั้น)
+Message	ข้อความ
+Move down	เลื่อนลง
+Move group down	เลื่อนกลุ่มลง
+Move group up	เลื่อนกลุ่มขึ้น
+Move to top	ย้ายไปบนสุด
+Move up	เลื่อนขึ้น
+Moved {owner}	ย้าย {owner} แล้ว
+Name	ชื่อ
+Navigation	การนำทาง
+Needs a look	ควรตรวจดู
+Needs you	รอคุณอยู่
+Needs you ({needs})	รอคุณอยู่ ({needs})
+Needs you: approve the selected PR	รอคุณอยู่: อนุมัติ PR ที่เลือก
+Needs you: check it out	รอคุณอยู่: checkout
+Needs you: next / previous in the review queue	รอคุณอยู่: ถัดไป / ก่อนหน้าในคิวรีวิว
+Needs you: open the selected PR	รอคุณอยู่: เปิด PR ที่เลือก
+New group	กลุ่มใหม่
+New group with this repo…	กลุ่มใหม่ที่มี repo นี้…
+New group with {slug}	กลุ่มใหม่ที่มี {slug}
+New group…	กลุ่มใหม่…
+Next	ถัดไป
+Next to Back / Forward, "updated 2m ago" says how fresh the page is ("cached" = from last session, red = the last update failed). Pages keep what they loaded: opening one again reloads only what's gone stale (PRs 2 min, runs 1 min or 15 s while running, local git 20 s, Activity 5 min). Click it or press Ctrl+R to reload everything now.	ข้างปุ่มย้อนกลับ / ไปข้างหน้า "อัปเดต 2 นาทีที่แล้ว" บอกความสดใหม่ของหน้า ("แคช" = จากครั้งก่อน, สีแดง = อัปเดตล่าสุดไม่สำเร็จ) หน้าต่าง ๆ จะเก็บสิ่งที่โหลดไว้: เปิดอีกครั้งจะโหลดใหม่เฉพาะที่เก่าแล้ว (PR 2 นาที, run 1 นาที หรือ 15 วินาทีขณะรัน, git ในเครื่อง 20 วินาที, ความเคลื่อนไหว 5 นาที) คลิกหรือกด Ctrl+R เพื่อโหลดใหม่ทั้งหมดทันที
+No branches	ไม่มี branch
+No changes to show	ไม่มีการเปลี่ยนแปลงให้แสดง
+No checks on this pull request	pull request นี้ไม่มี check
+No checks ran	ไม่มี check ทำงาน
+No checks ran on it (Actions may be waiting for approval): not counted as passed	ไม่มี check ทำงาน (Actions อาจรอการอนุมัติ): ไม่นับว่าผ่าน
+No checks ran on the latest commit (Actions may be waiting for approval): not counted as passed	ไม่มี check ทำงานใน commit ล่าสุด (Actions อาจรอการอนุมัติ): ไม่นับว่าผ่าน
+No closed pull requests	ไม่มี pull request ที่ปิดแล้ว
+No colour (default look)	ไม่มีสี (หน้าตาเริ่มต้น)
+No commits	ไม่มี commit
+No commits on the default branch in this range	ไม่มี commit บน branch หลักในช่วงนี้
+No days in range	ไม่มีวันในช่วงนี้
+No environments yet	ยังไม่มี environment
+No issues assigned to you	ไม่มี issue ที่มอบหมายให้คุณ
+No jobs yet	ยังไม่มี job
+No local clone	ไม่มี clone ในเครื่อง
+No local clone added: Commits and Branches need one (right-click → or + in the sidebar)	ยังไม่ได้เพิ่ม clone ในเครื่อง: หน้า Commit และ Branch ต้องใช้ (คลิกขวา → หรือ + ในแถบข้าง)
+No matches	ไม่พบรายการที่ตรง
+No merged pull requests	ไม่มี pull request ที่ merge แล้ว
+No open pull requests	ไม่มี pull request ที่เปิดอยู่
+No open pull requests in this group	ไม่มี pull request ที่เปิดอยู่ในกลุ่มนี้
+No pull request here matches that filter. Try fewer words, an author, a branch or a #number.	ไม่มี pull request ที่ตรงกับตัวกรองนี้ ลองใช้คำน้อยลง ชื่อผู้เขียน branch หรือ #หมายเลข
+No pull request here was closed without merging.	ไม่มี pull request ใดถูกปิดโดยไม่ merge
+No recent deployments	ไม่มี deployment ล่าสุด
+No recent run to show for that	ไม่มี run ล่าสุดให้แสดง
+No recent runs in your active repos	ไม่มี run ล่าสุดใน repo ที่คุณใช้งาน
+No repos tracked yet	ยังไม่ได้ติดตาม repo ใด
+No repositories match	ไม่มี repository ที่ตรง
+No runs in this range	ไม่มี run ในช่วงนี้
+No stashes. "Stash and continue" in a checkout dialog puts your changes here.	ไม่มี stash ตัวเลือก "Stash แล้วทำต่อ" ในหน้าต่าง checkout จะเก็บการแก้ไขของคุณไว้ที่นี่
+No workflow runs	ไม่มี workflow run
+Nobody committed or merged in this range	ไม่มีใคร commit หรือ merge ในช่วงนี้
+None of these repos has environments	ไม่มี repo ใดในนี้ที่มี environment
+None of this repository's pull requests have been merged yet.	ยังไม่มี pull request ใดของ repository นี้ถูก merge
+None yet: no PR waiting on you has all its checks passed	ยังไม่มี: ไม่มี PR ที่รอคุณซึ่ง check ผ่านครบทุกตัว
+Not linked to a remote branch	ไม่ได้เชื่อมกับ branch บน remote
+Not merged: deleting needs -D and loses the commits listed. You'll type the branch name to confirm. Undo restores it.	ยังไม่ merge: การลบต้องใช้ -D และ commit ที่แสดงจะหายไป ต้องพิมพ์ชื่อ branch เพื่อยืนยัน เลิกทำจะกู้คืนให้
+Not on production yet	ยังไม่ขึ้น production
+Not reachable: remove it from this group	เข้าถึงไม่ได้: นำออกจากกลุ่มนี้
+Not ready yet: checks failing, running or not run ({})	ยังไม่พร้อม: check ล้มเหลว กำลังรัน หรือไม่ได้รัน ({})
+Not saved yet	ยังไม่ได้บันทึก
+Not signed in to GitHub	ยังไม่ได้เข้าสู่ระบบ GitHub
+Not signed in. Run `gh auth login` in a terminal, then Refresh.	ยังไม่ได้เข้าสู่ระบบ รัน `gh auth login` ใน terminal แล้วกดรีเฟรช
+Nothing is waiting to be merged in this repository.	ไม่มีอะไรรอ merge ใน repository นี้
+Nothing matches	ไม่มีอะไรตรง
+Nothing needs attention: checks are green and no reviews are waiting.	ไม่มีอะไรต้องสนใจ: check ผ่านหมดและไม่มีรีวิวรออยู่
+Nothing open 🎉	ไม่มีอะไรเปิดค้าง 🎉
+Nothing ready: no PR waiting for review has all its checks passed	ยังไม่มีที่พร้อม: ไม่มี PR ที่รอรีวิวซึ่ง check ผ่านครบทุกตัว
+Nothing risky found.	ไม่พบสิ่งที่มีความเสี่ยง
+Nothing to clean up 🎉	ไม่มีอะไรต้องล้าง 🎉
+Nothing to go {}	ไม่มีหน้าให้{}
+Nothing waiting on you 🎉	ไม่มีอะไรรอคุณอยู่ 🎉
+Nothing yet. Add repos below, or pin repos / make groups (those are tracked by default).	ยังไม่มี เพิ่ม repo ด้านล่าง หรือปักหมุด repo / สร้างกลุ่ม (จะถูกติดตามโดยอัตโนมัติ)
+Nothing yet. Every merge, close, re-run, checkout… the app runs is listed here, with its result.	ยังไม่มี ทุกการ merge, ปิด, re-run, checkout… ที่แอปทำจะแสดงที่นี่พร้อมผลลัพธ์
+Nothing. Use the eye button on a run or a pull request.	ไม่มี ใช้ปุ่มรูปตาบน run หรือ pull request
+Notifications	การแจ้งเตือน
+Notifications ({})	การแจ้งเตือน ({})
+Notifications show while sigit is open, even minimized. Click one to jump to it.	การแจ้งเตือนแสดงขณะเปิด sigit อยู่ แม้จะย่อหน้าต่างไว้ คลิกเพื่อไปยังรายการนั้น
+Notifications: Open jumps into the PR or run. Done marks it read on GitHub too. Snooze hides it on this computer for 1 hour or until tomorrow.	การแจ้งเตือน: เปิดจะพาไปยัง PR หรือ run เสร็จจะทำเครื่องหมายว่าอ่านแล้วบน GitHub ด้วย เลื่อนเตือนจะซ่อนในเครื่องนี้ 1 ชั่วโมงหรือจนถึงพรุ่งนี้
+Now using {login} on {host}	ตอนนี้ใช้ {login} บน {host}
+ON GITHUB	บน GITHUB
+Off	ปิด
+Only local branches are listed: deleting a branch on GitHub would be a push, which this app never does. The current, default and protected branches are never offered.	แสดงเฉพาะ branch ในเครื่อง: การลบ branch บน GitHub คือการ push ซึ่งแอปนี้ไม่ทำเด็ดขาด branch ปัจจุบัน, branch หลัก และ branch ที่ถูกป้องกันจะไม่ถูกเสนอให้ลบ
+Open	เปิดอยู่
+Open PRs and PR counts are GitHub's exact numbers. Review / CI state per PR, run health, lines and contributors read up to the latest {CAP} items per repo.	PR ที่เปิดอยู่และจำนวน PR เป็นตัวเลขจริงจาก GitHub สถานะรีวิว / CI ของแต่ละ PR, สุขภาพของ run, จำนวนบรรทัด และผู้มีส่วนร่วม อ่านจาก {CAP} รายการล่าสุดต่อ repo
+Open PRs, which are ready for review, and how your Actions are doing, across the repos you track. This week by default.	PR ที่เปิดอยู่, ตัวไหนพร้อมรีวิว และสถานะ Actions ของ repo ที่คุณติดตาม ค่าเริ่มต้นคือสัปดาห์นี้
+Open a terminal and run it there	เปิด terminal แล้วรันคำสั่งในนั้น
+Open a terminal window running it	เปิดหน้าต่าง terminal ที่รันคำสั่งนี้
+Open dashboard	เปิดแดชบอร์ด
+Open folder	เปิดโฟลเดอร์
+Open issues assigned to you, in any repo	issue ที่เปิดอยู่และมอบหมายให้คุณ จากทุก repo
+Open it	เปิด
+Open it here	เปิดในแอป
+Open on GitHub	เปิดบน GitHub
+Open pull requests	pull request ที่เปิดอยู่
+Open pull requests ({pr_count})	pull request ที่เปิดอยู่ ({pr_count})
+Open release page	เปิดหน้า release
+Open repo	เปิด repo
+Open the deployed commit on GitHub	เปิด commit ที่ deploy บน GitHub
+Open the guide	เปิดคู่มือ
+Open the pull request	เปิด pull request
+Open the run	เปิด run
+Open the run's failing log lines in the app	เปิด log ที่ล้มเหลวของ run ในแอป
+Open this check on GitHub	เปิด check นี้บน GitHub
+Open this commit on GitHub	เปิด commit นี้บน GitHub
+Open this failed run	เปิด run ที่ล้มเหลวนี้
+Opened a terminal running `{command}`. This screen moves on by itself when it's done.	เปิด terminal ที่รัน `{command}` แล้ว หน้านี้จะไปต่อเองเมื่อเสร็จ
+Opening a page reloads only what's gone stale: PRs 2 min, runs 1 min (15 s while running), local git 20 s, Activity 5 min. Ctrl+R reloads everything now.	การเปิดหน้าจะโหลดใหม่เฉพาะที่เก่าแล้ว: PR 2 นาที, run 1 นาที (15 วินาทีขณะรัน), git ในเครื่อง 20 วินาที, ความเคลื่อนไหว 5 นาที Ctrl+R โหลดใหม่ทั้งหมดทันที
+Organizations back in the default order (you first, then A–Z)	จัดเรียงองค์กรกลับเป็นค่าเริ่มต้น (คุณก่อน ตามด้วย A–Z)
+PR #{n}	PR #{n}
+PR search failed: {e}	ค้นหา PR ไม่สำเร็จ: {e}
+PRs merged	PR ที่ merge
+PRs open right now in your tracked repos, whatever the range	PR ที่เปิดอยู่ตอนนี้ใน repo ที่ติดตาม ไม่ขึ้นกับช่วงเวลา
+PRs touching these get a ⚠ chip, and merging them is High risk. * matches within a folder, ** across folders.	PR ที่แตะไฟล์เหล่านี้จะมีป้าย ⚠ และการ merge จะมีความเสี่ยงสูง * ตรงกับไฟล์ในโฟลเดอร์เดียว ** ตรงข้ามโฟลเดอร์
+PRs waiting for your review, sorted by how long they've waited. Green under 4 hours, amber under a day, red after that.	PR ที่รอคุณรีวิว เรียงตามเวลาที่รอ เขียวคือไม่ถึง 4 ชั่วโมง เหลืองคือไม่ถึงหนึ่งวัน แดงคือเกินกว่านั้น
+PRs where someone asked for your review	PR ที่มีคนขอให้คุณรีวิว
+PRs whose checks all passed come first (the ones worth reviewing), oldest wait first. Keys work when no text box has focus.	PR ที่ check ผ่านทั้งหมดขึ้นก่อน (ตัวที่ควรรีวิว) รอนานสุดอยู่บนสุด ปุ่มลัดใช้ได้เมื่อไม่ได้พิมพ์ในช่องข้อความ
+PRs you opened that are still open	PR ที่คุณเปิดซึ่งยังเปิดอยู่
+Parent	Parent
+Parents	Parent
+Pass rate of finished workflow runs in the range, and which workflows are failing on the default branch right now	อัตราผ่านของ workflow run ที่เสร็จแล้วในช่วงนี้ และ workflow ใดกำลังล้มเหลวบน branch หลักตอนนี้
+People who committed or merged	ผู้ที่ commit หรือ merge
+Pick a group	เลือกกลุ่ม
+Pick a repository	เลือก repository
+Pin repos or put them in a group (they're tracked automatically), or right-click any repo → Track in Activity.	ปักหมุด repo หรือใส่ในกลุ่ม (จะถูกติดตามอัตโนมัติ) หรือคลิกขวาที่ repo → ติดตามในความเคลื่อนไหว
+Pin to top	ปักหมุดไว้บนสุด
+Pinned	ปักหมุด
+Pins, groups, settings, the cache and the activity log are saved on this computer only. Settings → Data & storage shows the folder and opens it.	หมุด, กลุ่ม, การตั้งค่า, แคช และบันทึกการทำงานถูกบันทึกในเครื่องนี้เท่านั้น การตั้งค่า → ข้อมูลและพื้นที่จัดเก็บจะแสดงและเปิดโฟลเดอร์นั้นได้
+Pop	Pop
+Pop stash	Pop stash
+Possible {what} added in {file}: {line}	อาจมี{what}ถูกเพิ่มใน {file}: {line}
+Possible {what} in {file}	อาจมี{what}ใน {file}
+Post the comment on the PR	โพสต์ความคิดเห็นใน PR
+Preview	ดูตัวอย่าง
+Probably flaky: the same workflow on this commit has both failed and passed	น่าจะ flaky: workflow เดียวกันบน commit นี้เคยทั้งล้มเหลวและผ่าน
+Production environment names (comma separated)	ชื่อ environment ที่เป็น production (คั่นด้วยจุลภาค)
+Protected or default branch: changes to it need extra care (merges are High risk). Click to copy its name.	branch ที่ถูกป้องกันหรือเป็น branch หลัก: ต้องระวังเป็นพิเศษเมื่อเปลี่ยนแปลง (การ merge มีความเสี่ยงสูง) คลิกเพื่อคัดลอกชื่อ
+Pull	Pull
+Pull request view	มุมมอง pull request
+Pull requests	Pull request
+Pull requests closed without merging	pull request ที่ปิดโดยไม่ merge
+Pull requests merged	pull request ที่ merge แล้ว
+Pull requests, Actions, Environments, Commits, Branches	Pull request, Actions, Environment, Commit, Branch
+Put these changes back and remove the stash	นำการแก้ไขเหล่านี้กลับมาและลบ stash
+Put these changes back into your working copy and keep the stash	นำการแก้ไขเหล่านี้กลับเข้า working copy และเก็บ stash ไว้
+Re-run	Re-run
+Re-run all jobs	Re-run ทุก job
+Re-run failed jobs	Re-run job ที่ล้มเหลว
+Re-run {}{id}	Re-run {}{id}
+Re-running or cancelling a run whose commit is deployed to a production environment needs the environment name typed	การ re-run หรือยกเลิก run ที่ commit ถูก deploy ไปยัง environment production ต้องพิมพ์ชื่อ environment เพื่อยืนยัน
+Re-running or cancelling a workflow that deployed to one of these needs the name typed. Environments with required reviewers or a wait timer on GitHub count too.	การ re-run หรือยกเลิก workflow ที่ deploy ไปยังรายการเหล่านี้ต้องพิมพ์ชื่อเพื่อยืนยัน environment ที่ตั้งผู้รีวิวบังคับหรือเวลารอบน GitHub ก็นับด้วย
+Re-running or cancelling a workflow that deploys to production asks you to type the environment name.	การ re-run หรือยกเลิก workflow ที่ deploy ไปยัง production จะให้คุณพิมพ์ชื่อ environment
+Reading PRs, commits, runs and deployments…	กำลังอ่าน PR, commit, run และ deployment…
+Ready	พร้อม
+Ready for review	พร้อมรีวิว
+Ready for review (all checks passed), oldest first	พร้อมรีวิว (check ผ่านทั้งหมด) เก่าสุดก่อน
+Ready for review: all checks passed ({ready})	พร้อมรีวิว: check ผ่านทั้งหมด ({ready})
+Rebase	Rebase
+Recent	ล่าสุด
+Recent deployments	deployment ล่าสุด
+Recent workflow runs	workflow run ล่าสุด
+Recently opened repos stay on top. Or type in the search box to find any repo.	repo ที่เปิดล่าสุดจะอยู่ด้านบน หรือพิมพ์ในช่องค้นหาเพื่อหา repo ใดก็ได้
+Refresh	รีเฟรช
+Refs	Ref
+Release	Release
+Released {tag}	ออก release {tag}
+Releases published	release ที่เผยแพร่
+Reload this page	โหลดหน้านี้ใหม่
+Remote	Remote
+Remove from group	นำออกจากกลุ่ม
+Remove the colour and icon (Undo brings them back)	ลบสีและไอคอน (เลิกทำจะคืนให้)
+Rename {old}	เปลี่ยนชื่อ {old}
+Rename…	เปลี่ยนชื่อ…
+Reopen #{number}	เปิด #{number} อีกครั้ง
+Repo search failed: {e}	ค้นหา repo ไม่สำเร็จ: {e}
+Repositories	Repository
+Repositories per organization	จำนวน repository ต่อองค์กร
+Repositories · {}	Repository · {}
+Repository view	มุมมอง repository
+Request changes	ขอให้แก้ไข
+Request changes on #{number}	ขอให้แก้ไข #{number}
+Reset	รีเซ็ต
+Reset order	รีเซ็ตลำดับ
+Reset resized sections	รีเซ็ตขนาดส่วนที่ปรับไว้
+Reset to default	รีเซ็ตเป็นค่าเริ่มต้น
+Reset to pinned + groups	รีเซ็ตเป็นที่ปักหมุด + กลุ่ม
+Restart now	รีสตาร์ตเลย
+Restore {name}	กู้คืน {name}
+Revert	ย้อนกลับ
+Review	รีวิว
+Review queue	คิวรีวิว
+Review queue details failed: {e}	โหลดรายละเอียดคิวรีวิวไม่สำเร็จ: {e}
+Review required	ต้องมีการรีวิว
+Reviews	การรีวิว
+Reviews waiting on you (ready ones first), your PRs, notifications. J / K to move, A to approve.	รีวิวที่รอคุณ (ที่พร้อมขึ้นก่อน), PR ของคุณ, การแจ้งเตือน J / K เลื่อน, A อนุมัติ
+Right-click a repo to pin it or add it to one of your groups. Groups can mix owners.	คลิกขวาที่ repo เพื่อปักหมุดหรือเพิ่มเข้ากลุ่ม กลุ่มรวม repo จากหลายเจ้าของได้
+Right-click an organization's header to move it up, down or to the top, or to give it your own colour and icon. The badge then marks its repos everywhere in the sidebar and in the repo header.	คลิกขวาที่หัวองค์กรเพื่อเลื่อนขึ้น ลง หรือไปบนสุด หรือกำหนดสีและไอคอนเอง ป้ายนั้นจะแสดงกับ repo ขององค์กรทุกที่ในแถบข้างและที่หัว repo
+Right-click any repository in the sidebar and choose Add to group to see its pull requests and runs here.	คลิกขวาที่ repository ใดก็ได้ในแถบข้างแล้วเลือกเพิ่มเข้ากลุ่ม เพื่อดู pull request และ run ของ repo นั้นที่นี่
+Right-click: pin, add to a group, open on GitHub	คลิกขวา: ปักหมุด, เพิ่มเข้ากลุ่ม, เปิดบน GitHub
+Run	Run
+Run `gh auth refresh` (or `gh auth login`) in a terminal	รัน `gh auth refresh` (หรือ `gh auth login`) ใน terminal
+Run in terminal	รันใน terminal
+Run only the jobs that failed again (gh run rerun --failed)	รันเฉพาะ job ที่ล้มเหลวอีกครั้ง (gh run rerun --failed)
+Run the whole workflow again on the same commit	รันทั้ง workflow อีกครั้งบน commit เดิม
+Running	กำลังรัน
+Runs it now	ทำทันที
+Runs per day	run ต่อวัน
+Runs per day (latest 300 per repo: busy repos' earlier days are undercounted)	run ต่อวัน (300 รายการล่าสุดต่อ repo: วันก่อน ๆ ของ repo ที่มีงานเยอะอาจนับไม่ครบ)
+Runs shown	run ที่แสดง
+Safety	ความปลอดภัย
+Safety (guard rails)	ความปลอดภัย (ราวกันตก)
+Safety settings saved	บันทึกการตั้งค่าความปลอดภัยแล้ว
+Save	บันทึก
+Save safety rules	บันทึกกฎความปลอดภัย
+Saved data	ข้อมูลที่บันทึกไว้
+Saved in your global git config	บันทึกใน git config ระดับ global ของคุณ
+Saved on this computer only. The badge shows on this organization's header, its repos (in Pinned and your groups too) and the repo header.	บันทึกในเครื่องนี้เท่านั้น ป้ายจะแสดงที่หัวขององค์กรนี้, repo ขององค์กร (ทั้งในที่ปักหมุดและในกลุ่ม) และที่หัว repo
+Saving git identity	กำลังบันทึกข้อมูลผู้ใช้ git
+Scales text and controls everywhere in the app.	ปรับขนาดข้อความและปุ่มทั่วทั้งแอป
+Search or jump to a repo, PR, branch or command…	ค้นหาหรือไปยัง repo, PR, branch หรือคำสั่ง…
+Search repositories	ค้นหา repository
+Searching GitHub…	กำลังค้นหาใน GitHub…
+Section sizes	ขนาดของส่วนต่าง ๆ
+Section sizes reset	รีเซ็ตขนาดส่วนต่าง ๆ แล้ว
+Sections side by side (a list and its detail, the Activity panels, each repo's cards, Needs you) have a handle between them: drag it to resize, double-click it to reset. Sizes are remembered.	ส่วนที่วางเคียงกัน (รายการกับรายละเอียด, แผงความเคลื่อนไหว, การ์ดของแต่ละ repo, รอคุณอยู่) มีตัวจับอยู่ตรงกลาง: ลากเพื่อปรับขนาด ดับเบิลคลิกเพื่อรีเซ็ต ระบบจำขนาดไว้
+Sensitive files and possible secrets. Merging this PR is High risk.	ไฟล์สำคัญและอาจมีข้อมูลลับ การ merge PR นี้มีความเสี่ยงสูง
+Settings	การตั้งค่า
+Settings & shortcuts	การตั้งค่าและปุ่มลัด
+Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email), Safety (production names, sensitive paths, merge countdown), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About.	การตั้งค่า (รูปเฟืองมุมขวาบนของหน้าต่าง หรือ Ctrl+,) เปิดหน้าต่างการตั้งค่า: การแสดงผล (ธีม, ภาษา, ขนาดข้อความ, repo ต่อองค์กร, ขนาดส่วนต่าง ๆ), บัญชี (บัญชี GitHub ที่ gh เข้าสู่ระบบไว้และการสลับบัญชี), Git (ชื่อและอีเมลสำหรับ commit), ความปลอดภัย (ชื่อ production, path สำคัญ, การนับถอยหลังก่อน merge), การแจ้งเตือนและการติดตาม, ข้อมูลและพื้นที่จัดเก็บ (แคช), บันทึกการทำงาน, ปุ่มลัด และเกี่ยวกับ
+Settings folder	โฟลเดอร์การตั้งค่า
+Settings: appearance, accounts, git identity, safety, notifications	การตั้งค่า: การแสดงผล, บัญชี, ข้อมูลผู้ใช้ git, ความปลอดภัย, การแจ้งเตือน
+Shortcuts	ปุ่มลัด
+Show activity details (per day, contributors)	แสดงรายละเอียดความเคลื่อนไหว (รายวัน, ผู้มีส่วนร่วม)
+Show details	แสดงรายละเอียด
+Show less	แสดงน้อยลง
+Show or hide the sidebar	แสดงหรือซ่อนแถบข้าง
+Show why it failed	แสดงสาเหตุที่ล้มเหลว
+Show {hidden} more	แสดงอีก {hidden}
+Show {}	แสดง {}
+Showing {shown}	แสดง {shown} รายการ
+Side-by-side sections you resized go back to their default widths.	ส่วนที่วางเคียงกันซึ่งคุณปรับขนาดไว้จะกลับเป็นความกว้างเริ่มต้น
+Sign in to GitHub	เข้าสู่ระบบ GitHub
+Sign-in expired	การเข้าสู่ระบบหมดอายุ
+Signed in	เข้าสู่ระบบแล้ว
+Signed in as {who}. Here's where to start:	เข้าสู่ระบบเป็น {who} แล้ว เริ่มจากตรงนี้ได้เลย:
+Size of the change	ขนาดของการเปลี่ยนแปลง
+Slack token	Slack token
+Snooze for an hour (on this computer only)	เลื่อนเตือนไป 1 ชั่วโมง (เฉพาะเครื่องนี้)
+Snooze until tomorrow (on this computer only)	เลื่อนเตือนไปพรุ่งนี้ (เฉพาะเครื่องนี้)
+Some data missing: {e}	ข้อมูลบางส่วนหายไป: {e}
+Squash	Squash
+Squash: one commit on the base branch. Merge commit: keeps every commit. Rebase: replays them.	Squash: รวมเป็น commit เดียวบน base branch · Merge commit: เก็บทุก commit · Rebase: นำ commit ไปต่อท้ายใหม่
+Started	เริ่มเมื่อ
+Stash and continue	Stash แล้วทำต่อ
+Stash {op} {name}	Stash {op} {name}
+Stashed your changes, then: {detail}	stash การแก้ไขของคุณแล้ว จากนั้น: {detail}
+Stashes	Stash
+State	สถานะ
+States and ages from {} of {} open PRs	สถานะและอายุจาก {} จาก {} PR ที่เปิดอยู่
+Status	สถานะ
+Still drafts	ยังเป็น draft
+Still loading {what} for {left} of {} repos	ยังโหลด{what}อยู่ {left} จาก {} repo
+Stop every job where it is (asks first)	หยุดทุก job ทันที (ถามก่อน)
+Stop it: nothing reaches GitHub	หยุด: ไม่มีอะไรถูกส่งไปยัง GitHub
+Stop tracking	เลิกติดตาม
+Stop tracking (Undo brings it back)	เลิกติดตาม (เลิกทำจะคืนให้)
+Stop tracking in Activity	เลิกติดตามในความเคลื่อนไหว
+Stop watching	เลิกเฝ้าดู
+Stopped tracking	เลิกติดตามแล้ว
+Stopped watching {label}	เลิกเฝ้าดู {label} แล้ว
+Stripe live key	Stripe live key
+Success rate	อัตราสำเร็จ
+Switch back to {branch}	สลับกลับไป {branch}
+Switch to this account	สลับไปใช้บัญชีนี้
+Switch your clone to it. Asks first if you have uncommitted changes, and offers to stash them.	สลับ clone ของคุณไปใช้ branch นี้ ถามก่อนถ้ามีการแก้ไขที่ยังไม่ commit และเสนอให้ stash ไว้
+Switch your working copy to {name}	สลับ working copy ไปที่ {name}
+Switching to {login}	กำลังสลับไปใช้ {login}
+System	ตามระบบ
+System follows Windows' light or dark setting.	ตามระบบจะใช้โหมดสว่างหรือมืดตามการตั้งค่าของ Windows
+Take it back (available for 10 s)	ย้อนกลับ (ทำได้ภายใน 10 วินาที)
+Take the tour	ดูทัวร์แนะนำ
+Text size	ขนาดข้อความ
+That email doesn't look right	อีเมลนี้ดูไม่ถูกต้อง
+The Inbox opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.	กล่องงานเปิดที่หน้าความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตามในช่วงเวลาหนึ่ง (ค่าเริ่มต้นคือสัปดาห์นี้ หรือเลือกวันนี้, 7 วัน, เดือนนี้, 30 วัน หรือกำหนดวันเอง) PR ที่เปิด, merge และปิด; commit และจำนวนบรรทัดที่เปลี่ยน; CI run, อัตราสำเร็จ และนาทีที่ใช้; deployment และ release; ใครมีส่วนร่วมเท่าไร; และตัวเลขของแต่ละ repo เรียงจากที่เปลี่ยนมากที่สุด
+The Needs you tab is your day: PRs waiting for your review, your own PRs, assigned issues, recent CI runs, and your GitHub notifications.	แท็บรอคุณอยู่คืองานของวันนี้: PR ที่รอคุณรีวิว, PR ของคุณ, issue ที่มอบหมาย, CI run ล่าสุด และการแจ้งเตือนจาก GitHub
+The branch your local clone is on	branch ที่ clone ในเครื่องของคุณใช้อยู่
+The detail pane: Conversation (description, reviews, comments, your comment box), Files (with the diff), Checks. A 'Why this needs care' box lists sensitive files and possible secrets.	แผงรายละเอียด: การสนทนา (คำอธิบาย, รีวิว, ความคิดเห็น, ช่องความคิดเห็นของคุณ), ไฟล์ (พร้อม diff), Check กล่อง 'ทำไมต้องระวัง' จะแสดงไฟล์สำคัญและสิ่งที่อาจเป็นข้อมูลลับ
+The download didn't contain sigit	ไฟล์ที่ดาวน์โหลดไม่มี sigit อยู่
+The download doesn't match its checksum, so it wasn't installed	ไฟล์ที่ดาวน์โหลดไม่ตรงกับ checksum จึงไม่ได้ติดตั้ง
+The failing steps' last lines, errors highlighted	บรรทัดท้าย ๆ ของ step ที่ล้มเหลว พร้อมไฮไลต์ error
+The latest run of each workflow on each repo's default branch. Click a dot to open the run.	run ล่าสุดของแต่ละ workflow บน branch หลักของแต่ละ repo คลิกจุดเพื่อเปิด run
+The name and email git puts on commits you make on this computer (git config --global user.name / user.email). A repo can still override them with its own config.	ชื่อและอีเมลที่ git ใส่ใน commit ที่คุณสร้างบนเครื่องนี้ (git config --global user.name / user.email) แต่ละ repo ยังกำหนดทับได้ด้วย config ของตัวเอง
+The sign-in for {} on {} has expired	การเข้าสู่ระบบของ {} บน {} หมดอายุแล้ว
+Theme	ธีม
+Theme: Dark	ธีม: มืด
+Theme: Light	ธีม: สว่าง
+Theme: System	ธีม: ตามระบบ
+There's already a group called {name}	มีกลุ่มชื่อ {name} อยู่แล้ว
+There's no ready-made build for this system	ไม่มีไฟล์ที่ build ไว้สำหรับระบบนี้
+There's no ready-made build for this system: update from source.	ไม่มีไฟล์ที่ build ไว้สำหรับระบบนี้: อัปเดตจากซอร์สโค้ด
+This commit is deployed to {env}, a production environment: re-running or cancelling can change what's live	commit นี้ถูก deploy ไปยัง {env} ซึ่งเป็น production: การ re-run หรือยกเลิกอาจเปลี่ยนสิ่งที่ใช้งานจริงอยู่
+This commit was deployed to: {}	commit นี้ถูก deploy ไปยัง: {}
+This group is empty	กลุ่มนี้ว่างเปล่า
+This group no longer exists	กลุ่มนี้ไม่มีอยู่แล้ว
+This is a development build (run from target/): update it from source.	นี่คือ build สำหรับพัฒนา (รันจาก target/): อัปเดตจากซอร์สโค้ด
+This month	เดือนนี้
+This repo's numbers are still coming in	ตัวเลขของ repo นี้ยังโหลดไม่ครบ
+This repository has no environments or deployments on GitHub. They show here once a workflow deploys to one.	repository นี้ยังไม่มี environment หรือ deployment บน GitHub จะแสดงที่นี่เมื่อ workflow deploy ไปยัง environment ใด
+This week	สัปดาห์นี้
+This week (since Monday)	สัปดาห์นี้ (ตั้งแต่วันจันทร์)
+Time range	ช่วงเวลา
+Title	ชื่อเรื่อง
+To	ถึง
+Today	วันนี้
+Tomorrow	พรุ่งนี้
+Touches {}: merging it is High risk	แตะ {}: การ merge มีความเสี่ยงสูง
+Track	ติดตาม
+Track in Activity	ติดตามในความเคลื่อนไหว
+Tracked repos ({})	repo ที่ติดตาม ({})
+Tracked repos default to your pinned repos plus your groups. Change them with Manage tracked, or right-click any repo → Track in Activity. Switch the scope to one group to see just that product.	repo ที่ติดตามโดยค่าเริ่มต้นคือ repo ที่ปักหมุดและกลุ่มของคุณ เปลี่ยนได้ด้วยจัดการที่ติดตาม หรือคลิกขวาที่ repo → ติดตามในความเคลื่อนไหว สลับขอบเขตเป็นกลุ่มเดียวเพื่อดูเฉพาะผลิตภัณฑ์นั้น
+Tracking	กำลังติดตาม
+Tracking your pinned repos and your groups again	กลับมาติดตาม repo ที่ปักหมุดและกลุ่มของคุณแล้ว
+Trigger	ตัวกระตุ้น
+Type the name above to enable	พิมพ์ชื่อด้านบนเพื่อเปิดใช้
+Type {word} to confirm	พิมพ์ {word} เพื่อยืนยัน
+UNKNOWN STEP	STEP ที่ไม่รู้จัก
+Undo	เลิกทำ
+Undone	เลิกทำแล้ว
+Unpin	เลิกปักหมุด
+Unpinned	เลิกปักหมุดแล้ว
+Unread notifications	การแจ้งเตือนที่ยังไม่อ่าน
+Up to date	เป็นปัจจุบัน
+Update now	อัปเดตเลย
+Updated	อัปเดต
+Updated group {group}	อัปเดตกลุ่ม {group} แล้ว
+Updates	การอัปเดต
+Updating…	กำลังอัปเดต…
+Version {version} is available. Update downloads it, checks it, and replaces this copy; your settings stay.	มีเวอร์ชัน {version} แล้ว การอัปเดตจะดาวน์โหลด ตรวจสอบ และแทนที่สำเนานี้ การตั้งค่าของคุณยังอยู่ครบ
+Version {version} is available. {why}	มีเวอร์ชัน {version} แล้ว {why}
+Version {version} is installed. Restart sigit to start using it.	ติดตั้งเวอร์ชัน {version} แล้ว รีสตาร์ต sigit เพื่อเริ่มใช้งาน
+Version {}	เวอร์ชัน {}
+Waiting for your review	รอคุณรีวิว
+Waiting on a reviewer and every check passed: worth reviewing now	รอผู้รีวิวและ check ผ่านทั้งหมด: ควรรีวิวตอนนี้
+Waiting on a reviewer with all checks passed	รอผู้รีวิวและ check ผ่านทั้งหมด
+Watch	เฝ้าดู
+Watch a PR to get a desktop notification when its checks finish or a review comes in.	เฝ้าดู PR เพื่อรับการแจ้งเตือนเมื่อ check เสร็จหรือมีรีวิวเข้ามา
+Watch a run or a PR (eye button) to get a desktop notification when it changes. Branches you check out in the app are watched automatically for the day (Settings).	เฝ้าดู run หรือ PR (ปุ่มรูปตา) เพื่อรับการแจ้งเตือนเมื่อมีการเปลี่ยนแปลง branch ที่ checkout ในแอปจะถูกเฝ้าดูอัตโนมัติตลอดวัน (ตั้งค่าได้)
+Watch branches you check out	เฝ้าดู branch ที่คุณ checkout
+Watching	กำลังเฝ้าดู
+Watching now ({})	กำลังเฝ้าดู ({})
+Watching {label}: you'll get a notification when it changes	กำลังเฝ้าดู {label}: คุณจะได้รับการแจ้งเตือนเมื่อมีการเปลี่ยนแปลง
+Watching {watching}: {}. Manage in Settings → Notifications.	กำลังเฝ้าดู {watching}: {} จัดการได้ในการตั้งค่า → การแจ้งเตือน
+Welcome	ยินดีต้อนรับ
+What changed in the repos you track: PRs, commits, lines, CI, deployments, and who did it	สิ่งที่เปลี่ยนใน repo ที่ติดตาม: PR, commit, จำนวนบรรทัด, CI, deployment และใครเป็นคนทำ
+What counts as risky	อะไรนับว่ามีความเสี่ยง
+What each feature does and how to use it. F1 opens this any time.	แต่ละฟีเจอร์ทำอะไรและใช้อย่างไร กด F1 เพื่อเปิดได้ทุกเมื่อ
+What period to sum up. This week starts Monday, in your time zone.	ช่วงเวลาที่จะสรุป สัปดาห์นี้เริ่มวันจันทร์ ตามเขตเวลาของคุณ
+What this page shows is kept in memory (and on disk between sessions).	สิ่งที่หน้านี้แสดงถูกเก็บไว้ในหน่วยความจำ (และบนดิสก์ระหว่างการเปิดแต่ละครั้ง)
+What's deployed on each environment, and how many commits on the default branch aren't on production yet.	อะไรถูก deploy อยู่บนแต่ละ environment และมีกี่ commit บน branch หลักที่ยังไม่ขึ้น production
+What's deployed where right now, and a timeline of deployments. An environment counts as production if its name is in your list (Settings) or it has required reviewers or a wait timer on GitHub.	อะไรถูก deploy อยู่ที่ไหนตอนนี้ และไทม์ไลน์ของ deployment environment จะนับเป็น production ถ้าชื่ออยู่ในรายการของคุณ (การตั้งค่า) หรือมีผู้รีวิวบังคับหรือเวลารอบน GitHub
+What's new	มีอะไรใหม่
+Where it merges into (click to copy)	branch ที่จะ merge เข้า (คลิกเพื่อคัดลอก)
+Which history	ประวัติของ branch ใด
+Which pull requests to list	pull request ที่จะแสดง
+Which repos	repo ใดบ้าง
+Who changed it (share of lines changed)	ใครเป็นคนเปลี่ยน (สัดส่วนบรรทัดที่เปลี่ยน)
+Who contributed	ผู้มีส่วนร่วม
+Why it failed	ทำไมถึงล้มเหลว
+Why?	ทำไม?
+Windows	Windows
+Workflow	Workflow
+Workflow runs	Workflow run
+Workflows whose latest run on the default branch failed	workflow ที่ run ล่าสุดบน branch หลักล้มเหลว
+Write what should change in the comment box first	เขียนสิ่งที่ควรแก้ในช่องความคิดเห็นก่อน
+YYYY-MM-DD	ปปปป-ดด-วว
+You have the latest version ({}).	คุณใช้เวอร์ชันล่าสุดแล้ว ({})
+You have uncommitted changes. Stash them first (they're kept safe, and Undo or Branches → Stashes brings them back), or cancel:	คุณมีการแก้ไขที่ยังไม่ commit ให้ stash ก่อน (จะถูกเก็บไว้อย่างปลอดภัย และเลิกทำหรือ Branch → Stash จะนำกลับมาได้) หรือยกเลิก:
+You're all set	พร้อมใช้งานแล้ว
+You're an admin, so GitHub would let this through anyway. Your team's rules say it shouldn't	คุณเป็นผู้ดูแล GitHub จึงยอมให้ผ่านอยู่ดี แต่กฎของทีมระบุว่าไม่ควร
+You're on a detached HEAD with {} commit(s) on no branch: switching away makes them hard to find	คุณอยู่บน detached HEAD ที่มี {} commit ซึ่งไม่อยู่บน branch ใด: ถ้าสลับไปจะหา commit เหล่านี้ได้ยาก
+Your Name	ชื่อของคุณ
+Your PRs, with their CI and who you're waiting on	PR ของคุณ พร้อม CI และคนที่คุณรออยู่
+Your clone is here	clone ของคุณอยู่ที่นี่
+Your clone is on this branch	clone ของคุณอยู่บน branch นี้
+Your current branch (click to copy)	branch ปัจจุบันของคุณ (คลิกเพื่อคัดลอก)
+Your open pull requests	pull request ที่คุณเปิดอยู่
+Your own PRs show who you're waiting on.	PR ของคุณจะแสดงว่าคุณกำลังรอใครอยู่
+Your own list. Right-click any repo in the sidebar → Track in Activity also works.	รายการของคุณเอง คลิกขวาที่ repo ในแถบข้าง → ติดตามในความเคลื่อนไหว ก็ได้เช่นกัน
+Your sensitive path patterns (one per line)	รูปแบบ path สำคัญของคุณ (บรรทัดละหนึ่งรายการ)
+"{workflow}" looks like a deploy workflow	"{workflow}" ดูเหมือนเป็น workflow สำหรับ deploy
+\n… (cut here: too large to preview)	\n… (ตัดตรงนี้: ใหญ่เกินกว่าจะแสดงตัวอย่าง)
+_No description._	_ไม่มีคำอธิบาย_
+`gh` isn't installed, or isn't on your PATH	ไม่ได้ติดตั้ง `gh` หรือไม่อยู่ใน PATH
+`{program} {}` failed	`{program} {}` ล้มเหลว
+`{p}` isn't installed, or isn't on your PATH	ไม่ได้ติดตั้ง `{p}` หรือไม่อยู่ใน PATH
+all succeeded	สำเร็จทั้งหมด
+appearance, accounts, git identity, safety, notifications (Ctrl+,)	การแสดงผล, บัญชี, ข้อมูลผู้ใช้ git, ความปลอดภัย, การแจ้งเตือน (Ctrl+,)
+awaiting review	รอรีวิว
+bar height = duration · click a bar to open the run	ความสูงแท่ง = ระยะเวลา · คลิกแท่งเพื่อเปิด run
+by {} · {}	โดย {} · {}
+cached · {a}	แคช · {a}
+certificate or key	ใบรับรองหรือคีย์
+changes requested	ขอให้แก้ไข
+checking…	กำลังตรวจ…
+checks failing ({passed}/{total})	check ล้มเหลว ({passed}/{total})
+checks passed	check ผ่าน
+checks running	check กำลังรัน
+click a row for its details	คลิกแถวเพื่อดูรายละเอียด
+clone URL	URL สำหรับ clone
+closed unmerged	ปิดโดยไม่ merge
+code owners	ผู้ดูแลโค้ด (code owners)
+commit SHA	SHA ของ commit
+commit message	ข้อความ commit
+config/payment/**\n**/*.sql	config/payment/**\n**/*.sql
+container image	container image
+couldn't load: {e}	โหลดไม่สำเร็จ: {e}
+couldn't start `{program}`: {e}	เริ่ม `{program}` ไม่สำเร็จ: {e}
+couldn't start {}: {e}	เริ่ม {} ไม่สำเร็จ: {e}
+database migration	migration ของฐานข้อมูล
+deploy workflow: re-run / cancel are checked against production	workflow สำหรับ deploy: การ re-run / ยกเลิก จะถูกตรวจเทียบกับ production
+deployed SHA	SHA ที่ deploy
+e.g. Payments, Mobile, Platform	เช่น Payments, Mobile, Platform
+emoji or 2 letters	อีโมจิหรือตัวอักษร 2 ตัว
+empty = the first letter	ว่าง = ใช้ตัวอักษรแรก
+environment / secrets file	ไฟล์ environment / ข้อมูลลับ
+error message	ข้อความ error
+failed jobs of 	job ที่ล้มเหลวของ
+failed {}	ล้มเหลว {}
+file path	path ของไฟล์
+folder path	path ของโฟลเดอร์
+gh couldn't say: {e}\nSign in with `gh auth login` in a terminal.	gh ตอบไม่ได้: {e}\nเข้าสู่ระบบด้วย `gh auth login` ใน terminal
+gh signs you in through your browser and keeps the token. sigit never sees it.	gh จะพาคุณเข้าสู่ระบบผ่านเบราว์เซอร์และเก็บ token ไว้เอง sigit ไม่เคยเห็น token นั้น
+gh: {e}	gh: {e}
+git branch -d on each: only branches already merged into the default branch, each with Undo	git branch -d ทีละรายการ: เฉพาะ branch ที่ merge เข้า branch หลักแล้ว และเลิกทำได้ทุกรายการ
+git stash push --include-untracked, then the action. Undo pops the stash back.	git stash push --include-untracked แล้วทำรายการต่อ เลิกทำจะ pop stash กลับมา
+gone upstream	ถูกลบจาก upstream
+hard-coded credential	รหัสผ่านที่ฝังในโค้ด
+how everything works · F1	ทุกอย่างทำงานอย่างไร · F1
+in progress	กำลังดำเนินการ
+infrastructure (Terraform)	โครงสร้างพื้นฐาน (Terraform)
+just now	เมื่อสักครู่
+link to this PR	ลิงก์ของ PR นี้
+link to this run	ลิงก์ของ run นี้
+load failed	โหลดไม่สำเร็จ
+loading…	กำลังโหลด…
+local branch	branch ในเครื่อง
+local clone	clone ในเครื่อง
+lock file, {changed} lines	ไฟล์ lock, {changed} บรรทัด
+needs review	รอรีวิว
+no checks	ไม่มี check
+no config folder	ไม่มีโฟลเดอร์การตั้งค่า
+no finished runs	ไม่มี run ที่เสร็จแล้ว
+no production deploys	ไม่มีการ deploy ขึ้น production
+no runs	ไม่มี run
+no runs on the default branch	ไม่มี run บน branch หลัก
+no upstream	ไม่มี upstream
+none open	ไม่มีที่เปิดอยู่
+not accessible	เข้าถึงไม่ได้
+not loaded	ยังไม่ได้โหลด
+nothing has been sent yet	ยังไม่มีอะไรถูกส่ง
+of runs passed	ของ run ผ่าน
+on {} · +{} −{} lines · {} contributor{}	บน {0} · +{1} −{2} บรรทัด · ผู้มีส่วนร่วม {3} คน
+open now	เปิดอยู่ตอนนี้
+or type a hex colour	หรือพิมพ์รหัสสี hex
+private key	private key
+prod, production, live, release	prod, production, live, release
+refreshes every minute while open	รีเฟรชทุกนาทีขณะเปิดอยู่
+share of lines changed	สัดส่วนบรรทัดที่เปลี่ยน
+sigit guide	คู่มือ sigit
+sigit is a fast window onto your everyday GitHub and git work. It reads through the gh and git you already use, so it never sees a password or token.	sigit คือหน้าต่างที่รวดเร็วสำหรับงาน GitHub และ git ในแต่ละวัน อ่านข้อมูลผ่าน gh และ git ที่คุณใช้อยู่แล้ว จึงไม่เคยเห็นรหัสผ่านหรือ token
+sigit is installed for all users, so updating needs administrator permission, which wasn't given	sigit ติดตั้งไว้สำหรับผู้ใช้ทุกคน การอัปเดตจึงต้องใช้สิทธิ์ผู้ดูแลระบบ ซึ่งไม่ได้รับอนุญาต
+sigit works through the GitHub CLI (gh), so it acts as the account gh uses. To add an account, run `gh auth login` in a terminal.	sigit ทำงานผ่าน GitHub CLI (gh) จึงใช้บัญชีเดียวกับที่ gh ใช้ หากต้องการเพิ่มบัญชี ให้รัน `gh auth login` ใน terminal
+sigit works through the git and GitHub CLI tools you already use. It needs these three things on this computer:	sigit ทำงานผ่าน git และ GitHub CLI ที่คุณใช้อยู่แล้ว ต้องมีสามอย่างนี้ในเครื่อง:
+sigit: before {}	sigit: ก่อน {}
+signed in	เข้าสู่ระบบแล้ว
+text field	ช่องข้อความ
+the default branch	branch หลัก
+this range	ช่วงนี้
+this repository	repository นี้
+unexpected answer from GitHub	GitHub ตอบกลับมาไม่ตรงที่คาด
+unexpected gh output: {e}	gh ตอบกลับมาไม่ตรงที่คาด: {e}
+untouched {days}d	ไม่ได้แตะ {days} วัน
+up to date	เป็นปัจจุบัน
+update failed · {a}	อัปเดตไม่สำเร็จ · {a}
+updated 2m ago	อัปเดต 2 นาทีที่แล้ว
+updated {a}	อัปเดต {a}
+updating · {a}	กำลังอัปเดต · {a}
+waiting on {} · {}	รอ {} · {}
+waiting {}	รอ {}
+you first, then A–Z	คุณก่อน ตามด้วย A–Z
+you@example.com	you@example.com
+your 6 most active repos	6 repo ที่คุณใช้งานมากที่สุด
+your sensitive pattern	รูปแบบไฟล์สำคัญของคุณ
+{:.0}% passed	ผ่าน {}%
+{:.1} MB, saved {}. Last session's PRs, runs, Activity and more, so the window opens full while fresh data loads.	{} MB บันทึกเมื่อ{} มี PR, run, ความเคลื่อนไหว และอื่น ๆ จากครั้งก่อน หน้าต่างจึงเปิดมาพร้อมข้อมูลระหว่างโหลดข้อมูลใหม่
+{base} is {what}{rule_text}	{base} คือ {what}{rule_text}
+{blocked} more waiting for review haven't passed their checks (failing, running or not run). Open the repo to see them.	อีก {blocked} รายการที่รอรีวิวยังไม่ผ่าน check (ล้มเหลว กำลังรัน หรือไม่ได้รัน) เปิด repo เพื่อดู
+{checks}, {review}	{checks}, {review}
+{env}: unknown	{env}: ไม่ทราบ
+{env}: up to date	{env}: เป็นปัจจุบัน
+{env}: {n} commit(s) behind {}	{env}: ตามหลัง {} อยู่ {n} commit
+{env}: {n} deploy{}{}	{env}: deploy {n} ครั้ง{2}
+{e} (prod)	{e} (prod)
+{e}. Nothing was changed.	{e} ไม่มีอะไรถูกเปลี่ยนแปลง
+{failed_deploys} failed	ล้มเหลว {failed_deploys}
+{failed} failed	ล้มเหลว {failed}
+{failing_prs} checks failing	check ล้มเหลว {failing_prs}
+{failing_prs} failing checks	check ล้มเหลว {failing_prs}
+{failing_prs} pull request{} with failing checks	pull request {failing_prs} รายการที่ check ล้มเหลว
+{failing} of {} checks are failing	check ล้มเหลว {failing} จาก {}
+{folder}\nprefs.json (these settings, pins, groups), cache.json, activity.jsonl	{folder}\nprefs.json (การตั้งค่า, หมุด, กลุ่ม), cache.json, activity.jsonl
+{label} failed: {detail}	{label} ไม่สำเร็จ: {detail}
+{label} failed: {e}	{label} ไม่สำเร็จ: {e}
+{label} to {}	{label}ไปยัง {}
+{label}, {count} repositories	{label}, {count} repository
+{label}: done	{label}: เสร็จแล้ว
+{label}: {c} commits, {m} PRs merged	{label}: {c} commit, merge {m} PR
+{label}: {okn} passed, {bad} failed	{label}: ผ่าน {okn}, ล้มเหลว {bad}
+{most} commit{} behind	ตามหลัง {most} commit
+{name} isn't in the release's checksums	{name} ไม่อยู่ใน checksum ของ release
+{name} isn't merged: deleting it with -D loses work no remote has	{name} ยังไม่ merge: การลบด้วย -D จะทำให้งานที่ไม่มีใน remote ใดหายไป
+{needs_review} pull request{} ready for review (all checks passed)	pull request {needs_review} รายการพร้อมรีวิว (check ผ่านทั้งหมด)
+{needs_review} ready for review	พร้อมรีวิว {needs_review}
+{n} branch{}	{n} branch
+{n} open {label}	เปิดอยู่ {n} ตั้งแต่{label}
+{owner}: default look	{owner}: หน้าตาเริ่มต้น
+{owner}: saved	{owner}: บันทึกแล้ว
+{p}: not found	{p}: ไม่พบ
+{running} check(s) are still running	check {running} ตัวยังรันอยู่
+{running} workflow run{} in progress	workflow run {running} รายการกำลังทำงาน
+{tip}\n(click for the guide)	{tip}\n(คลิกเพื่อเปิดคู่มือ)
+{version} available	มี {version} แล้ว
+{wf} is failing on {}	{wf} กำลังล้มเหลวบน {}
+{} #{} · {} · updated {}	{} #{} · {} · อัปเดต {}
+{} cancelled: nothing was sent	ยกเลิก{}แล้ว: ไม่มีอะไรถูกส่ง
+{} changed	เปลี่ยน {}
+{} commit(s) only here	{} commit ที่มีแค่ที่นี่
+{} commit(s) to pull, {} not on {} yet	มี {0} commit ให้ pull, {1} commit ยังไม่อยู่บน {2}
+{} commits	{} commit
+{} commits · {} PRs	{} commit · {} PR
+{} commit{} · {} lane{}	{0} commit · {2} lane
+{} file{} changed	เปลี่ยน {0} ไฟล์
+{} in {left}s…	{} ใน {left} วิ…
+{} isn't a git repository	{} ไม่ใช่ git repository
+{} of the {} most recent deployments	{} จาก {} deployment ล่าสุด
+{} of {}	{} จาก {}
+{} of {} failed	ล้มเหลว {} จาก {}
+{} on {}	{} บน {}
+{} open	เปิดอยู่ {}
+{} open · {} opened, {} merged, {} closed in this range	เปิดอยู่ {} · ช่วงนี้เปิด {} merge {} ปิด {}
+{} opened and {} merged {label}	เปิด {} และ merge {} {label}
+{} red now	{} ตัวกำลังแดง
+{} release{}	{0} release
+{} repos	{} repo
+{} runs · {failed} failed · median {}	{} run · ล้มเหลว {failed} · มัธยฐาน {}
+{} runs · {} passed · {} failed · {running} running now · {} CI min{}	{0} run · ผ่าน {1} · ล้มเหลว {2} · กำลังรัน {running} · CI {4} นาที{5}
+{} runs, all passed	{} run ผ่านทั้งหมด
+{} uncommitted change(s) would get in the way	มีการแก้ไขที่ยังไม่ commit {} รายการขวางอยู่
+{} · token in {} · scopes: {}	{} · token อยู่ใน {} · สิทธิ์: {}
+{} · took {}	{} · ใช้เวลา {}
+{} · {} repos	{} · {} repo
+{}: {} commits, +{} −{}, {} PRs merged, in {}	{0}: {1} commit, +{2} −{3}, merge {4} PR ใน {5}
+{}: {} runs, {} failed, average {}	{0}: {1} run, ล้มเหลว {2}, เฉลี่ย {3}
+{}d ago	{} วันที่แล้ว
+{}h ago	{} ชม.ที่แล้ว
+{}h {:02}m	{} ชม. {} นาที
+{}m ago	{} นาทีที่แล้ว
+{}m {:02}s	{} นาที {} วิ
+{}mo ago	{} เดือนที่แล้ว
+{}w ago	{} สัปดาห์ที่แล้ว
+{}y ago	{} ปีที่แล้ว
+{}{} deploys to {} environment{} · {} release{}	{0}deploy {1} ครั้งไปยัง {2} environment · {4} release
+{}{} stash	{}{} stash
+… open	… เปิดอยู่
+… passed	… ผ่าน
+…and {} more	…และอีก {}
+…and {} more: Open repo to see all	…และอีก {}: เปิด repo เพื่อดูทั้งหมด
+↑↓ choose · Enter go · Esc close	↑↓ เลือก · Enter ไป · Esc ปิด
+● checks running	● check กำลังรัน
+⚠ Why this needs care	⚠ ทำไมต้องระวัง
+✓ checks passed	✓ check ผ่าน
+✗ checks failing	✗ check ล้มเหลว
+Language	ภาษา
+The interface language. System follows your computer's preferred languages. GitHub's own text (titles, comments, names) stays as written.	ภาษาของหน้าจอ ตามระบบจะใช้ภาษาที่ตั้งไว้ในเครื่อง ข้อความจาก GitHub เอง (ชื่อเรื่อง, ความคิดเห็น, ชื่อ) จะแสดงตามต้นฉบับ
+protected	branch ที่ถูกป้องกัน
+back	ย้อนกลับ
+forward	ไปข้างหน้า
+{s}s	{s} วิ
+No releases published yet	ยังไม่มีการเผยแพร่ release
+merged	merge แล้ว
+closed	ปิดแล้ว
+open	เปิดอยู่
+apply	apply
+pop	pop
+drop	drop
+{e}: {} {} ({}) by {} · {}	{e}: {} {} ({}) โดย {} · {}
+{} on {}: {} · {}	{} บน {}: {} · {}
+passed	ผ่าน
+failed	ล้มเหลว
+commits	commit
+lines	บรรทัด
+deploys	deploy
+releases	release
+contributors	ผู้มีส่วนร่วม
+today	วันนี้
+now	ตอนนี้
+1h	1 ชม.
+{days}d	{days} วัน
+success	สำเร็จ
+failure	ล้มเหลว
+error	ผิดพลาด
+inactive	ไม่ใช้งาน
+active	ใช้งานอยู่
+idle	ว่าง
+queued	รอคิว
+pending	รอดำเนินการ
+waiting	กำลังรอ
+destroyed	ถูกทำลาย
+cancelled	ยกเลิกแล้ว
+skipped	ข้าม
+completed	เสร็จแล้ว
+in_progress	กำลังดำเนินการ
+neutral	เป็นกลาง
+timed out	หมดเวลา
+action required	ต้องดำเนินการ
+startup failure	เริ่มต้นไม่สำเร็จ
+comment	ความคิดเห็น
+review requested	ขอให้รีวิว
+author	ผู้เขียน
+mention	ถูกกล่าวถึง
+team mention	ทีมถูกกล่าวถึง
+assign	มอบหมาย
+state change	เปลี่ยนสถานะ
+ci activity	กิจกรรม CI
+subscribed	ติดตามอยู่
+manual	ด้วยตนเอง
+security alert	แจ้งเตือนความปลอดภัย
+approval requested	ขออนุมัติ
+workflows	workflow
+migration	migration
+infra	โครงสร้างพื้นฐาน
+secrets file	ไฟล์ข้อมูลลับ
+owners	ผู้ดูแลโค้ด
+big lockfile	lockfile ขนาดใหญ่
+sensitive	ไฟล์สำคัญ
+#{} by {} · updated {}	#{} โดย {} · อัปเดต {}
+\nOpening a page reloads only what's older than {}; the page re-checks every 30 s. Actions always re-read GitHub first.\nClick (or Ctrl+R) to reload everything now.	\nการเปิดหน้าจะโหลดใหม่เฉพาะที่เก่ากว่า {} และหน้าจะตรวจซ้ำทุก 30 วินาที การกระทำต่าง ๆ จะอ่านจาก GitHub ใหม่ก่อนเสมอ\nคลิก (หรือ Ctrl+R) เพื่อโหลดใหม่ทั้งหมดทันที
+The last update failed: {e}\nShowing what loaded before.	อัปเดตล่าสุดไม่สำเร็จ: {e}\nแสดงข้อมูลที่โหลดไว้ก่อนหน้า
+{}m	{} นาที
+{}h	{} ชม.
+{}d	{} วัน
+Runs	คำสั่งที่จะรัน
+commands	คำสั่ง
+Commands	คำสั่ง
+Show gh / git commands	แสดงคำสั่ง gh / git
+Everything sigit does runs the GitHub CLI (gh) or git. With this on, a button's tooltip shows the command it runs, the confirm dialog lists exactly what will run, and the result and the activity log show what ran. Handy to learn the tools, or to run it yourself when something goes wrong.	ทุกอย่างที่ sigit ทำคือการรัน GitHub CLI (gh) หรือ git เมื่อเปิดไว้ คำอธิบายของปุ่มจะแสดงคำสั่งที่รัน หน้าต่างยืนยันจะแสดงคำสั่งที่จะรันทั้งหมด และผลลัพธ์กับบันทึกการทำงานจะแสดงคำสั่งที่รันไปแล้ว ช่วยให้เรียนรู้เครื่องมือ หรือรันเองเมื่อมีปัญหา
+Stashes your changes first, then runs it. Undo pops the stash back.	stash การแก้ไขของคุณก่อน แล้วจึงทำรายการ เลิกทำจะ pop stash กลับมา
+Runs when the countdown ends	จะรันเมื่อนับถอยหลังจบ
+Download new commits and branches from every remote. Changes nothing locally.	ดาวน์โหลด commit และ branch ใหม่จากทุก remote ไม่เปลี่ยนอะไรในเครื่อง
+Fast-forward your current branch: never creates a merge commit. Checks for uncommitted changes first.	fast-forward branch ปัจจุบัน: ไม่สร้าง merge commit ตรวจการแก้ไขที่ยังไม่ commit ก่อน
+Fetch the PR's branch and switch your local clone to it. Asks first if you have uncommitted changes.	fetch branch ของ PR แล้วสลับ clone ในเครื่องไปใช้ ถามก่อนถ้ามีการแก้ไขที่ยังไม่ commit
+Run only the jobs that failed again	รันเฉพาะ job ที่ล้มเหลวอีกครั้ง
+Load the failing steps' last log lines	โหลด log บรรทัดท้าย ๆ ของ step ที่ล้มเหลว
+Deletes each one: only branches already merged into the default branch, each with Undo	ลบทีละรายการ: เฉพาะ branch ที่ merge เข้า branch หลักแล้ว และเลิกทำได้ทุกรายการ
+Merged: safe delete. Undo restores it.	merge แล้ว: ลบได้อย่างปลอดภัย เลิกทำจะกู้คืนให้
+Switch your clone to this branch. Asks first if you have uncommitted changes.	สลับ clone ของคุณไปที่ branch นี้ ถามก่อนถ้ามีการแก้ไขที่ยังไม่ commit
+Make it the account gh (and so sigit) uses	ใช้บัญชีนี้กับ gh (และ sigit)
+Write them to your global git config	บันทึกลงใน git config ระดับ global
+Downloads the new version, checks it against the release's checksums, and replaces this copy	ดาวน์โหลดเวอร์ชันใหม่ ตรวจกับ checksum ของ release แล้วแทนที่สำเนานี้
+Looks for a newer release on GitHub	ตรวจหา release ใหม่บน GitHub
+Opening this page or coming back to the window shows what's cached and checks GitHub again in the background; while it stays open it re-checks every {}. Actions always re-read GitHub first.\nClick (or Ctrl+R) to reload everything now.	เมื่อเปิดหน้านี้หรือกลับมาที่หน้าต่าง จะแสดงข้อมูลในแคชก่อนแล้วตรวจกับ GitHub ใหม่เบื้องหลัง ขณะเปิดค้างไว้จะตรวจซ้ำทุก {} การกระทำต่าง ๆ จะอ่านจาก GitHub ใหม่ก่อนเสมอ\nคลิก (หรือ Ctrl+R) เพื่อโหลดใหม่ทั้งหมดทันที
+Next to Back / Forward, "updated 2m ago" says how fresh the page is ("cached" = from last session, red = the last update failed). Pages show what they loaded at once, and check again in the background whenever you open one or come back to the window, so you rarely need Refresh (Activity at most once a minute). While a page stays open it re-checks on its own (PRs 2 min, runs 1 min or 15 s while running, local git 20 s, Activity 5 min). Click it or press Ctrl+R to reload everything now.	ข้างปุ่มย้อนกลับ / ไปข้างหน้า "อัปเดต 2 นาทีที่แล้ว" บอกความสดใหม่ของหน้า ("แคช" = จากครั้งก่อน, สีแดง = อัปเดตล่าสุดไม่สำเร็จ) หน้าต่าง ๆ จะแสดงข้อมูลที่โหลดไว้ทันที และตรวจใหม่เบื้องหลังทุกครั้งที่เปิดหน้าหรือกลับมาที่หน้าต่าง จึงแทบไม่ต้องกดรีเฟรช (ความเคลื่อนไหวตรวจได้ไม่เกินนาทีละครั้ง) ขณะเปิดหน้าค้างไว้จะตรวจซ้ำเอง (PR 2 นาที, run 1 นาที หรือ 15 วินาทีขณะรัน, git ในเครื่อง 20 วินาที, ความเคลื่อนไหว 5 นาที) คลิกหรือกด Ctrl+R เพื่อโหลดใหม่ทั้งหมดทันที
+Opening a page or coming back to the window shows what's cached and checks it again in the background. While a page stays open: PRs every 2 min, runs 1 min (15 s while running), local git 20 s, Activity 5 min. Ctrl+R reloads everything now.	การเปิดหน้าหรือกลับมาที่หน้าต่างจะแสดงข้อมูลในแคชก่อนแล้วตรวจใหม่เบื้องหลัง ขณะเปิดหน้าค้างไว้: PR ทุก 2 นาที, run 1 นาที (15 วินาทีขณะรัน), git ในเครื่อง 20 วินาที, ความเคลื่อนไหว 5 นาที Ctrl+R โหลดใหม่ทั้งหมดทันที

@@ -1,9 +1,11 @@
 //! Pull requests: a sortable list with check and review state, and a detail pane to read,
 //! review, comment, merge, close or check out.
 
+use super::cmd::CmdTip;
 use std::borrow::Cow;
 
-use rune::{El, TextStyle, col, row, spacer, text};
+use rune::{El, TextStyle, col, row, spacer};
+use crate::i18n::text;
 use rune_kit::{Button, ButtonVariant, Cell, Kit, Markdown, SegmentedControl, Table, TableColumn, TextArea, TextInput};
 
 use super::{chip, diff_view, diffstat, empty, ext_button, hue, muted, outcome_color, pending, ref_chip, side_pane, status_mark};
@@ -72,7 +74,7 @@ pub fn view(s: &State, k: &Kit) -> El {
         .child(
             super::with_clear(
                 TextInput::new(&s.pr_filter)
-                    .placeholder("Filter by title, author, branch or #")
+                    .placeholder(crate::i18n::t("Filter by title, author, branch or #"))
                     .leading_icon(k.glyph.search)
                     .width(Some(320.0))
                     .on_edit(|s: &mut State| &mut s.pr_filter)
@@ -85,8 +87,8 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .key("pr-filter"),
         )
         .child(
-            SegmentedControl::new(&["Open", "Merged", "Closed"], Some(s.pr_state))
-                .label("State")
+            SegmentedControl::new(&crate::i18n::all(&["Open", "Merged", "Closed"]), Some(s.pr_state))
+                .label(crate::i18n::t("State"))
                 .fit()
                 .on_pick(|s: &mut State, i, _| {
                     s.pr_state = i;
@@ -95,7 +97,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                 })
                 .build(k)
                 .key("pr-state")
-                .help("Which pull requests to list"),
+                .help(crate::i18n::t("Which pull requests to list")),
         )
         .child(spacer());
     let toolbar = if s.pr_searching {
@@ -103,11 +105,20 @@ pub fn view(s: &State, k: &Kit) -> El {
     } else {
         toolbar
     };
-    let toolbar = toolbar.child(muted(k, format!("{} {}", visible(s).len(), PR_STATES[s.pr_state])));
+    let toolbar = toolbar.child(muted(k, tf!("{} {}", visible(s).len(), crate::i18n::t(PR_STATES[s.pr_state]))));
 
     let list = match s.rd().and_then(|d| pending(k, &d.prs)) {
         Some(p) => p,
-        None if visible(s).is_empty() => empty(k, "No pull requests here"),
+        None if visible(s).is_empty() => {
+            let filtered = !s.pr_filter.text.trim().is_empty();
+            let (title, body) = match (filtered, s.pr_state) {
+                (true, _) => ("No matches", "No pull request here matches that filter. Try fewer words, an author, a branch or a #number."),
+                (false, 0) => ("No open pull requests", "Nothing is waiting to be merged in this repository."),
+                (false, 1) => ("No merged pull requests", "None of this repository's pull requests have been merged yet."),
+                _ => ("No closed pull requests", "No pull request here was closed without merging."),
+            };
+            super::empty_state(k, "prs-empty", &super::I_PR, title, body, None)
+        }
         None => {
             // "Load more" pages the unfiltered list; a search already looks past it.
             let loaded = s.rd().and_then(|d| d.prs.data.as_ref()).map_or(0, |p| p.len());
@@ -146,34 +157,34 @@ fn table(s: &State, k: &Kit) -> El {
         |s: &State, i| Cow::Owned(visible(s).get(i).map_or_else(String::new, |p| p.number.to_string())),
     )
     .name("Pull requests")
-    .column(TableColumn::new("num", "#").width(64.0).min(50.0))
-    .column(TableColumn::new("title", "Title").flex(3.0).min(220.0))
-    .column(TableColumn::new("author", "Author").width(120.0).min(80.0))
-    .column(TableColumn::new("checks", "Checks").width(90.0).resizable(false))
-    .column(TableColumn::new("review", "Review").width(140.0).min(90.0))
-    .column(TableColumn::new("diff", "Changes").width(130.0).resizable(false))
-    .column(TableColumn::new("updated", "Updated").width(84.0).resizable(false))
+    .column(TableColumn::new("num", crate::i18n::t("#")).width(64.0).min(50.0))
+    .column(TableColumn::new("title", crate::i18n::t("Title")).flex(3.0).min(220.0))
+    .column(TableColumn::new("author", crate::i18n::t("Author")).width(120.0).min(80.0))
+    .column(TableColumn::new("checks", crate::i18n::t("Checks")).width(90.0).resizable(false))
+    .column(TableColumn::new("review", crate::i18n::t("Review")).width(140.0).min(90.0))
+    .column(TableColumn::new("diff", crate::i18n::t("Changes")).width(130.0).resizable(false))
+    .column(TableColumn::new("updated", crate::i18n::t("Updated")).width(84.0).resizable(false))
     .cell(move |s: &State, i, col| {
         let v = visible(s);
         let Some(p) = v.get(i) else { return Cell::text("") };
         let k = &kc;
         match col {
-            "num" => Cell::text(format!("#{}", p.number)).mono().muted(),
+            "num" => Cell::text(tf!("#{}", p.number)).mono().muted(),
             "title" => {
-                let mut r = row().gap(6.0).center_y().min_w(0.0);
+                let mut r = row().gap(6.0).center_y().shrink().min_w(0.0);
                 if p.is_draft {
                     r = r.child(chip(k, "Draft", None));
                 }
-                r = r.child(text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).truncate().shrink());
+                r = r.child(text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).truncate().shrink().min_w(0.0).help_when_truncated(p.title.clone()));
                 let found = risk::sensitive_files(p.files.iter().map(|f| (f.path.as_str(), f.additions + f.deletions)), &s.prefs.sensitive);
                 for label in risk::chip_labels(&found) {
-                    r = r.child(chip(k, format!("⚠ {label}"), Some(Outcome::Running)).help(format!(
+                    r = r.child(chip(k, tf!("⚠ {label}", label = crate::i18n::t(label)), Some(Outcome::Running)).help(crate::i18n::t(tf!(
                         "Touches {}: merging it is High risk",
-                        found.iter().map(|(p, w)| format!("{p} ({w})")).collect::<Vec<_>>().join(", ")
-                    )));
+                        found.iter().map(|(p, w)| tf!("{p} ({w})", w = crate::i18n::t(w.as_str()))).collect::<Vec<_>>().join(", ")
+                    ))));
                 }
                 for l in p.labels.iter().take(2) {
-                    let c = rune::color::hex(&format!("#{}", l.color)).unwrap_or(k.c.icon_faint);
+                    let c = rune::color::hex(&tf!("#{}", l.color)).unwrap_or(k.c.icon_faint);
                     r = r.child(ref_chip(k, &l.name, c));
                 }
                 Cell::el(r)
@@ -184,7 +195,7 @@ fn table(s: &State, k: &Kit) -> El {
                 if total == 0 {
                     Cell::text("—").muted()
                 } else {
-                    Cell::el(row().gap(6.0).center_y().child(status_mark(k, o)).child(text(format!("{passed}/{total}")).font(k.ty.small).color(k.c.text_muted)))
+                    Cell::el(row().gap(6.0).center_y().child(status_mark(k, o)).child(text(tf!("{passed}/{total}")).font(k.ty.small).color(k.c.text_muted)))
                 }
             }
             "review" => {
@@ -231,47 +242,59 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             .child(super::copy_button(k, "pr-copy", pr.url.clone(), "link to this PR"))
             .child(ext_button(k, "pr-open", pr.url.clone())),
     );
-    c = c.child(
-        row()
-            .w_full()
-            .gap(6.0)
-            .center_y()
-            .flex_wrap()
-            .child(state_chip)
-            .child(muted(k, format!("#{} by {} · updated {}", pr.number, pr.author.login, ago_str(&pr.updated_at, now))))
-            .child(ref_chip(k, &pr.head_ref_name, hue(1)).help("The PR's branch (click to copy)"))
-            .child(muted(k, "→"))
-            .child(super::branch_chip(s, k, &pr.base_ref_name, hue(0)).help("Where it merges into (click to copy)"))
-            .child(diffstat(k, pr.additions, pr.deletions)),
-    );
+    let by = text(tf!("#{} by {} · updated {}", pr.number, pr.author.login, ago_str(&pr.updated_at, now))).font(k.ty.small).color(k.c.text_muted).truncate().shrink();
+    let flow = row()
+        .gap(6.0)
+        .center_y()
+        .shrink()
+        .min_w(0.0)
+        .child(super::ref_chip_fit(k, &pr.head_ref_name, hue(1)))
+        .child(muted(k, "→"))
+        .child(super::branch_chip(s, k, &pr.base_ref_name, hue(0)).help(crate::i18n::t("Where it merges into (click to copy)")));
+    c = c.child(super::facts(
+        k,
+        vec![
+            ("Status", row().gap(8.0).center_y().shrink().min_w(0.0).child(state_chip).child(by)),
+            ("Branches", flow),
+            ("Changes", diffstat(k, pr.additions, pr.deletions)),
+        ],
+    ));
 
     // Actions: every one goes through the guard rails (risk check, confirm, undo).
     let open = pr.state == "OPEN";
     let mut actions = row().w_full().gap(8.0).flex_wrap();
+    // Less frequent ones on their own quieter line.
+    let mut more = row().w_full().gap(4.0).center_y().flex_wrap();
     if open {
         let (s1, s2, s3, s4) = (slug.clone(), slug.clone(), slug.clone(), slug.clone());
         let (t1, t2) = (pr.title.clone(), pr.title.clone());
+        // What each button would run right now (the comment box is the review's message).
+        let body = s.comment.text.trim().to_owned();
+        let approve = Action::Approve { slug: slug.clone(), number: n, title: String::new(), body: body.clone(), confirm: false };
+        let changes = Action::RequestChanges { slug: slug.clone(), number: n, body: if body.is_empty() { "…".into() } else { body } };
+        let merge = Action::Merge { slug: slug.clone(), number: n, title: String::new(), method: MergeMethod::Squash, delete_branch: true };
+        let close = Action::Close { slug: slug.clone(), number: n, title: String::new() };
         actions = actions
             .child(
-                Button::new("Approve")
+                { let tip = super::action_help("Approve this PR. Anything in the comment box becomes the review's message.", &approve); Button::new(crate::i18n::t("Approve"))
                     .variant(ButtonVariant::Submit)
-                    .help("Approve this PR. Anything in the comment box becomes the review's message.")
+                    
                     .on_press(move |s: &mut State| {
                         let body = s.comment.text.trim().to_owned();
                         s.comment = rune::TextEdit::new("");
                         s.request(Action::Approve { slug: s1.clone(), number: n, title: String::new(), body, confirm: false });
                     })
                     .build(k)
-                    .key("approve"),
+                    .key("approve").cmd_tip(s, tip) },
             )
             .child(
-                Button::new("Request changes")
+                { let tip = super::action_help("Block the merge until changes are made. Write what should change in the comment box first.", &changes); Button::new(crate::i18n::t("Request changes"))
                     .variant(ButtonVariant::Outline)
-                    .help("Block the merge until changes are made. Write what should change in the comment box first.")
+                    
                     .on_press(move |s: &mut State| {
                         let body = s.comment.text.trim().to_owned();
                         if body.is_empty() {
-                            s.toast("Write what should change in the comment box first".into(), true);
+                            s.toast(crate::i18n::t("Write what should change in the comment box first"), true);
                             s.comment.focused = true;
                             return;
                         }
@@ -279,58 +302,60 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                         s.request(Action::RequestChanges { slug: s2.clone(), number: n, body });
                     })
                     .build(k)
-                    .key("changes"),
+                    .key("changes").cmd_tip(s, tip) },
             )
             .child(
-                Button::new("Merge…")
-                    .variant(ButtonVariant::Contrast)
-                    .help("Checks protection, CI, reviews, sensitive files and secrets first; then a countdown you can cancel")
+                { let tip = super::action_help("Checks protection, CI, reviews, sensitive files and secrets first; then a countdown you can cancel", &merge); Button::new(crate::i18n::t("Merge…"))
+                    .variant(ButtonVariant::Outline)
+                    
                     .on_press(move |s: &mut State| {
                         s.request(Action::Merge { slug: s3.clone(), number: n, title: t1.clone(), method: MergeMethod::Squash, delete_branch: true })
                     })
                     .build(k)
-                    .key("merge"),
+                    .key("merge").cmd_tip(s, tip) },
             )
-            .child(
-                Button::new("Close")
-                    .variant(ButtonVariant::Ghost)
-                    .help("Close without merging (Undo reopens it)")
-                    .on_press(move |s: &mut State| s.request(Action::Close { slug: s4.clone(), number: n, title: t2.clone() }))
-                    .build(k)
-                    .key("close"),
-            );
+;
+        more = more.child(
+            { let tip = super::action_help("Close without merging (Undo reopens it)", &close); Button::new(crate::i18n::t("Close pull request"))
+                .variant(ButtonVariant::GhostMuted)
+                
+                .on_press(move |s: &mut State| s.request(Action::Close { slug: s4.clone(), number: n, title: t2.clone() }))
+                .build(k)
+                .key("close").cmd_tip(s, tip) },
+        );
     }
     if let Some(dir) = s.local_path() {
         let slug = slug.clone();
-        actions = actions.child(
-            Button::new("Checkout")
-                .variant(ButtonVariant::Outline)
-                .help("Fetch the PR's branch and switch your local clone to it (gh pr checkout). Asks first if you have uncommitted changes.")
+        let co = Action::PrCheckout { dir: dir.clone(), slug: slug.clone(), number: n };
+        more = more.child(
+            { let tip = super::action_help("Fetch the PR's branch and switch your local clone to it. Asks first if you have uncommitted changes.", &co); Button::new(crate::i18n::t("Check out locally"))
+                .variant(ButtonVariant::GhostMuted)
+                
                 .on_press(move |s: &mut State| s.request(Action::PrCheckout { dir: dir.clone(), slug: slug.clone(), number: n }))
                 .build(k)
-                .key("checkout"),
+                .key("checkout").cmd_tip(s, tip) },
         );
     }
     // B6: watch it.
     let target = WatchTarget::Pr { slug: slug.clone(), number: n };
     let watched = s.is_watched(&target);
-    let label = format!("PR #{n}");
-    actions = actions.child(
-        Button::new(if watched { "Watching" } else { "Watch" })
-            .variant(if watched { ButtonVariant::Contrast } else { ButtonVariant::Ghost })
+    let label = tf!("PR #{n}");
+    more = more.child(
+        Button::new(crate::i18n::t(if watched { "Watching" } else { "Watch" }))
+            .variant(if watched { ButtonVariant::Contrast } else { ButtonVariant::GhostMuted })
             .icon(&super::I_EYE)
-            .help("Get a notification when its checks finish, a review arrives, or it's merged")
+            .help(crate::i18n::t("Get a notification when its checks finish, a review arrives, or it's merged"))
             .on_press(move |s: &mut State| s.toggle_watch(target.clone(), label.clone()))
             .build(k)
             .key("watch"),
     );
-    c = c.child(actions);
+    c = c.child(col().w_full().gap(4.0).child(actions).child(more));
 
     let files = s.pr_detail.data.as_ref().map_or(pr.changed_files as usize, |d| d.view.files.len());
     let checks = pr.status_check_rollup.len();
     c = c.child(
-        SegmentedControl::new(&["Conversation".to_owned(), format!("Files ({files})"), format!("Checks ({checks})")], Some(s.pr_tab))
-            .label("Pull request view")
+        SegmentedControl::new(&crate::i18n::all(&["Conversation".to_owned(), tf!("Files ({files})"), tf!("Checks ({checks})")]), Some(s.pr_tab))
+            .label(crate::i18n::t("Pull request view"))
             .fit()
             .on_pick(|s: &mut State, i, _| s.pr_tab = i)
             .build(k)
@@ -356,14 +381,14 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             care = care.child(row().gap(6.0).child(text(what.clone()).font(k.ty.small_medium).color(k.c.text_base)).child(text(path.clone()).font(k.ty.mono).color(k.c.text_muted).truncate().shrink()));
         }
         for (file, line, what) in secrets.iter().take(5) {
-            care = care.child(col().gap(1.0).child(text(format!("Possible {what} in {file}")).font(k.ty.small_medium).color(k.c.danger.fg)).child(text(line.clone()).font(k.ty.mono).color(k.c.text_muted).truncate()));
+            care = care.child(col().gap(1.0).child(text(tf!("Possible {what} in {file}")).font(k.ty.small_medium).color(k.c.danger.fg)).child(text(line.clone()).font(k.ty.mono).color(k.c.text_muted).truncate()));
         }
         c = c.child(care);
     }
     match s.pr_tab {
         0 => {
             let body = if d.view.body.trim().is_empty() { "_No description._".to_owned() } else { d.view.body.clone() };
-            c = c.child(col().key(format!("body-{n}")).w_full().child(Markdown::new(body).scroll_wide(true).build(k)));
+            c = c.child(col().key(tf!("body-{n}")).w_full().child(Markdown::new(body).scroll_wide(true).build(k)));
             if !d.view.reviews.is_empty() {
                 let reviews = d.view.reviews.iter().enumerate().fold(col().w_full().gap(6.0), |c, (i, r)| {
                     let tone = match r.state.as_str() {
@@ -373,7 +398,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                     };
                     c.child(
                         row()
-                            .key(format!("rev-{i}"))
+                            .key(tf!("rev-{i}"))
                             .gap(8.0)
                             .center_y()
                             .child(text(r.author.login.clone()).font(k.ty.ui_medium).color(k.c.text_base))
@@ -386,7 +411,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             for (i, cm) in d.view.comments.iter().enumerate() {
                 c = c.child(
                     col()
-                        .key(format!("cm-{i}"))
+                        .key(tf!("cm-{i}"))
                         .w_full()
                         .gap(6.0)
                         .padding(12.0)
@@ -404,12 +429,12 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                         .key("composer")
                         .w_full()
                         .gap(8.0)
-                        .child(TextArea::new(&s.comment).placeholder("Leave a comment (also the body for Approve / Request changes)").auto_grow(3, 10).width(None).on_edit(|s: &mut State| &mut s.comment).build(k).key("comment-box"))
+                        .child(TextArea::new(&s.comment).placeholder(crate::i18n::t("Leave a comment (also the body for Approve / Request changes)")).auto_grow(3, 10).width(None).on_edit(|s: &mut State| &mut s.comment).build(k).key("comment-box"))
                         .child(
                             row().w_full().child(spacer()).child(
-                                Button::new("Comment")
+                                { let tip = super::action_help("Post the comment on the PR", &Action::Comment { slug: slug.clone(), number: n, body: if s.comment.text.trim().is_empty() { "…".into() } else { s.comment.text.trim().to_owned() } }); Button::new(crate::i18n::t("Comment"))
                                     .variant(ButtonVariant::Outline)
-                                    .help("Post the comment on the PR")
+                                    
                                     .on_press(move |s: &mut State| {
                                         let body = s.comment.text.trim().to_owned();
                                         if body.is_empty() {
@@ -419,7 +444,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                                         s.request(Action::Comment { slug: slug.clone(), number: n, body });
                                     })
                                     .build(k)
-                                    .key("send"),
+                                    .key("send").cmd_tip(s, tip) },
                             ),
                         ),
                 );
@@ -429,7 +454,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             let list = d.view.files.iter().enumerate().fold(col().w_full().gap(2.0), |c, (i, f)| {
                 c.child(
                     row()
-                        .key(format!("f-{i}"))
+                        .key(tf!("f-{i}"))
                         .w_full()
                         .gap(8.0)
                         .center_y()
@@ -437,7 +462,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                         .child(diffstat(k, f.additions, f.deletions)),
                 )
             });
-            c = c.child(section(k, "Files changed", list)).child(diff_view(k, &format!("diff-{n}"), &d.diff));
+            c = c.child(section(k, "Files changed", list)).child(diff_view(k, &tf!("diff-{n}"), &d.diff));
         }
         _ => {
             let rollup = if d.view.status_check_rollup.is_empty() { &pr.status_check_rollup } else { &d.view.status_check_rollup };
@@ -451,9 +476,9 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                 // Actions checks link to /actions/runs/<id>/job/...: triage it here.
                 let run_id: Option<u64> = url.split("/actions/runs/").nth(1).and_then(|r| r.split('/').next()).and_then(|r| r.parse().ok());
                 let triage = (ch.outcome() == Outcome::Failure).then_some(run_id).flatten().map(|id| {
-                    Button::new("Why it failed")
+                    { let tip = s.with_commands(crate::i18n::t("Open the run's failing log lines in the app"), &[crate::gh::failed_log_cmd(s.cur.as_deref().unwrap_or(""), id).line()]); Button::new(crate::i18n::t("Why it failed"))
                         .variant(ButtonVariant::Outline)
-                        .help("Open the run's failing log lines in the app")
+                        
                         .on_press(move |s: &mut State| {
                             if let Some(slug) = s.cur.clone() {
                                 s.open_run(&slug, id);
@@ -461,11 +486,11 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                             }
                         })
                         .build(k)
-                        .key(format!("why-{i}"))
+                        .key(tf!("why-{i}")).cmd_tip(s, tip) }
                 });
                 c = c.child(
                     row()
-                        .key(format!("ck-{i}"))
+                        .key(tf!("ck-{i}"))
                         .w_full()
                         .gap(10.0)
                         .px(8.0)
@@ -477,7 +502,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                         .child(status_mark(k, ch.outcome()))
                         .child(text(ch.title().to_owned()).font(k.ty.ui).color(k.c.text_base).grow(1.0).truncate().shrink())
                         .child(text(ch.workflow_name.clone()).font(k.ty.small).color(outcome_color(k, Outcome::Neutral)))
-                        .help("Open this check on GitHub"),
+                        .help(crate::i18n::t("Open this check on GitHub")),
                 );
                 if let Some(b) = triage {
                     c = c.child(row().w_full().pl(32.0).child(b));

@@ -16,6 +16,9 @@ pub struct Entry {
     pub ok: bool,
     /// gh/git's last line of output, or the error.
     pub detail: String,
+    /// The gh / git commands it ran, as you'd type them (older entries have none).
+    #[serde(default)]
+    pub commands: Vec<String>,
 }
 
 fn file() -> Option<PathBuf> {
