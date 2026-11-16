@@ -1754,6 +1754,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
 }
 
 fn main() {
+    #[cfg(target_os = "macos")]
+    gh::fix_path();
     let spec = AppSpec {
         scenes: &[
             ("inbox", |s: &mut State| s.show(Page::Inbox)),

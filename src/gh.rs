@@ -72,6 +72,51 @@ pub fn recording<R>(f: impl FnOnce() -> R) -> (R, Vec<String>) {
 }
 
 /// Run a program and return stdout, or stderr (trimmed) as the error.
+/// macOS hands an app opened from Finder or the Dock only `/usr/bin:/bin:/usr/sbin:/sbin`, so a
+/// Homebrew `gh` (in `/opt/homebrew/bin` or `/usr/local/bin`) can't be found. Take the PATH your
+/// login shell builds, plus those folders, and use it for every command the app runs. Call it
+/// first thing in `main`, before any thread starts.
+#[cfg(target_os = "macos")]
+pub fn fix_path() {
+    use std::time::{Duration, Instant};
+    let mut dirs: Vec<String> = Vec::new();
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_owned());
+    // `-l` reads the profile that sets up Homebrew; give up after 3s in case a profile hangs.
+    if let Ok(mut child) = Command::new(&shell)
+        .args(["-l", "-c", "printf %s \"$PATH\""])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        let start = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    let mut out = String::new();
+                    if let Some(mut so) = child.stdout.take() {
+                        let _ = std::io::Read::read_to_string(&mut so, &mut out);
+                    }
+                    dirs.extend(out.trim().split(':').filter(|d| !d.is_empty()).map(str::to_owned));
+                    break;
+                }
+                Ok(None) if start.elapsed() < Duration::from_secs(3) => std::thread::sleep(Duration::from_millis(20)),
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break;
+                }
+            }
+        }
+    }
+    dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(str::to_owned));
+    dirs.extend(std::env::var("PATH").unwrap_or_default().split(':').filter(|d| !d.is_empty()).map(str::to_owned));
+    let mut seen = std::collections::HashSet::new();
+    dirs.retain(|d| seen.insert(d.clone()));
+    // SAFETY: called at the top of `main`, before any other thread exists.
+    unsafe { std::env::set_var("PATH", dirs.join(":")) };
+}
+
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
     RECORD.with(|r| {
         if let Some(v) = r.borrow_mut().as_mut() {
@@ -579,6 +624,18 @@ mod account_tests {
 mod command_tests {
     use super::*;
     use crate::guard::Action;
+
+    /// Changes this process's PATH, so it's ignored by default. Run it with the bare PATH a
+    /// Finder launch gets:
+    /// `env -i HOME=$HOME PATH=/usr/bin:/bin:/usr/sbin:/sbin <test binary> --ignored finds_homebrew_gh`
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn finds_homebrew_gh() {
+        fix_path();
+        let out = run("gh", &["--version"], None).expect("gh should be found after fix_path");
+        assert!(out.starts_with("gh version"), "{out}");
+    }
 
     #[test]
     fn lines_read_like_a_terminal() {
