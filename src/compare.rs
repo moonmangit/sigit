@@ -123,6 +123,11 @@ fn commits_sel(after: Option<&str>) -> String {
     )
 }
 
+/// False when every comparison in `rows` is off: there is nothing to ask GitHub.
+fn needs_query(rows: &Rows) -> bool {
+    rows.iter().any(|(_, cmps)| cmps.iter().any(Option::is_some))
+}
+
 pub fn query(rows: &Rows) -> String {
     let mut q = String::from("query {");
     for (i, (slug, cmps)) in rows.iter().enumerate() {
@@ -224,16 +229,22 @@ pub fn parse(rows: &Rows, json: &serde_json::Value) -> (Vec<RepoCompare>, Vec<(u
                     .flatten()
                     .find(|e| e["path"][0] == alias.as_str())
                     .and_then(|e| e["message"].as_str());
-                rc.error = Some(msg.unwrap_or("GitHub returned nothing for this repo").to_owned());
+                rc.error = Some(msg.map_or_else(|| crate::i18n::t("GitHub returned nothing for this repo"), str::to_owned));
                 return rc;
             }
             for (j, c) in cmps.iter().enumerate() {
                 let Some(c) = c else { continue };
                 let commits = &repo[format!("c{j}")]["compare"]["commits"];
                 rc.cells[j] = if commits.is_null() {
-                    // Missing on `to` or `from`; the `f` alias says whether `from` exists.
-                    let from_exists = !repo[format!("f{j}")].is_null();
-                    Cell::Missing(if from_exists { vec![c.to.clone()] } else { vec![c.from.clone(), c.to.clone()] })
+                    // `c` is the `to` ref, `f` the `from` ref; each is null when its branch is missing.
+                    let mut gone = Vec::new();
+                    if repo[format!("f{j}")].is_null() {
+                        gone.push(c.from.clone());
+                    }
+                    if repo[format!("c{j}")].is_null() {
+                        gone.push(c.to.clone());
+                    }
+                    Cell::Missing(gone)
                 } else {
                     let (mut prs, mut loose) = (Vec::new(), Vec::new());
                     let nodes = nodes(commits);
@@ -272,12 +283,12 @@ fn graphql(q: &str) -> Result<serde_json::Value, String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let out = cmd.output().map_err(|e| format!("couldn't start `gh`: {e}"))?;
+    let out = cmd.output().map_err(|e| crate::tf!("couldn't start `gh`: {e}"))?;
     match serde_json::from_slice::<serde_json::Value>(&out.stdout) {
         Ok(v) if v["data"].is_object() => Ok(v),
         _ => {
             let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
-            Err(if err.is_empty() { "`gh api graphql` failed".to_owned() } else { err })
+            Err(if err.is_empty() { crate::i18n::t("`gh api graphql` failed").to_owned() } else { err })
         }
     }
 }
@@ -285,6 +296,10 @@ fn graphql(q: &str) -> Result<serde_json::Value, String> {
 pub fn fetch(rows: Vec<(String, Vec<Option<Comparison>>)>) -> Vec<RepoCompare> {
     let mut all = Vec::with_capacity(rows.len());
     for chunk in rows.chunks(CHUNK) {
+        if !needs_query(chunk) {
+            all.extend(parse(chunk, &serde_json::Value::Null).0);
+            continue;
+        }
         let json = match graphql(&query(chunk)) {
             Ok(j) => j,
             Err(e) => {
@@ -453,6 +468,18 @@ mod tests {
         assert_eq!(parse(&rows, &both).0[0].cells[0], Cell::Missing(vec!["dev".into(), "staging".into()]));
         let only_to = json!({"data": {"r0": {"c0": null, "f0": {"name": "dev"}}}});
         assert_eq!(parse(&rows, &only_to).0[0].cells[0], Cell::Missing(vec!["staging".into()]));
+        let only_from = json!({"data": {"r0": {"c0": {"compare": null}, "f0": null}}});
+        assert_eq!(parse(&rows, &only_from).0[0].cells[0], Cell::Missing(vec!["dev".into()]));
+    }
+
+    #[test]
+    fn all_off_chunks_need_no_query() {
+        let off = vec![("o/n".to_string(), vec![None, None])];
+        assert!(!needs_query(&off));
+        let (out, more) = parse(&off, &serde_json::Value::Null);
+        assert!(out[0].error.is_none() && more.is_empty());
+        assert_eq!(out[0].cells, vec![Cell::Off, Cell::Off]);
+        assert!(needs_query(&one(cmp("a", "b"))));
     }
 
     #[test]

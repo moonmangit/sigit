@@ -1049,3 +1049,9 @@ Something went wrong	เกิดข้อผิดพลาด
 This page hit an error, so sigit stopped drawing it. Everything else is still running.	หน้านี้เกิดข้อผิดพลาด sigit จึงหยุดแสดงหน้านี้ ส่วนอื่นยังทำงานตามปกติ
 sigit caught this error and kept running. Copy it to report it.	sigit จับข้อผิดพลาดนี้ไว้และยังทำงานต่อได้ คัดลอกไปแจ้งปัญหาได้
 sigit caught this error and {more} more, and kept running. Copy it to report it.	sigit จับข้อผิดพลาดนี้และอีก {more} รายการไว้ และยังทำงานต่อได้ คัดลอกไปแจ้งปัญหาได้
+GitHub returned nothing for this repo	GitHub ไม่ส่งข้อมูลของ repo นี้กลับมา
+`gh api graphql` failed	`gh api graphql` ล้มเหลว
+To staging	ไปยัง staging
+Back-merge	ผสานกลับ
+To production	ไปยัง production
+couldn't start `gh`: {e}	เริ่ม `gh` ไม่สำเร็จ: {e}
