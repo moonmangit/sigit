@@ -101,6 +101,9 @@ impl<T> Load<T> {
 
 /// How long fetched data counts as fresh (seconds). Opening a page, going back, and the 30 s
 /// tick reload only what's older; Ctrl+R and finished actions reload everything on the page.
+/// The Dashboard tab that holds the branch comparisons (0 Activity, 1 Needs you).
+pub const COMPARE_TAB: usize = 2;
+
 pub mod ttl {
     /// PR lists, environments, the inbox, notifications.
     pub const GH: i64 = 120;
@@ -419,6 +422,10 @@ pub struct State {
     pub pulse_topics: HashSet<String>,
     /// Per-day activity and contributors shown on the Activity page.
     pub pulse_details: bool,
+    /// The Comparisons tab: one row per tracked repo.
+    pub compare: Load<Vec<compare::RepoCompare>>,
+    /// What `compare` answers (repos, comparisons, overrides); a changed key means reload.
+    pub compare_key: String,
     pub tracked_q: TextEdit,
     /// The dialog's name field (kept here, not inside the Option, so it always exists).
     pub group_name: TextEdit,
@@ -538,6 +545,8 @@ impl State {
             pulse_open_repos: HashSet::new(),
             pulse_topics: HashSet::new(),
             pulse_details: false,
+            compare: Load::default(),
+            compare_key: String::new(),
             tracked_q: TextEdit::new(""),
             group_name: TextEdit::new(""),
         }
@@ -764,6 +773,9 @@ impl State {
                 if self.pulse.stale(ttl::PULSE.min(cap.max(ttl::PULSE_REVALIDATE))) || (!self.pulse.loading && self.pulse_key != self.pulse_key_now()) {
                     self.refresh_pulse();
                 }
+                if self.inbox_tab == COMPARE_TAB && (self.compare.stale(ttl::GH.min(cap)) || (!self.compare.loading && self.compare_key != self.compare_key_now())) {
+                    self.refresh_compare();
+                }
                 return;
             }
             Page::Group => return self.load_group(true),
@@ -847,6 +859,9 @@ impl State {
                 self.refresh_inbox();
                 self.refresh_notifications();
                 self.refresh_pulse();
+                if self.inbox_tab == COMPARE_TAB {
+                    self.refresh_compare();
+                }
             }
             Page::Pulls => self.refresh_prs(),
             Page::Actions => self.refresh_runs(),
@@ -921,6 +936,38 @@ impl State {
             }
         }
         v
+    }
+
+    /// What the Comparisons tab asks for now: tracked repos, comparisons and overrides.
+    pub fn compare_key_now(&self) -> String {
+        serde_json::to_string(&(self.tracked(), &self.prefs.comparisons, &self.prefs.comparison_overrides)).unwrap_or_default()
+    }
+
+    /// Load the Comparisons tab: each tracked repo (A-Z) against the comparisons that apply to it.
+    pub fn refresh_compare(&mut self) {
+        let mut slugs = self.tracked();
+        slugs.sort_by_key(|s| s.to_lowercase());
+        if slugs.is_empty() || self.prefs.comparisons.is_empty() {
+            return;
+        }
+        let rows: Vec<(String, Vec<Option<compare::Comparison>>)> = slugs
+            .into_iter()
+            .map(|slug| {
+                let cells = compare::effective(&self.prefs.comparisons, &self.prefs.comparison_overrides, &slug);
+                (slug, cells)
+            })
+            .collect();
+        let key = self.compare_key_now();
+        self.compare_key = key.clone();
+        self.compare.loading = true;
+        self.compare.error = None;
+        jobs::spawn(self, move || compare::fetch(rows), move |s, out| {
+            if s.compare_key != key {
+                return;
+            }
+            s.compare.finish(Ok(out));
+            s.save_cache();
+        });
     }
 
     /// The repos the Activity page shows now (all tracked, or one of your groups).
@@ -2276,6 +2323,29 @@ mod cache_tests {
         let mut empty: Load<u32> = Load::start();
         stash(&mut memo, &mut empty, Some(2));
         assert!(!memo.contains_key(&2), "nothing to park");
+    }
+
+    #[test]
+    fn refresh_compare_skips_when_nothing_to_compare() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked.clear();
+        s.prefs.pinned.clear();
+        s.prefs.groups.clear();
+        s.refresh_compare();
+        assert!(!s.compare.loading && s.compare.data.is_none());
+    }
+
+    #[test]
+    fn snapshot_round_trips_compare() {
+        let rc = compare::RepoCompare {
+            slug: "a/b".into(),
+            cells: vec![compare::Cell::Waiting { commits: 2, prs: vec![], loose: vec![], checked: 2 }],
+            error: None,
+        };
+        let snap = cache::Snapshot { compare: Some(("k".into(), vec![rc.clone()])), compare_at: 9, ..Default::default() };
+        let back: cache::Snapshot = serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
+        assert_eq!(back.compare, Some(("k".into(), vec![rc])));
+        assert_eq!(back.compare_at, 9);
     }
 
     #[test]

@@ -299,6 +299,10 @@ impl State {
             self.pulse_key = key;
             self.pulse = Load::from_cache(p, snap.pulse_at.max(1));
         }
+        if let Some((key, rows)) = snap.compare.filter(|(k, _)| *k == self.compare_key_now()) {
+            self.compare_key = key;
+            self.compare = Load::from_cache(rows, snap.compare_at.max(1));
+        }
         for (slug, prs) in snap.prs {
             self.rd_mut_pub(&slug).prs = Load::from_cache(prs, at);
         }
@@ -355,6 +359,8 @@ impl State {
             groups: self.group_data.iter().filter_map(|(k, v)| Some((k.clone(), v.data.clone()?))).collect(),
             pulse: self.pulse.data.clone().map(|p| (self.pulse_key.clone(), p)),
             pulse_at: self.pulse.at.unwrap_or(0),
+            compare: self.compare.data.clone().map(|c| (self.compare_key.clone(), c)),
+            compare_at: self.compare.at.unwrap_or(0),
         };
         jobs::spawn(self, move || cache::save(&snap), |_, _| {});
     }
