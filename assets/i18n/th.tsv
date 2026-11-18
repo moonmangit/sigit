@@ -1074,3 +1074,13 @@ Track some repos to compare their branches.	ติดตาม repo ก่อน
 — no {a} or {b}	— ไม่มี {a} หรือ {b}
 — no {branch}	— ไม่มี {branch}
 off	ปิด
+Branch comparisons	การเปรียบเทียบ branch
+Each counts the commits and PRs on From that To doesn't have yet. Change one per repo from the Dashboard.	แต่ละรายการนับ commit และ PR ที่มีบน From แต่ยังไม่มีบน To เปลี่ยนต่อ repo ได้จาก Dashboard
+Add comparison	เพิ่มการเปรียบเทียบ
+Swap	สลับ
+Remove	ลบ
+Move down	เลื่อนลง
+Comparisons saved	บันทึกการเปรียบเทียบแล้ว
+Every comparison needs a name and two branches	ทุกการเปรียบเทียบต้องมีชื่อและ branch สองอัน
+Two comparisons are called {name}	มีการเปรียบเทียบสองรายการชื่อ {name}
+{name} compares {branch} with itself	{name} เปรียบเทียบ {branch} กับตัวมันเอง

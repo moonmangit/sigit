@@ -435,6 +435,10 @@ pub struct State {
     /// The cell whose detail pane is open: (repo, comparison index).
     pub compare_sel: Option<(String, usize)>,
     pub compare_edit: Option<CompareEdit>,
+    /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
+    /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
+    pub cmp_rows: Vec<(TextEdit, TextEdit, TextEdit)>,
+    pub cmp_ids: Vec<Option<String>>,
     pub tracked_q: TextEdit,
     /// The dialog's name field (kept here, not inside the Option, so it always exists).
     pub group_name: TextEdit,
@@ -558,6 +562,8 @@ impl State {
             compare_key: String::new(),
             compare_sel: None,
             compare_edit: None,
+            cmp_rows: Vec::new(),
+            cmp_ids: Vec::new(),
             tracked_q: TextEdit::new(""),
             group_name: TextEdit::new(""),
         }
@@ -961,6 +967,8 @@ impl State {
         if slugs.is_empty() || self.prefs.comparisons.is_empty() {
             self.compare = Load::default();
             self.compare_key.clear();
+            self.compare_sel = None;
+            self.compare_edit = None;
             return;
         }
         let rows: Vec<(String, Vec<Option<compare::Comparison>>)> = slugs
@@ -972,8 +980,11 @@ impl State {
             .collect();
         let key = self.compare_key_now();
         if self.compare_key != key {
-            // Rows for other repos or comparisons must never sit under the new key.
+            // Rows for other repos or comparisons must never sit under the new key, and the
+            // detail pane and dialog point at comparisons by position.
             self.compare = Load::default();
+            self.compare_sel = None;
+            self.compare_edit = None;
         }
         self.compare_key = key.clone();
         self.compare.loading = true;
@@ -2490,6 +2501,76 @@ mod cache_tests {
         s.reset_compare_edit();
         assert!(s.compare_edit.is_none());
         assert_eq!(s.prefs.comparison_overrides.iter().map(|o| o.slug.as_str()).collect::<Vec<_>>(), vec!["x/y"]);
+    }
+
+    #[test]
+    fn refresh_compare_clears_positional_state_when_key_changes() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked = vec!["a/b".into()];
+        s.compare_key = "old".into();
+        s.compare_sel = Some(("a/b".into(), 1));
+        s.open_compare_edit("a/b");
+        s.refresh_compare();
+        assert!(s.compare_sel.is_none() && s.compare_edit.is_none());
+
+        s.prefs.comparisons.clear();
+        s.compare_sel = Some(("a/b".into(), 0));
+        s.open_compare_edit("a/b");
+        s.refresh_compare();
+        assert!(s.compare_sel.is_none() && s.compare_edit.is_none());
+    }
+
+    fn cmp_rows(s: &mut State, rows: &[(&str, &str, &str)]) {
+        s.cmp_rows = rows.iter().map(|(n, f, t)| (TextEdit::new(*n), TextEdit::new(*f), TextEdit::new(*t))).collect();
+    }
+
+    #[test]
+    fn save_comparisons_rejects_duplicates_and_keeps_overrides_on_rename() {
+        let mut s = State::new(config::Prefs::default());
+        s.open_cmp_rows();
+        let before = s.prefs.comparisons.clone();
+        cmp_rows(&mut s, &[("A", "dev", "staging"), ("A", "staging", "main")]);
+        assert_eq!(s.save_comparisons(), Err("Two comparisons are called A".to_owned()));
+        assert_eq!(s.prefs.comparisons, before);
+        cmp_rows(&mut s, &[("A", "dev", "")]);
+        assert_eq!(s.save_comparisons(), Err("Every comparison needs a name and two branches".to_owned()));
+        cmp_rows(&mut s, &[("A", "dev", "dev")]);
+        assert_eq!(s.save_comparisons(), Err("A compares dev with itself".to_owned()));
+        assert_eq!(s.prefs.comparisons, before);
+
+        s.prefs.comparison_overrides = vec![compare::Override { slug: "a/b".into(), name: "Back-merge".into(), off: true, ..Default::default() }];
+        s.open_cmp_rows();
+        s.cmp_rows[1].0 = TextEdit::new("Hotfix back");
+        assert_eq!(s.save_comparisons(), Ok(()));
+        assert_eq!(s.prefs.comparisons[1].name, "Hotfix back");
+        assert_eq!(s.prefs.comparison_overrides[0].name, "Hotfix back");
+    }
+
+    #[test]
+    fn save_comparisons_handles_swapped_names_removal_and_moves() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.comparison_overrides = vec![
+            compare::Override { slug: "a/b".into(), name: "To staging".into(), off: true, ..Default::default() },
+            compare::Override { slug: "a/b".into(), name: "To production".into(), off: true, ..Default::default() },
+        ];
+        s.open_cmp_rows();
+        s.cmp_rows[0].0 = TextEdit::new("To production"); // names trade places
+        s.cmp_rows[2].0 = TextEdit::new("To staging");
+        s.cmp_remove(1);
+        assert_eq!(s.save_comparisons(), Ok(()));
+        let names: Vec<_> = s.prefs.comparisons.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["To production", "To staging"]);
+        let offs: Vec<_> = s.prefs.comparison_overrides.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(offs, vec!["To production", "To staging"], "overrides trade names with their comparisons");
+        assert_eq!(s.prefs.comparisons[0].from, "dev");
+
+        s.open_cmp_rows();
+        s.cmp_move(1, -1);
+        assert_eq!(s.save_comparisons(), Ok(()));
+        assert_eq!(s.prefs.comparisons[0].name, "To staging", "a move is not a rename");
+        assert_eq!(s.prefs.comparison_overrides.len(), 2);
+        s.cmp_swap(0);
+        assert_eq!((s.cmp_rows[0].1.text.as_str(), s.cmp_rows[0].2.text.as_str()), ("main", "staging"));
     }
 
     #[test]
