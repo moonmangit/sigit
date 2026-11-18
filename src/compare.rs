@@ -53,6 +53,23 @@ pub fn is_changed(overrides: &[Override], slug: &str, name: &str) -> bool {
     overrides.iter().any(|o| o.slug == slug && o.name == name)
 }
 
+/// What a repo's comparison dialog saves: an override for each (from, to, on) line that differs
+/// from its shared comparison. A blank field means the shared branch.
+pub fn edit_overrides(shared: &[Comparison], slug: &str, rows: &[(String, String, bool)]) -> Vec<Override> {
+    let changed = |v: &str, base: &str| {
+        let v = v.trim();
+        (!v.is_empty() && v != base).then(|| v.to_owned())
+    };
+    shared
+        .iter()
+        .zip(rows)
+        .filter_map(|(c, (from, to, on))| {
+            let (from, to) = (changed(from, &c.from), changed(to, &c.to));
+            (from.is_some() || to.is_some() || !on).then(|| Override { slug: slug.into(), name: c.name.clone(), from, to, off: !on })
+        })
+        .collect()
+}
+
 pub fn rename(prefs: &mut Prefs, old: &str, new: &str) {
     for c in prefs.comparisons.iter_mut().filter(|c| c.name == old) {
         c.name = new.into();
@@ -379,6 +396,21 @@ mod tests {
         assert_eq!(p.comparisons.len(), 2);
         assert!(!p.comparison_overrides.iter().any(|o| o.name == "To production"));
         assert_eq!(p.comparison_overrides.len(), 2);
+    }
+
+    #[test]
+    fn edit_overrides_keeps_only_changes() {
+        let shared = defaults();
+        let rows = vec![
+            ("dev".to_string(), " staging ".to_string(), true), // same as shared (spaces trimmed)
+            ("staging".to_string(), "dev".to_string(), false),  // switched off
+            ("".to_string(), "master".to_string(), true),       // blank From = shared
+        ];
+        let out = edit_overrides(&shared, "a/b", &rows);
+        assert_eq!(out, vec![
+            Override { slug: "a/b".into(), name: "Back-merge".into(), from: None, to: None, off: true },
+            Override { slug: "a/b".into(), name: "To production".into(), from: None, to: Some("master".into()), off: false },
+        ]);
     }
 
     #[test]

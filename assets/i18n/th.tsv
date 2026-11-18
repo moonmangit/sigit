@@ -41,7 +41,7 @@ Active	ใช้งานอยู่
 Activity	ความเคลื่อนไหว
 Activity follows your pinned repos and your groups: right-click any repo in the sidebar to pin it, add it to a group, or track it.	หน้าความเคลื่อนไหวติดตาม repo ที่ปักหมุดและกลุ่มของคุณ: คลิกขวาที่ repo ใดก็ได้ในแถบข้างเพื่อปักหมุด เพิ่มเข้ากลุ่ม หรือติดตาม
 Activity log	บันทึกการทำงาน
-Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs.	ความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตาม · รอคุณอยู่: งานรีวิว การแจ้งเตือน และ PR ของคุณ
+Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs. Comparisons: commits and PRs waiting between branches.	ความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตาม · รอคุณอยู่: งานรีวิว การแจ้งเตือน และ PR ของคุณ · เปรียบเทียบ: commit และ PR ที่รอระหว่าง branch
 Add a local clone…	เพิ่ม clone ในเครื่อง…
 Add a repo: type to search	เพิ่ม repo: พิมพ์เพื่อค้นหา
 Add local repo	เพิ่ม repo ในเครื่อง
@@ -1055,3 +1055,22 @@ To staging	ไปยัง staging
 Back-merge	ผสานกลับ
 To production	ไปยัง production
 couldn't start `gh`: {e}	เริ่ม `gh` ไม่สำเร็จ: {e}
+1 PR	1 PR
+1 commit	1 commit
+{n} PRs	{n} PR
+{n} commits	{n} commit
+Add a comparison in Settings → Git.	เพิ่มการเปรียบเทียบได้ที่ การตั้งค่า → Git
+Changed for this repo	เปลี่ยนเฉพาะ repo นี้
+Close	ปิด
+Commits without a PR ({n})	Commit ที่ไม่มี PR ({n})
+Comparisons	เปรียบเทียบ
+Comparisons for {slug}	การเปรียบเทียบของ {slug}
+Edit comparisons for this repo…	แก้การเปรียบเทียบของ repo นี้…
+Merged PRs waiting ({n})	PR ที่ merge แล้วรออยู่ ({n})
+On	เปิด
+PRs counted from the first {checked} commits	นับ PR จาก {checked} commit แรก
+Reset to shared	กลับไปใช้ค่าที่ใช้ร่วมกัน
+Track some repos to compare their branches.	ติดตาม repo ก่อน เพื่อเปรียบเทียบ branch
+— no {a} or {b}	— ไม่มี {a} หรือ {b}
+— no {branch}	— ไม่มี {branch}
+off	ปิด

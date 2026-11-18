@@ -249,6 +249,12 @@ pub enum MenuTarget {
     Owner(String),
 }
 
+/// A repo's "Comparisons for …" dialog: one (From, To, On) line per shared comparison.
+pub struct CompareEdit {
+    pub slug: String,
+    pub rows: Vec<(TextEdit, TextEdit, bool)>,
+}
+
 /// The "New group" / "Rename group" dialog.
 pub struct GroupEdit {
     /// The group being renamed; None makes a new one.
@@ -426,6 +432,9 @@ pub struct State {
     pub compare: Load<Vec<compare::RepoCompare>>,
     /// What `compare` answers (repos, comparisons, overrides); a changed key means reload.
     pub compare_key: String,
+    /// The cell whose detail pane is open: (repo, comparison index).
+    pub compare_sel: Option<(String, usize)>,
+    pub compare_edit: Option<CompareEdit>,
     pub tracked_q: TextEdit,
     /// The dialog's name field (kept here, not inside the Option, so it always exists).
     pub group_name: TextEdit,
@@ -547,6 +556,8 @@ impl State {
             pulse_details: false,
             compare: Load::default(),
             compare_key: String::new(),
+            compare_sel: None,
+            compare_edit: None,
             tracked_q: TextEdit::new(""),
             group_name: TextEdit::new(""),
         }
@@ -974,6 +985,40 @@ impl State {
             s.compare.finish(Ok(out));
             s.save_cache();
         });
+    }
+
+    /// Open the comparison dialog for `slug`, each line showing what applies to it now.
+    pub fn open_compare_edit(&mut self, slug: &str) {
+        let shared = &self.prefs.comparisons;
+        let rows = compare::effective(shared, &self.prefs.comparison_overrides, slug)
+            .into_iter()
+            .zip(shared)
+            .map(|(e, c)| {
+                let on = e.is_some();
+                let e = e.unwrap_or_else(|| c.clone());
+                (TextEdit::new(&e.from), TextEdit::new(&e.to), on)
+            })
+            .collect();
+        self.compare_edit = Some(CompareEdit { slug: slug.to_owned(), rows });
+    }
+
+    /// Keep the dialog's lines that differ from the shared comparisons as this repo's overrides.
+    pub fn save_compare_edit(&mut self) {
+        let Some(edit) = self.compare_edit.take() else { return };
+        let rows: Vec<(String, String, bool)> = edit.rows.iter().map(|(f, t, on)| (f.text.clone(), t.text.clone(), *on)).collect();
+        let mine = compare::edit_overrides(&self.prefs.comparisons, &edit.slug, &rows);
+        self.prefs.comparison_overrides.retain(|o| o.slug != edit.slug);
+        self.prefs.comparison_overrides.extend(mine);
+        self.save_prefs();
+        self.refresh_compare();
+    }
+
+    /// Drop this repo's overrides: it follows the shared comparisons again.
+    pub fn reset_compare_edit(&mut self) {
+        let Some(edit) = self.compare_edit.take() else { return };
+        self.prefs.comparison_overrides.retain(|o| o.slug != edit.slug);
+        self.save_prefs();
+        self.refresh_compare();
     }
 
     /// The repos the Activity page shows now (all tracked, or one of your groups).
@@ -1836,6 +1881,43 @@ const FONTS: &[&[u8]] = &[
 /// Latin in Inter; Thai, which Inter lacks, falls through to Noto Sans Thai.
 const FAMILIES: (&str, &str) = ("Inter, Noto Sans Thai", "IBM Plex Mono, Noto Sans Thai");
 
+/// The Comparisons tab with fixed rows (no network): waiting, up to date, missing branches,
+/// an error row, a turned-off cell and a retargeted one.
+fn compare_fixture(s: &mut State) {
+    use compare::{Cell, LooseCommit, Override, RepoCompare, WaitingPr};
+    s.prefs.tracked = ["acme/web", "acme/api", "acme/docs", "acme/admin", "acme/gone"].map(String::from).to_vec();
+    s.prefs.comparisons = compare::defaults();
+    s.prefs.comparison_overrides = vec![
+        Override { slug: "acme/web".into(), name: "To production".into(), to: Some("master".into()), ..Default::default() },
+        Override { slug: "acme/admin".into(), name: "Back-merge".into(), off: true, ..Default::default() },
+    ];
+    let pr = |number: u64, title: &str, author: &str, day: u32| WaitingPr { number, title: title.into(), author: author.into(), merged_at: format!("2026-11-{day:02}T09:00:00Z") };
+    let loose = |sha: &str, subject: &str| LooseCommit { sha: sha.into(), subject: subject.into(), author: "mai".into() };
+    let wait = |commits, prs, loose, checked| Cell::Waiting { commits, prs, loose, checked };
+    let missing = |b: &[&str]| Cell::Missing(b.iter().map(|b| b.to_string()).collect());
+    let row = |slug: &str, cells, error: Option<&str>| RepoCompare { slug: slug.into(), cells, error: error.map(str::to_owned) };
+    let many = (0..39).map(|n| pr(300 + n, &format!("Sample change {n}"), "ploy", 1 + n as u32 % 18)).collect();
+    let rows = vec![
+        row("acme/admin", vec![wait(149, many, vec![loose("9c1e2d4a", "Sample hotfix")], 100), Cell::Off, wait(0, vec![], vec![], 0)], None),
+        row(
+            "acme/api",
+            vec![
+                wait(8, vec![pr(141, "Sample rate limit", "ploy", 18), pr(139, "Sample bet history", "nok", 17), pr(137, "Sample payout fix", "ploy", 15)], vec![loose("4be07f11", "Sample header logo")], 8),
+                wait(0, vec![], vec![], 0),
+                wait(7, (116..123).map(|n| pr(n, &format!("Sample release {n}"), "nok", 10)).collect(), vec![], 7),
+            ],
+            None,
+        ),
+        row("acme/docs", vec![missing(&["dev", "staging"]), missing(&["staging", "dev"]), missing(&["staging", "main"])], None),
+        row("acme/gone", vec![Cell::Off, Cell::Off, Cell::Off], Some("Could not resolve to a Repository with the name 'acme/gone'.")),
+        row("acme/web", vec![missing(&["dev"]), missing(&["dev"]), wait(1, vec![pr(88, "Sample footer links", "mai", 12)], vec![], 1)], None),
+    ];
+    s.inbox_tab = COMPARE_TAB;
+    s.compare = Load::default();
+    s.compare.finish(Ok(rows));
+    s.compare_key = s.compare_key_now();
+}
+
 
 fn main() {
     config::migrate_old_folder(); // before the crash log makes the folder
@@ -1925,6 +2007,16 @@ fn main() {
             ("needs", |s: &mut State| {
                 s.inbox_tab = 1;
                 s.show(Page::Inbox);
+            }),
+            ("comparisons", |s: &mut State| {
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = Some(("acme/api".into(), 0));
+            }),
+            ("comparisons-edit", |s: &mut State| {
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.open_compare_edit("acme/web");
             }),
             ("limit", |s: &mut State| {
                 s.prefs.pinned.clear();
@@ -2179,6 +2271,12 @@ fn main() {
                 s.inbox_tab = 1;
                 s.show(Page::Inbox);
             }),
+            ("light-comparisons", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = Some(("acme/admin".into(), 0));
+            }),
             ("light-activity", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;
                 s.show(Page::Inbox);
@@ -2365,6 +2463,33 @@ mod cache_tests {
         loaded_compare(&mut s);
         s.refresh_compare();
         assert!(s.compare.data.is_none() && s.compare.at.is_none() && s.compare_key.is_empty());
+    }
+
+    #[test]
+    fn compare_edit_prefills_saves_and_resets() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.comparison_overrides = vec![
+            compare::Override { slug: "a/b".into(), name: "To production".into(), to: Some("master".into()), ..Default::default() },
+            compare::Override { slug: "x/y".into(), name: "To staging".into(), off: true, ..Default::default() },
+        ];
+        s.open_compare_edit("a/b");
+        let e = s.compare_edit.as_ref().unwrap();
+        let shown: Vec<_> = e.rows.iter().map(|(f, t, on)| (f.text.as_str(), t.text.as_str(), *on)).collect();
+        assert_eq!(shown, vec![("dev", "staging", true), ("staging", "dev", true), ("staging", "master", true)]);
+
+        let e = s.compare_edit.as_mut().unwrap();
+        e.rows[0].2 = false;
+        e.rows[2].1 = TextEdit::new("main"); // back to shared
+        s.save_compare_edit();
+        assert!(s.compare_edit.is_none());
+        let mine: Vec<_> = s.prefs.comparison_overrides.iter().filter(|o| o.slug == "a/b").map(|o| (o.name.as_str(), o.off)).collect();
+        assert_eq!(mine, vec![("To staging", true)]);
+        assert!(s.prefs.comparison_overrides.iter().any(|o| o.slug == "x/y"), "other repos keep theirs");
+
+        s.open_compare_edit("a/b");
+        s.reset_compare_edit();
+        assert!(s.compare_edit.is_none());
+        assert_eq!(s.prefs.comparison_overrides.iter().map(|o| o.slug.as_str()).collect::<Vec<_>>(), vec!["x/y"]);
     }
 
     #[test]
