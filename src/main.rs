@@ -23,6 +23,7 @@ mod onboarding;
 mod settings;
 mod update;
 mod window_icon;
+mod compare;
 mod config;
 mod daily;
 mod gh;
