@@ -174,7 +174,7 @@ Couldn't save the repo list: {e}	บันทึกรายการ repo ไ�
 Couldn't write the activity log: {e}	เขียนบันทึกการทำงานไม่สำเร็จ: {e}
 Counting PRs opened and merged {label}…	กำลังนับ PR ที่เปิดและ merge {label}…
 Ctrl+2 … 6	Ctrl+2 … 6
-Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Inbox / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.	Ctrl+K palette · F1 คู่มือ · Ctrl+R รีเฟรช · Alt+←/→ ย้อนกลับ/ไปข้างหน้า · Ctrl+1…6 กล่องงาน / PR / Actions / Environment / Commit / Branch · Esc ปิด palette หรือยกเลิกการนับถอยหลัง merge
+Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Dashboard / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.	Ctrl+K palette · F1 คู่มือ · Ctrl+R รีเฟรช · Alt+←/→ ย้อนกลับ/ไปข้างหน้า · Ctrl+1…6 แดชบอร์ด / PR / Actions / Environment / Commit / Branch · Esc ปิด palette หรือยกเลิกการนับถอยหลัง merge
 Current branch	branch ปัจจุบัน
 Custom	กำหนดเอง
 Custom colour	สีกำหนดเอง
@@ -287,9 +287,9 @@ How long they've been open	เปิดมานานเท่าไรแล�
 How many of each organization's repos the sidebar lists before "Show more". The ones you opened recently come first; search always shows every match.	จำนวน repo ของแต่ละองค์กรที่แถบข้างแสดงก่อนปุ่ม "แสดงเพิ่ม" ที่เปิดล่าสุดจะขึ้นก่อน การค้นหาจะแสดงทุกรายการที่ตรงเสมอ
 Icon	ไอคอน
 If you're an admin, GitHub would let a merge through its rules anyway. sigit says so and still asks.	ถ้าคุณเป็นผู้ดูแล GitHub จะยอมให้ merge ผ่านกฎได้อยู่ดี sigit จะแจ้งให้ทราบและยังถามก่อนเสมอ
-Inbox	กล่องงาน
-Inbox & notifications	กล่องงานและการแจ้งเตือน
-Inbox view	มุมมองกล่องงาน
+Dashboard	แดชบอร์ด
+Dashboard & notifications	แดชบอร์ดและการแจ้งเตือน
+Dashboard view	มุมมองแดชบอร์ด
 Install Git	ติดตั้ง Git
 Install the GitHub CLI (gh)	ติดตั้ง GitHub CLI (gh)
 Install the GitHub CLI first	ติดตั้ง GitHub CLI ก่อน
@@ -640,7 +640,7 @@ Take it back (available for 10 s)	ย้อนกลับ (ทำได้ภ�
 Take the tour	ดูทัวร์แนะนำ
 Text size	ขนาดข้อความ
 That email doesn't look right	อีเมลนี้ดูไม่ถูกต้อง
-The Inbox opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.	กล่องงานเปิดที่หน้าความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตามในช่วงเวลาหนึ่ง (ค่าเริ่มต้นคือสัปดาห์นี้ หรือเลือกวันนี้, 7 วัน, เดือนนี้, 30 วัน หรือกำหนดวันเอง) PR ที่เปิด, merge และปิด; commit และจำนวนบรรทัดที่เปลี่ยน; CI run, อัตราสำเร็จ และนาทีที่ใช้; deployment และ release; ใครมีส่วนร่วมเท่าไร; และตัวเลขของแต่ละ repo เรียงจากที่เปลี่ยนมากที่สุด
+The Dashboard opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.	แดชบอร์ดเปิดที่หน้าความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตามในช่วงเวลาหนึ่ง (ค่าเริ่มต้นคือสัปดาห์นี้ หรือเลือกวันนี้, 7 วัน, เดือนนี้, 30 วัน หรือกำหนดวันเอง) PR ที่เปิด, merge และปิด; commit และจำนวนบรรทัดที่เปลี่ยน; CI run, อัตราสำเร็จ และนาทีที่ใช้; deployment และ release; ใครมีส่วนร่วมเท่าไร; และตัวเลขของแต่ละ repo เรียงจากที่เปลี่ยนมากที่สุด
 The Needs you tab is your day: PRs waiting for your review, your own PRs, assigned issues, recent CI runs, and your GitHub notifications.	แท็บรอคุณอยู่คืองานของวันนี้: PR ที่รอคุณรีวิว, PR ของคุณ, issue ที่มอบหมาย, CI run ล่าสุด และการแจ้งเตือนจาก GitHub
 The branch your local clone is on	branch ที่ clone ในเครื่องของคุณใช้อยู่
 The detail pane: Conversation (description, reviews, comments, your comment box), Files (with the diff), Checks. A 'Why this needs care' box lists sensitive files and possible secrets.	แผงรายละเอียด: การสนทนา (คำอธิบาย, รีวิว, ความคิดเห็น, ช่องความคิดเห็นของคุณ), ไฟล์ (พร้อม diff), Check กล่อง 'ทำไมต้องระวัง' จะแสดงไฟล์สำคัญและสิ่งที่อาจเป็นข้อมูลลับ
@@ -1043,7 +1043,7 @@ Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings w
 Copy error details	คัดลอกรายละเอียดข้อผิดพลาด
 Dismiss	ปิด
 Error details copied	คัดลอกรายละเอียดข้อผิดพลาดแล้ว
-Go to Inbox	ไปที่ Inbox
+Go to Dashboard	ไปที่แดชบอร์ด
 Next error	ข้อผิดพลาดถัดไป
 Something went wrong	เกิดข้อผิดพลาด
 This page hit an error, so sigit stopped drawing it. Everything else is still running.	หน้านี้เกิดข้อผิดพลาด sigit จึงหยุดแสดงหน้านี้ ส่วนอื่นยังทำงานตามปกติ

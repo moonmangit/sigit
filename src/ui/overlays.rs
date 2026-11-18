@@ -403,8 +403,8 @@ pub const GUIDE: [(&str, &[&str]); 13] = [
         "Hover almost anything for a tooltip. Press F1 (or Ctrl+/) for this guide, and Ctrl+K to jump anywhere.",
         "Links go straight to the thing: a red workflow opens that failing run, selected and scrolled into view; a PR anywhere opens that PR. SHAs, branch names, paths and links copy with one click.",
     ]),
-    ("Inbox & notifications", &[
-        "The Inbox opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.",
+    ("Dashboard & notifications", &[
+        "The Dashboard opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.",
         "It has two parts. Overview: totals across every tracked repo, per-day bars, who contributed, and repos at a glance (click one to jump to it). By repository: a section per repo, most changed first, with cards for pull requests, commits and lines, CI per workflow, contributors, and deployments and releases. Fold any section, or all of them.",
         "Tracked repos default to your pinned repos plus your groups. Change them with Manage tracked, or right-click any repo → Track in Activity. Switch the scope to one group to see just that product.",
         "The Needs you tab is your day: PRs waiting for your review, your own PRs, assigned issues, recent CI runs, and your GitHub notifications.",
@@ -466,7 +466,7 @@ pub const GUIDE: [(&str, &[&str]); 13] = [
         "Sections side by side (a list and its detail, the Activity panels, each repo's cards, Needs you) have a handle between them: drag it to resize, double-click it to reset. Sizes are remembered.",
         "Next to Back / Forward, \"updated 2m ago\" says how fresh the page is (\"cached\" = from last session, red = the last update failed). Pages show what they loaded at once, and check again in the background whenever you open one or come back to the window, so you rarely need Refresh (Activity at most once a minute). While a page stays open it re-checks on its own (PRs 2 min, runs 1 min or 15 s while running, local git 20 s, Activity 5 min). Click it or press Ctrl+R to reload everything now.",
         "Back / Forward (top left of the toolbar, or Alt+← / Alt+→) step through the pages and repos you visited, like a browser.",
-        "Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Inbox / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.",
+        "Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Dashboard / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.",
         "Pins, groups, settings, the cache and the activity log are saved on this computer only. Settings → Data & storage shows the folder and opens it.",
     ]),
 ];

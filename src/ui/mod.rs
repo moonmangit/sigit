@@ -363,7 +363,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
 
     let title = match (s.page, s.cur.as_deref(), s.group_cur.as_deref()) {
         (Page::Group, _, Some(g)) => tf!("Group · {g}"),
-        (Page::Inbox, ..) | (_, None, _) => crate::i18n::t("Inbox"),
+        (Page::Inbox, ..) | (_, None, _) => crate::i18n::t("Dashboard"),
         (p, Some(slug), _) => tf!("{slug} · {}", crate::i18n::t(p.label())),
     };
     let mut trailing = row().gap(10.0).center_y();
@@ -461,7 +461,7 @@ pub fn crash_screen(s: &State, cx: &mut Cx<State>) -> El {
                 .child(spacer())
                 .child(overlays::copy_report_button(&k, report.as_ref()))
                 .child(
-                    Button::new(crate::i18n::t("Go to Inbox"))
+                    Button::new(crate::i18n::t("Go to Dashboard"))
                         .variant(ButtonVariant::Submit)
                         .on_press(|s: &mut State| {
                             s.crash.clear();
@@ -517,7 +517,7 @@ fn group_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
 fn inbox_page(s: &State, k: &Kit) -> El {
     let needs = s.review_queue().len() + s.visible_notifs().len();
     let tabs = SegmentedControl::new(&crate::i18n::all(&["Activity".to_owned(), tf!("Needs you ({needs})")]), Some(s.inbox_tab))
-        .label(crate::i18n::t("Inbox view"))
+        .label(crate::i18n::t("Dashboard view"))
         .fit()
         .on_pick(|s: &mut State, i, _| s.inbox_tab = i)
         .build(k)

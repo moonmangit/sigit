@@ -523,7 +523,7 @@ const SHORTCUTS: [(&str, &str); 14] = [
     ("F1", "Guide"),
     ("Ctrl+R", "Reload this page"),
     ("Alt+← / Alt+→", "Back / forward"),
-    ("Ctrl+1", "Inbox"),
+    ("Ctrl+1", "Dashboard"),
     ("Ctrl+2 … 6", "Pull requests, Actions, Environments, Commits, Branches"),
     ("J / K", "Needs you: next / previous in the review queue"),
     ("Enter", "Needs you: open the selected PR"),

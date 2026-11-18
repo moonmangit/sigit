@@ -28,7 +28,7 @@ Each feature below uses data that is actually readable with your current `gh` lo
 | Rulesets on a branch (`GET /repos/{r}/rules/branches/{b}`) | Yes | `dev` has `non_fast_forward`, `deletion` |
 | Full protection settings (`…/branches/{b}/protection`) | **Only for repo admins** | 404 elsewhere, so the app must fall back to the two rows above |
 | Environment protection rules (`GET /repos/{r}/environments`) | Yes | e.g. `dev` has `branch_policy` |
-| Notifications (`GET /notifications`) | Yes | includes review requests the Inbox search misses (e.g. from an organization you're not watching) |
+| Notifications (`GET /notifications`) | Yes | includes review requests the Dashboard search misses (e.g. from an organization you're not watching) |
 | Failed job logs (`gh run view --log-failed`) | Yes | |
 | Your permission per repo (`.permissions`) | Yes | **if you are an admin on a repo**, GitHub lets you bypass protections there. The app's guard is the only thing that stops a mistake |
 
@@ -190,20 +190,20 @@ Size: **M**
 
 ### B1. Notifications that match GitHub's, with Done / Snooze
 
-**Problem:** the Inbox uses search, which misses things GitHub notifies you about: mentions,
+**Problem:** the Dashboard uses search, which misses things GitHub notifies you about: mentions,
 CI failures on your PRs, comments, team review requests. Your account has those right now.
 
 **Behaviour:**
-- **New Inbox section "Notifications"** grouped by reason (review requested, mentioned, comment, CI, assign), unread first.
+- **New Dashboard section "Notifications"** grouped by reason (review requested, mentioned, comment, CI, assign), unread first.
 - **Per item:**
   - **Open** jumps into the app view (PR, run).
   - **Done** marks it read (`PATCH /notifications/threads/{id}`).
   - **Snooze 1h / tomorrow** is local only.
-- **Unread count** on the Inbox row; refreshes every 60 s (GitHub sends `X-Poll-Interval`).
+- **Unread count** on the Dashboard row; refreshes every 60 s (GitHub sends `X-Poll-Interval`).
 
 **Data:** `gh api notifications`, `gh api -X PATCH notifications/threads/{id}`.
 
-**Done when:** a review request the search missed shows up in the Inbox, and Done
+**Done when:** a review request the search missed shows up in the Dashboard, and Done
 removes it on GitHub too.
 
 Size: **M**
@@ -350,11 +350,11 @@ Size: **S–M**
 **Problem:** every launch starts empty and waits ~1–2 s for `gh`.
 
 **Behaviour:**
-- **Cache:** save the last Inbox, repo list, and each repo's last PR/run lists to `%APPDATA%\sigit\cache\` on exit and every few minutes.
+- **Cache:** save the last Dashboard, repo list, and each repo's last PR/run lists to `%APPDATA%\sigit\cache\` on exit and every few minutes.
 - **On launch** show them immediately, marked "updated 3h ago", then refresh in the background.
 - **Never act on cached data:** every write re-reads the state first (ties into A1).
 
-**Done when:** the second launch shows a full Inbox in the first frame, and stale data is
+**Done when:** the second launch shows a full Dashboard in the first frame, and stale data is
 visibly marked.
 
 Size: **S**

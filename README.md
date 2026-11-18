@@ -57,8 +57,8 @@ keep your local folder paths out of the binary. Official releases are built by
 
 | View | Shows | Actions |
 |---|---|---|
-| **Inbox → Activity** (default) | Your tracked repos over a range (this week by default; today, 7 or 30 days, this month, custom): open PRs and which are **ready for review (all checks passed)**, Actions health (exact pass rate, what's red on the default branch now), commits, lines, deployments, releases, contributors, and a section per repo | Scope to a group, manage what's tracked |
-| **Inbox → Needs you** | Review queue (ready PRs first, oldest wait first), your open PRs, assigned issues, notifications | Done / Snooze, J/K/Enter/A/C |
+| **Dashboard → Activity** (formerly Inbox) (default) | Your tracked repos over a range (this week by default; today, 7 or 30 days, this month, custom): open PRs and which are **ready for review (all checks passed)**, Actions health (exact pass rate, what's red on the default branch now), commits, lines, deployments, releases, contributors, and a section per repo | Scope to a group, manage what's tracked |
+| **Dashboard → Needs you** | Review queue (ready PRs first, oldest wait first), your open PRs, assigned issues, notifications | Done / Snooze, J/K/Enter/A/C |
 | **Pull requests** | Open / merged / closed with checks, review state, diff size; detail with description, reviews, files and diff, checks | Approve, request changes, comment, merge (squash / merge / rebase), close, check out |
 | **Actions** | Runs with duration and result, jobs and steps on one timeline, failing log lines | Re-run failed or all, cancel, watch |
 | **Environments** | What's deployed where, a deployment timeline | Open the deployed commit |
@@ -146,7 +146,7 @@ Everything is stored on your computer only:
 ## Keys
 
 **Ctrl+K** jump to anything · **Ctrl+,** settings · **F1** guide · **Ctrl+R** reload ·
-**Alt+← / Alt+→** back / forward · **Ctrl+1…6** Inbox, PRs, Actions, Environments, Commits,
+**Alt+← / Alt+→** back / forward · **Ctrl+1…6** Dashboard, PRs, Actions, Environments, Commits,
 Branches · **Esc** closes a window or cancels a merge countdown. Hover anything for a tooltip.
 
 ## Why it's fast
