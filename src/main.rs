@@ -948,6 +948,8 @@ impl State {
         let mut slugs = self.tracked();
         slugs.sort_by_key(|s| s.to_lowercase());
         if slugs.is_empty() || self.prefs.comparisons.is_empty() {
+            self.compare = Load::default();
+            self.compare_key.clear();
             return;
         }
         let rows: Vec<(String, Vec<Option<compare::Comparison>>)> = slugs
@@ -958,6 +960,10 @@ impl State {
             })
             .collect();
         let key = self.compare_key_now();
+        if self.compare_key != key {
+            // Rows for other repos or comparisons must never sit under the new key.
+            self.compare = Load::default();
+        }
         self.compare_key = key.clone();
         self.compare.loading = true;
         self.compare.error = None;
@@ -2333,6 +2339,32 @@ mod cache_tests {
         s.prefs.groups.clear();
         s.refresh_compare();
         assert!(!s.compare.loading && s.compare.data.is_none());
+    }
+
+    fn loaded_compare(s: &mut State) {
+        s.compare = Load::from_cache(vec![compare::RepoCompare { slug: "a/b".into(), cells: vec![], error: None }], 5);
+        s.compare_key = "old".into();
+    }
+
+    #[test]
+    fn refresh_compare_clears_old_rows_when_no_repos() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked.clear();
+        s.prefs.pinned.clear();
+        s.prefs.groups.clear();
+        loaded_compare(&mut s);
+        s.refresh_compare();
+        assert!(s.compare.data.is_none() && s.compare.at.is_none() && s.compare_key.is_empty());
+    }
+
+    #[test]
+    fn refresh_compare_clears_old_rows_when_no_comparisons() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked = vec!["a/b".into()];
+        s.prefs.comparisons.clear();
+        loaded_compare(&mut s);
+        s.refresh_compare();
+        assert!(s.compare.data.is_none() && s.compare.at.is_none() && s.compare_key.is_empty());
     }
 
     #[test]
