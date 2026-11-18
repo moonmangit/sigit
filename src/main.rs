@@ -33,6 +33,7 @@ mod jobs;
 mod model;
 mod pulse;
 mod risk;
+mod scan;
 mod ui;
 
 use std::collections::{HashMap, HashSet};
