@@ -1084,3 +1084,12 @@ Comparisons saved	บันทึกการเปรียบเทียบ�
 Every comparison needs a name and two branches	ทุกการเปรียบเทียบต้องมีชื่อและ branch สองอัน
 Two comparisons are called {name}	มีการเปรียบเทียบสองรายการชื่อ {name}
 {name} compares {branch} with itself	{name} เปรียบเทียบ {branch} กับตัวมันเอง
+Clone folders	โฟลเดอร์ที่เก็บ clone
+sigit looks for git clones in these folders at launch, so Commits and Branches work without locating each one.	sigit จะค้นหา git clone ในโฟลเดอร์เหล่านี้ตอนเปิดแอป ทำให้ Commits และ Branches ใช้งานได้โดยไม่ต้องระบุตำแหน่งทีละรายการ
+Add folder…	เพิ่มโฟลเดอร์…
+Rescan now	สแกนใหม่ตอนนี้
+No folders yet.	ยังไม่มีโฟลเดอร์
+Found {total} clones · {new} new · {known} already known · {skipped} skipped	พบ {total} clone · ใหม่ {new} · รู้จักแล้ว {known} · ข้าม {skipped}
+ · stopped early in {folder}	 · หยุดก่อนกำหนดใน {folder}
+Added {new} new clones from your folders	เพิ่ม clone ใหม่ {new} รายการจากโฟลเดอร์ของคุณ
+Choose a folder that holds your git clones	เลือกโฟลเดอร์ที่เก็บ git clone ของคุณ

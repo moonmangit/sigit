@@ -587,6 +587,9 @@ fn init() -> State {
             s.add_repo(saved.slug, Some(saved.path));
         }
     }
+    if !jobs::is_inline_run() {
+        s.rescan_folders(false);
+    }
     // A repo named on the command line (or the folder we started in) opens first. It isn't
     // saved: only "Add local repo" remembers one.
     let arg = rune::extra_args().into_iter().find(|a| !a.starts_with('-')).map(PathBuf::from);
@@ -1707,6 +1710,77 @@ impl State {
         self.toast(crate::i18n::t("Safety settings saved"), false);
     }
 
+    /// Remembers every repo that has a local clone, so the next launch finds them.
+    fn save_repo_list(&mut self) {
+        let saved: Vec<config::Saved> =
+            self.repos.iter().filter_map(|r| Some(config::Saved { slug: r.slug.clone(), path: r.path.clone()? })).collect();
+        if let Err(e) = config::save(&saved) {
+            self.toast(crate::i18n::t(tf!("Couldn't save the repo list: {e}")), true);
+        }
+    }
+
+    /// Adds the clones a scan found. A repo that already has a path keeps it. Returns
+    /// (new, already known) and saves the repo list once when anything is new.
+    pub fn add_clones(&mut self, scans: Vec<scan::Scan>) -> (usize, usize) {
+        let (mut new, mut known) = (0, 0);
+        for f in scans.into_iter().flat_map(|sc| sc.found) {
+            if self.repos.iter().any(|r| r.slug == f.slug && r.path.is_some()) {
+                known += 1;
+            } else {
+                self.add_repo(f.slug, Some(f.path));
+                new += 1;
+            }
+        }
+        if new > 0 && !jobs::is_inline_run() {
+            self.save_repo_list();
+        }
+        (new, known)
+    }
+
+    /// Scans every clone folder in the background and adds what it finds. `announce` is a
+    /// scan the user asked for (always answered); a launch scan only speaks when it adds clones.
+    pub fn rescan_folders(&mut self, announce: bool) {
+        let folders = self.prefs.clone_folders.clone();
+        if folders.is_empty() {
+            return;
+        }
+        jobs::spawn(
+            self,
+            move || folders.into_iter().map(|f| { let r = scan::scan(&f); (f, r) }).collect::<Vec<_>>(),
+            move |s, done| {
+                let stopped: Vec<String> = done.iter().filter(|(_, r)| r.stopped_early).map(|(f, _)| f.display().to_string()).collect();
+                let (total, skipped) = (done.iter().map(|(_, r)| r.found.len()).sum::<usize>(), done.iter().map(|(_, r)| r.skipped).sum::<usize>());
+                let (new, known) = s.add_clones(done.into_iter().map(|(_, r)| r).collect());
+                if announce {
+                    let mut msg = crate::i18n::t(tf!("Found {total} clones · {new} new · {known} already known · {skipped} skipped"));
+                    if !stopped.is_empty() {
+                        let folder = stopped.join(", ");
+                        msg.push_str(&crate::i18n::t(tf!(" · stopped early in {folder}")));
+                    }
+                    s.toast(msg, false);
+                } else if new > 0 {
+                    s.toast(crate::i18n::t(tf!("Added {new} new clones from your folders")), false);
+                }
+            },
+        );
+    }
+
+    /// Settings: stop scanning a folder. Clones already added stay.
+    pub fn remove_clone_folder(&mut self, i: usize) {
+        if i < self.prefs.clone_folders.len() {
+            self.prefs.clone_folders.remove(i);
+            self.save_prefs();
+        }
+    }
+
+    fn add_clone_folder(&mut self, dir: PathBuf) {
+        if !self.prefs.clone_folders.contains(&dir) {
+            self.prefs.clone_folders.push(dir);
+            self.save_prefs();
+        }
+        self.rescan_folders(true);
+    }
+
     fn add_local_repo(&mut self, dir: PathBuf) {
         let Some(top) = git::toplevel(&dir) else {
             self.toast(crate::i18n::t(tf!("{} isn't a git repository", dir.display())), true);
@@ -1717,11 +1791,7 @@ impl State {
             return;
         };
         self.add_repo(slug.clone(), Some(top));
-        let saved: Vec<config::Saved> =
-            self.repos.iter().filter_map(|r| Some(config::Saved { slug: r.slug.clone(), path: r.path.clone()? })).collect();
-        if let Err(e) = config::save(&saved) {
-            self.toast(crate::i18n::t(tf!("Couldn't save the repo list: {e}")), true);
-        }
+        self.save_repo_list();
         self.select_repo(&slug, Page::Commits);
     }
 }
@@ -1731,6 +1801,16 @@ pub fn ask_local_repo(s: &mut State, tx: &mut Tx) {
     let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.local_path(), ..Default::default() };
     tx.open_folder(options, |s: &mut State, r, _| match r {
         Ok(Some(dir)) => s.add_local_repo(dir),
+        Ok(None) => {}
+        Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
+    });
+}
+
+/// Settings → Git "Add folder…": the OS folder picker, then a scan of the folder.
+pub fn ask_clone_folder(_s: &mut State, tx: &mut Tx) {
+    let options = FileDialogOptions { title: "Choose a folder that holds your git clones".into(), ..Default::default() };
+    tx.open_folder(options, |s: &mut State, r, _| match r {
+        Ok(Some(dir)) => s.add_clone_folder(dir),
         Ok(None) => {}
         Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
     });
@@ -2596,5 +2676,57 @@ mod cache_tests {
         let back: cache::Snapshot = serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
         let (k, p) = back.pulse.unwrap();
         assert_eq!((k.as_str(), p.open_total, p.repos[0].runs[0].outcome), ("k", 4, Some(model::Outcome::Failure)));
+    }
+
+    fn found(slug: &str, path: &str) -> scan::Found {
+        scan::Found { slug: slug.into(), path: PathBuf::from(path), depth: 1 }
+    }
+
+    #[test]
+    fn add_clones_keeps_known_paths_and_counts() {
+        let mut s = State::new(config::Prefs::default());
+        s.add_repo("a/b".into(), Some(PathBuf::from("P1")));
+        s.add_repo("x/y".into(), None);
+        let scans = vec![
+            scan::Scan { found: vec![found("a/b", "P2"), found("c/d", "P3")], skipped: 0, stopped_early: false },
+            scan::Scan { found: vec![found("c/d", "P4")], skipped: 1, stopped_early: false },
+        ];
+        assert_eq!(s.add_clones(scans), (1, 2), "c/d is new once; a/b and the repeat of c/d were known");
+        let path = |slug: &str| s.repos.iter().find(|r| r.slug == slug).unwrap().path.clone();
+        assert_eq!(path("a/b"), Some(PathBuf::from("P1")), "a saved path is kept");
+        assert_eq!(path("c/d"), Some(PathBuf::from("P3")));
+        let order: Vec<&str> = s.repos.iter().map(|r| r.slug.as_str()).collect();
+        assert_eq!(order, ["a/b", "c/d", "x/y"], "local clones sort before repos without a path");
+    }
+
+    #[test]
+    fn add_clones_gives_a_pathless_repo_its_clone() {
+        let mut s = State::new(config::Prefs::default());
+        s.add_repo("x/y".into(), None);
+        let scans = vec![scan::Scan { found: vec![found("x/y", "P9")], skipped: 0, stopped_early: false }];
+        assert_eq!(s.add_clones(scans), (1, 0));
+        assert_eq!(s.repos[0].path, Some(PathBuf::from("P9")));
+    }
+
+    #[test]
+    fn remove_clone_folder_only_drops_the_folder() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.clone_folders = vec![PathBuf::from("A"), PathBuf::from("B")];
+        s.add_repo("a/b".into(), Some(PathBuf::from("A/b")));
+        s.remove_clone_folder(0);
+        s.remove_clone_folder(7);
+        assert_eq!(s.prefs.clone_folders, vec![PathBuf::from("B")]);
+        assert_eq!(s.repos.len(), 1);
+    }
+
+    /// Reads the real disk: run by hand with `-- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_scan() {
+        let r = scan::scan(std::path::Path::new("C:/Users/seaga/Desktop/Project"));
+        println!("found={} skipped={} stopped_early={}", r.found.len(), r.skipped, r.stopped_early);
+        for f in &r.found {
+            println!("{} {} depth {}", f.slug, f.path.display(), f.depth);
+        }
     }
 }

@@ -1,8 +1,5 @@
 //! Finds git clones under a folder, for the Settings "scan a folder" action. Pure: no State, no UI.
 
-// Wired into Settings and launch in a later task.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

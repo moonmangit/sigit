@@ -59,7 +59,7 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let content = match s.settings_sec {
         0 => appearance(s, k),
         1 => accounts(s, k),
-        2 => col().w_full().gap(18.0).child(git_identity(s, k)).child(comparisons(s, k)),
+        2 => col().w_full().gap(18.0).child(git_identity(s, k)).child(clone_folders(s, k)).child(comparisons(s, k)),
         3 => safety(s, k),
         4 => notifications(s, k),
         5 => data(s, k),
@@ -346,6 +346,44 @@ fn git_identity(s: &State, k: &Kit) -> El {
         .w_full()
         .gap(14.0)
         .child(group(k, "Author identity", vec![block(k, "git-id", col().w_full().gap(10.0).child(muted(k, "The name and email git puts on commits you make on this computer (git config --global user.name / user.email). A repo can still override them with its own config.").wrap().w_full()).child(fields))]))
+}
+
+/// Folders sigit searches for git clones at launch, and the buttons to add, rescan or drop one.
+fn clone_folders(s: &State, k: &Kit) -> El {
+    let mut list = col().w_full().gap(6.0);
+    if s.prefs.clone_folders.is_empty() {
+        list = list.child(muted(k, "No folders yet."));
+    }
+    for (i, f) in s.prefs.clone_folders.iter().enumerate() {
+        list = list.child(
+            row()
+                .key(crate::tf!("clone-folder-{i}"))
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(rune::text(f.display().to_string()).font(k.ty.ui).color(k.c.text_strong).wrap().w(0.0).grow(1.0))
+                .child(Button::new(crate::i18n::t("Remove")).variant(ButtonVariant::Outline).on_press(move |s: &mut State| s.remove_clone_folder(i)).build(k).key(crate::tf!("clone-remove-{i}"))),
+        );
+    }
+    let foot = row()
+        .w_full()
+        .gap(8.0)
+        .child(Button::new(crate::i18n::t("Add folder…")).variant(ButtonVariant::Outline).on_press_tx(crate::ask_clone_folder).build(k).key("clone-add"))
+        .child(Button::new(crate::i18n::t("Rescan now")).variant(ButtonVariant::Outline).disabled(s.prefs.clone_folders.is_empty()).on_press(|s: &mut State| s.rescan_folders(true)).build(k).key("clone-rescan"));
+    group(
+        k,
+        "Clone folders",
+        vec![block(
+            k,
+            "git-clones",
+            col()
+                .w_full()
+                .gap(10.0)
+                .child(muted(k, "sigit looks for git clones in these folders at launch, so Commits and Branches work without locating each one.").wrap().w_full())
+                .child(list)
+                .child(foot),
+        )],
+    )
 }
 
 /// A field of comparison row `i` (0 name, 1 From, 2 To). Edits reach only a row that exists.
