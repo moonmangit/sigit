@@ -57,8 +57,9 @@ keep your local folder paths out of the binary. Official releases are built by
 
 | View | Shows | Actions |
 |---|---|---|
-| **Dashboard → Activity** (formerly Inbox) (default) | Your tracked repos over a range (this week by default; today, 7 or 30 days, this month, custom): open PRs and which are **ready for review (all checks passed)**, Actions health (exact pass rate, what's red on the default branch now), commits, lines, deployments, releases, contributors, and a section per repo | Scope to a group, manage what's tracked |
+| **Dashboard → Activity** (default; formerly Inbox) | Your tracked repos over a range (this week by default; today, 7 or 30 days, this month, custom): open PRs and which are **ready for review (all checks passed)**, Actions health (exact pass rate, what's red on the default branch now), commits, lines, deployments, releases, contributors, and a section per repo | Scope to a group, manage what's tracked |
 | **Dashboard → Needs you** | Review queue (ready PRs first, oldest wait first), your open PRs, assigned issues, notifications | Done / Snooze, J/K/Enter/A/C |
+| **Dashboard → Comparisons** | Per tracked repo, commits and PRs waiting between your branch pairs (dev → staging…), one GitHub query | Edit per repo; click a cell for its PRs and commits |
 | **Pull requests** | Open / merged / closed with checks, review state, diff size; detail with description, reviews, files and diff, checks | Approve, request changes, comment, merge (squash / merge / rebase), close, check out |
 | **Actions** | Runs with duration and result, jobs and steps on one timeline, failing log lines | Re-run failed or all, cancel, watch |
 | **Environments** | What's deployed where, a deployment timeline | Open the deployed commit |
@@ -168,10 +169,19 @@ cargo run -- --snap shot.png --scene prs --size 1400x860    # headless still of 
 ```
 
 Scenes (in `src/main.rs`): `inbox`, `activity`, `needs`, `prs`, `actions`, `envs`, `commits`,
-`branches`, `merge`, `palette`, `settings`, `guide`, `group`, `groups`, `orgs`; `light-*` for
-the light theme; `cmd-*` for a button's command card (with `--script` moving the pointer onto
+`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-edit`, `guide`, `group`, `groups`, `orgs`; `light-*` for
+the light theme (`light-comparisons`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
 it); `setup`, `welcome`, `update-available`, and more. They use public repositories and sample
 data and never write anything. Add `SIGIT_LANG=th` to render in Thai.
+
+**Comparisons.** Edited in Settings → Git (name, From, To; a pair like dev → staging), and changed
+per repo from the gear on that repo's row on the Dashboard. Each cell counts the commits and PRs
+on From that To doesn't have yet. The second number counts merged PRs, so squash merges count;
+PRs are counted from up to 500 commits per comparison.
+
+**Clone folders.** Add folders in Settings → Git; they're scanned at launch and on Rescan now,
+5 levels deep, skipping hidden folders, `node_modules`, `target`, `vendor`, `dist` and `build`.
+Clones found are added to your repos. Scanning never writes to a clone.
 
 **Translations.** English is written in the code and is its own key: `assets/i18n/th.tsv`
 maps each English string to Thai (`English<TAB>Thai`, `\n` for a newline). Use `t("…")` (or
@@ -185,6 +195,9 @@ every English string it actually shows that the catalog lacks.
 | `src/main.rs` | `State`, loading and caching rules, frame hooks, scenes |
 | `src/gh.rs` / `src/git.rs` | every `gh` and `git` call, and the `Cmd`s actions show and run |
 | `src/pulse.rs` | the Activity page's data |
+| `src/compare.rs` | branch-comparison settings and the batched GitHub query |
+| `src/scan.rs` | finding clones inside a folder |
+| `src/ui/compare.rs` | the Comparisons tab and the per-repo dialog |
 | `src/guard.rs` / `src/risk.rs` | risk checks, confirmations, undo |
 | `src/daily.rs` | notifications, review queue, triage, groups, watches, palette |
 | `src/cache.rs`, `src/config.rs`, `src/settings.rs` | the on-disk cache, preferences, the Settings window's actions |

@@ -408,6 +408,7 @@ pub const GUIDE: [(&str, &[&str]); 13] = [
         "It has two parts. Overview: totals across every tracked repo, per-day bars, who contributed, and repos at a glance (click one to jump to it). By repository: a section per repo, most changed first, with cards for pull requests, commits and lines, CI per workflow, contributors, and deployments and releases. Fold any section, or all of them.",
         "Tracked repos default to your pinned repos plus your groups. Change them with Manage tracked, or right-click any repo → Track in Activity. Switch the scope to one group to see just that product.",
         "The Needs you tab is your day: PRs waiting for your review, your own PRs, assigned issues, recent CI runs, and your GitHub notifications.",
+        "The Comparisons tab shows, for each tracked repo, how far one branch is ahead of another (dev → staging, say): commits and PRs waiting. Click a cell for the PRs and commits, or the gear on a row to change that repo's branches. Set the defaults in Settings → Git.",
         "Notifications: Open jumps into the PR or run. Done marks it read on GitHub too. Snooze hides it on this computer for 1 hour or until tomorrow.",
     ]),
     ("Review queue", &[
@@ -462,7 +463,7 @@ pub const GUIDE: [(&str, &[&str]); 13] = [
         "Notifications show while sigit is open, even minimized. Click one to jump to it.",
     ]),
     ("Settings & shortcuts", &[
-        "Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, language, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email), Safety (merge countdown, showing gh / git commands, production names, sensitive paths), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About (version and updates).",
+        "Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, language, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email, clone folders, branch comparisons), Safety (merge countdown, showing gh / git commands, production names, sensitive paths), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About (version and updates).",
         "Sections side by side (a list and its detail, the Activity panels, each repo's cards, Needs you) have a handle between them: drag it to resize, double-click it to reset. Sizes are remembered.",
         "Next to Back / Forward, \"updated 2m ago\" says how fresh the page is (\"cached\" = from last session, red = the last update failed). Pages show what they loaded at once, and check again in the background whenever you open one or come back to the window, so you rarely need Refresh (Activity at most once a minute). While a page stays open it re-checks on its own (PRs 2 min, runs 1 min or 15 s while running, local git 20 s, Activity 5 min). Click it or press Ctrl+R to reload everything now.",
         "Back / Forward (top left of the toolbar, or Alt+← / Alt+→) step through the pages and repos you visited, like a browser.",

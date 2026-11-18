@@ -416,24 +416,24 @@ fn comparisons(s: &State, k: &Kit) -> El {
         };
         list = list.child(
             row()
-                .key(crate::tf!("cmp-row-{i}"))
+                .key(crate::tf!("set-cmp-row-{i}"))
                 .w_full()
                 .gap(8.0)
                 .center_y()
-                .child(row().w(0.0).grow(1.2).child(input(name, "Name", 0, "cmp-name")))
-                .child(row().w(0.0).grow(1.0).child(input(from, "From", 1, "cmp-from")))
+                .child(row().w(0.0).grow(1.2).child(input(name, "Name", 0, "set-cmp-name")))
+                .child(row().w(0.0).grow(1.0).child(input(from, "From", 1, "set-cmp-from")))
                 .child(rune::text("→").font(k.ty.ui).color(k.c.text_faint))
-                .child(row().w(0.0).grow(1.0).child(input(to, "To", 2, "cmp-to")))
-                .child(Button::new(crate::i18n::t("Swap")).variant(ButtonVariant::Outline).on_press(move |s: &mut State| s.cmp_swap(i)).build(k).key(crate::tf!("cmp-swap-{i}")))
-                .child(icon(&glyphs::CHEVRON_UP, "Move up", i == 0, "cmp-up", |s, i| s.cmp_move(i, -1)))
-                .child(icon(&glyphs::CHEVRON_DOWN, "Move down", i + 1 == n, "cmp-down", |s, i| s.cmp_move(i, 1)))
-                .child(icon(&glyphs::CLOSE, "Remove", false, "cmp-remove", |s, i| s.cmp_remove(i))),
+                .child(row().w(0.0).grow(1.0).child(input(to, "To", 2, "set-cmp-to")))
+                .child(Button::new(crate::i18n::t("Swap")).variant(ButtonVariant::Outline).on_press(move |s: &mut State| s.cmp_swap(i)).build(k).key(crate::tf!("set-cmp-swap-{i}")))
+                .child(icon(&glyphs::CHEVRON_UP, "Move up", i == 0, "set-cmp-up", |s, i| s.cmp_move(i, -1)))
+                .child(icon(&glyphs::CHEVRON_DOWN, "Move down", i + 1 == n, "set-cmp-down", |s, i| s.cmp_move(i, 1)))
+                .child(icon(&glyphs::CLOSE, "Remove", false, "set-cmp-remove", |s, i| s.cmp_remove(i))),
         );
     }
     let foot = row()
         .w_full()
         .gap(8.0)
-        .child(Button::new(crate::i18n::t("Add comparison")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.cmp_add()).build(k).key("cmp-add"))
+        .child(Button::new(crate::i18n::t("Add comparison")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.cmp_add()).build(k).key("set-cmp-add"))
         .child(spacer())
         .child(
             Button::new(crate::i18n::t("Save"))
@@ -444,7 +444,7 @@ fn comparisons(s: &State, k: &Kit) -> El {
                     }
                 })
                 .build(k)
-                .key("cmp-save-all"),
+                .key("set-cmp-save-all"),
         );
     group(
         k,

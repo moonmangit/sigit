@@ -92,7 +92,7 @@ impl State {
         let renamed: Vec<(usize, String, String)> = rows
             .iter()
             .enumerate()
-            .filter_map(|(i, (n, ..))| self.cmp_ids[i].as_ref().filter(|id| *id != n).map(|id| (i, id.clone(), n.clone())))
+            .filter_map(|(i, (n, ..))| self.cmp_ids.get(i).cloned().flatten().filter(|id| id != n).map(|id| (i, id, n.clone())))
             .collect();
         for (i, old, _) in &renamed {
             crate::compare::rename(&mut self.prefs, old, &format!("\u{0}{i}"));

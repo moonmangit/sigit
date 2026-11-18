@@ -100,11 +100,11 @@ impl<T> Load<T> {
     }
 }
 
-/// How long fetched data counts as fresh (seconds). Opening a page, going back, and the 30 s
-/// tick reload only what's older; Ctrl+R and finished actions reload everything on the page.
 /// The Dashboard tab that holds the branch comparisons (0 Activity, 1 Needs you).
 pub const COMPARE_TAB: usize = 2;
 
+/// How long fetched data counts as fresh (seconds). Opening a page, going back, and the 30 s
+/// tick reload only what's older; Ctrl+R and finished actions reload everything on the page.
 pub mod ttl {
     /// PR lists, environments, the inbox, notifications.
     pub const GH: i64 = 120;
@@ -1760,6 +1760,9 @@ impl State {
                     s.toast(msg, false);
                 } else if new > 0 {
                     s.toast(crate::i18n::t(tf!("Added {new} new clones from your folders")), false);
+                }
+                if new > 0 {
+                    s.revalidate_page();
                 }
             },
         );

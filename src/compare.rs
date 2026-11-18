@@ -285,6 +285,9 @@ pub fn apply_page(cell: &mut Cell, c: &Comparison, json: &serde_json::Value) -> 
     let Cell::Waiting { prs, loose, checked, .. } = cell else { return None };
     let commits = &json["data"]["repository"]["ref"]["compare"]["commits"];
     let nodes = nodes(commits);
+    if nodes.is_empty() {
+        return None;
+    }
     add_nodes(prs, loose, c, nodes);
     *checked = (*checked + nodes.len() as u32).min(MAX_CHECKED);
     next_cursor(commits, *checked)
@@ -334,8 +337,8 @@ pub fn fetch(rows: Vec<(String, Vec<Option<Comparison>>)>) -> Vec<RepoCompare> {
             loop {
                 match graphql(&page_query(&chunk[i].0, &c, &cur)) {
                     Ok(page) => match apply_page(&mut out[i].cells[j], &c, &page) {
-                        Some(next) => cur = next,
-                        None => break,
+                        Some(next) if next != cur => cur = next,
+                        _ => break,
                     },
                     Err(e) => {
                         out[i].error = Some(e);
@@ -536,6 +539,14 @@ mod tests {
         let rows = one(cmp("dev", "staging"));
         let (_, more) = parse(&rows, &data(250, vec![node("a", vec![])], true, "abc"));
         assert_eq!(more, vec![(0, 0, "abc".to_string())]);
+    }
+
+    #[test]
+    fn apply_page_stops_on_empty_page() {
+        let c = cmp("dev", "staging");
+        let mut cell = Cell::Waiting { commits: 900, prs: vec![], loose: vec![], checked: 0 };
+        let page = json!({"data": {"repository": {"ref": {"compare": {"commits": {"pageInfo": {"hasNextPage": true, "endCursor": "n"}, "nodes": []}}}}}});
+        assert_eq!(apply_page(&mut cell, &c, &page), None);
     }
 
     #[test]
