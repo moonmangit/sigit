@@ -310,7 +310,8 @@ pub fn side_pane(k: &Kit, key: &str, content: El) -> El {
 // Shell
 // ---------------------------------------------------------------------------------------------
 
-pub fn view(s: &State, cx: &mut Cx<State>) -> El {
+/// The theme and type for this frame: light or dark, Thai line heights, the modal backdrop.
+fn kit(s: &State, cx: &mut Cx<State>) -> Kit {
     let dark = match s.prefs.theme {
         Theme::System => cx.system_dark(),
         Theme::Light => false,
@@ -332,6 +333,11 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     // A darker backdrop behind every modal (dialogs, the guide, the palette) so what's in
     // front stands out; the kit's default is 30% black.
     k.c.scrim = Color::BLACK.alpha(if dark { 0.62 } else { 0.48 });
+    k
+}
+
+pub fn view(s: &State, cx: &mut Cx<State>) -> El {
+    let k = kit(s, cx);
     cx.zoom(s.prefs.zoom); // Settings → Appearance → Text size
     let mut layer = Vec::new();
 
@@ -350,6 +356,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     overlays::guide(s, &k, &mut layer);
     overlays::grace_banner(s, &k, &mut layer);
     overlays::toasts(s, &k, &mut layer);
+    overlays::crash_dialog(s, &k, &mut layer);
     cmd::tip_layer(s, &k, &mut layer);
     // Every plain tooltip in the same card look, fading in and out a little.
     cx.help_look(cmd::help_look(&k));
@@ -413,7 +420,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         .frame_inset(8.0)
         .toolbar_in_panel()
         .build(&k);
-    cx.caption_color(if dark { Color::WHITE } else { Color::BLACK });
+    cx.caption_color(if k.dark { Color::WHITE } else { Color::BLACK });
     let ready = !s.setup.covers_app() && onboarding::splash_message(s).is_none();
     let bar = titlebar(&k, cx.chrome_insets(), ready);
     // Setup missing something, or a first run: that screen takes the window.
@@ -435,6 +442,37 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     // Window focus is only told to the root element, which `rune_kit::root` makes: coming back
     // to the window checks the page again.
     rune_kit::root(app, layer).on_window_focus(|s: &mut State, focused, _| s.window_focus(focused))
+}
+
+/// What the window shows when building the app's view panicked: the error, a way to copy it,
+/// and a way back to a page that works. Plain on purpose, so it can't fail the same way.
+pub fn crash_screen(s: &State, cx: &mut Cx<State>) -> El {
+    let k = kit(s, cx);
+    let report = s.crash.last().cloned().or_else(crate::crash_log::latest);
+    let card = overlays::crash_card(&k, report.as_ref(), "This page hit an error, so sigit stopped drawing it. Everything else is still running.")
+        .w(640.0)
+        .padding(20.0)
+        .radius(k.radius.lg)
+        .fill(k.c.surface_base)
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .child(spacer())
+                .child(overlays::copy_report_button(&k, report.as_ref()))
+                .child(
+                    Button::new(crate::i18n::t("Go to Inbox"))
+                        .variant(ButtonVariant::Submit)
+                        .on_press(|s: &mut State| {
+                            s.crash.clear();
+                            s.show(Page::Inbox);
+                        })
+                        .build(&k)
+                        .key("crash-inbox"),
+                ),
+        );
+    let bar = titlebar(&k, cx.chrome_insets(), false);
+    col().key("app").w_full().h_full().fill(k.c.page).child(bar).child(col().w_full().grow(1.0).center().padding(16.0).child(card))
 }
 
 /// New group / rename group: a name field and Save.

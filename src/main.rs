@@ -17,6 +17,7 @@
 mod i18n;
 mod activity;
 mod cache;
+mod crash_log;
 mod focus;
 mod onboarding;
 mod settings;
@@ -370,6 +371,8 @@ pub struct State {
     pub guide_open: bool,
     pub guide_sec: usize,
     // Overlays
+    /// Errors caught instead of closing the app, oldest first: the error dialog shows the first.
+    pub crash: Vec<crash_log::Report>,
     pub toasts: Vec<Toast>,
     pub next_toast: u64,
     /// Labels of write actions in flight ("Merging #12"), shown in the toolbar.
@@ -505,6 +508,7 @@ fn init() -> State {
         palette_sel: 0,
         guide_open: false,
         guide_sec: 0,
+        crash: Vec::new(),
         toasts: Vec::new(),
         next_toast: 0,
         busy: Vec::new(),
@@ -1627,7 +1631,29 @@ pub fn open_url(tx: &mut Tx, url: &str) {
 /// Timers: toasts fade (5 s, 10 s with Undo); a merge's grace period runs out; the page reloads
 /// what went stale (`ttl`: runs every 15 s while one is running); watches every 30 s;
 /// notifications every 60 s; the cache is saved every 3 minutes.
+/// Rune calls these three into sigit every frame and on every key. A panic in one is caught
+/// here and shown in the error dialog instead of closing the app (`crash_log`).
 fn poll(s: &mut State, clock: f64, tx: &mut Tx) -> bool {
+    let changed = crash_log::catch(|| poll_inner(s, clock, tx)).unwrap_or(true);
+    let new = crash_log::take();
+    let shown = !new.is_empty();
+    s.crash.extend(new);
+    changed || shown
+}
+
+fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    crash_log::catch(|| on_key_inner(s, ev, tx)).unwrap_or(true)
+}
+
+/// The app, or when building it panicked, a screen with the error and a way out.
+fn view(s: &State, cx: &mut Cx<State>) -> El {
+    match crash_log::catch(|| ui::view(s, cx)) {
+        Some(el) => el,
+        None => ui::crash_screen(s, cx),
+    }
+}
+
+fn poll_inner(s: &mut State, clock: f64, tx: &mut Tx) -> bool {
     s.clock = clock;
     let mut changed = false;
     let before = s.toasts.len();
@@ -1676,7 +1702,7 @@ fn poll(s: &mut State, clock: f64, tx: &mut Tx) -> bool {
 /// Ctrl+K palette, F1 guide, Ctrl+R refresh, Ctrl+1…6 pages (Cmd on macOS); on the Inbox,
 /// J/K/Enter/A/C work the review queue (only when no text field has focus: fields take letters
 /// first).
-fn on_key(s: &mut State, ev: &KeyEvent, _: &mut Tx) -> bool {
+fn on_key_inner(s: &mut State, ev: &KeyEvent, _: &mut Tx) -> bool {
     use rune::Key;
     if ev.is_command('k') {
         s.open_palette();
@@ -1749,11 +1775,10 @@ const FONTS: &[&[u8]] = &[
 /// Latin in Inter; Thai, which Inter lacks, falls through to Noto Sans Thai.
 const FAMILIES: (&str, &str) = ("Inter, Noto Sans Thai", "IBM Plex Mono, Noto Sans Thai");
 
-fn view(s: &State, cx: &mut Cx<State>) -> El {
-    ui::view(s, cx)
-}
 
 fn main() {
+    config::migrate_old_folder(); // before the crash log makes the folder
+    crash_log::install();
     #[cfg(target_os = "macos")]
     gh::fix_path();
     let spec = AppSpec {
@@ -2190,7 +2215,11 @@ fn main() {
     if !headless {
         jobs::install(app.handle());
     }
-    app.run();
+    // An error the catches above couldn't stop ends the event loop: save it and start again.
+    if crash_log::catch(|| app.run()).is_none() {
+        crash_log::restart();
+        std::process::exit(101);
+    }
 }
 
 #[cfg(test)]

@@ -16,6 +16,62 @@ use crate::risk::Level;
 use crate::State;
 
 // ---------------------------------------------------------------------------------------------
+// Errors caught instead of closing the app (crash_log)
+// ---------------------------------------------------------------------------------------------
+
+/// The error dialog, above everything: the first caught error, Copy, Dismiss.
+pub fn crash_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
+    let Some(report) = s.crash.first() else { return };
+    let more = s.crash.len() - 1;
+    let lead = if more == 0 { crate::i18n::t("sigit caught this error and kept running. Copy it to report it.") } else { tf!("sigit caught this error and {more} more, and kept running. Copy it to report it.") };
+    let body = crash_card(k, Some(report), &lead).w_full().px(16.0).pb(16.0).child(
+        row()
+            .w_full()
+            .gap(8.0)
+            .child(spacer())
+            .child(copy_report_button(k, Some(report)))
+            .child(Button::new(crate::i18n::t(if more == 0 { "Dismiss" } else { "Next error" })).variant(ButtonVariant::Submit).on_press(dismiss_crash).build(k).key("crash-dismiss")),
+    );
+    Dialog::new("crash", crate::i18n::t("Something went wrong")).open(true).fit().width(640.0).on_close(dismiss_crash).child(body).build(k, layer);
+}
+
+fn dismiss_crash(s: &mut State) {
+    if !s.crash.is_empty() {
+        s.crash.remove(0);
+    }
+}
+
+/// What the error dialog and the error screen show: a line saying what happened, then the
+/// error itself, selectable, in mono.
+pub fn crash_card(k: &Kit, report: Option<&crate::crash_log::Report>, lead: &str) -> El {
+    let summary = report.map_or("(no details)", |r| r.summary.as_str());
+    col()
+        .gap(12.0)
+        .child(text(lead.to_owned()).font(k.ty.body).color(k.c.text_base).wrap().w_full())
+        .child(
+            col()
+                .w_full()
+                .padding(12.0)
+                .radius(k.radius.md)
+                .fill(k.c.danger.bg)
+                .child(rune::text(summary.to_owned()).font(TextStyle { size: 11.5, ..k.ty.mono }).color(k.c.danger.fg).wrap().w_full().selectable(true).key("crash-text")),
+        )
+}
+
+/// Copies the whole report (message, place, version, backtrace) to paste into a bug report.
+pub fn copy_report_button(k: &Kit, report: Option<&crate::crash_log::Report>) -> El {
+    let details = report.map(|r| r.details.clone()).unwrap_or_default();
+    Button::new(crate::i18n::t("Copy error details"))
+        .variant(ButtonVariant::Outline)
+        .on_press_tx(move |s: &mut State, tx| {
+            tx.copy(details.clone());
+            s.toast(crate::i18n::t("Error details copied"), false);
+        })
+        .build(k)
+        .key("crash-copy")
+}
+
+// ---------------------------------------------------------------------------------------------
 // A1: the guard dialog
 // ---------------------------------------------------------------------------------------------
 

@@ -2,6 +2,9 @@
 //! result to a closure that runs on the UI thread with `&mut State`, through Rune's
 //! `AppHandle::update`. The UI never waits on the network.
 //!
+//! A panic in a result's closure is caught (`crash_log`): the error dialog shows it and the app
+//! keeps running.
+//!
 //! Headless runs (`--snap`, tests) have no event loop to deliver results into, so there the
 //! work runs inline and the result lands before the frame is drawn.
 
@@ -44,7 +47,7 @@ pub fn debounced<T: Send + 'static>(
                 let out = work();
                 h.update(move |s, _| {
                     if latest.load(Ordering::SeqCst) == me {
-                        done(s, out);
+                        crate::crash_log::catch(|| done(s, out));
                     }
                 });
             });
@@ -71,7 +74,9 @@ pub fn spawn<T: Send + 'static>(
             let h = h.clone();
             std::thread::spawn(move || {
                 let out = work();
-                h.update(move |s, _| done(s, out));
+                h.update(move |s, _| {
+                    crate::crash_log::catch(|| done(s, out));
+                });
             });
         }
         None => {
@@ -94,7 +99,7 @@ pub fn spawn_each<T: Send + 'static>(s: &mut State, works: Vec<Box<dyn FnOnce() 
                 std::thread::spawn(move || {
                     let out = work();
                     h.update(move |s, tx| {
-                        if done(s, out) {
+                        if crate::crash_log::catch(|| done(s, out)).unwrap_or(false) {
                             tx.animated();
                         }
                     });
@@ -118,6 +123,8 @@ pub fn is_inline_run() -> bool {
 /// Change state from any thread (a notification click).
 pub fn update(f: impl FnOnce(&mut State) + Send + 'static) {
     if let Some(h) = HANDLE.get() {
-        h.update(move |s, _| f(s));
+        h.update(move |s, _| {
+            crate::crash_log::catch(|| f(s));
+        });
     }
 }

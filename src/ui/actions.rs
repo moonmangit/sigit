@@ -283,8 +283,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     let bar = |key: String, a: &str, b: &str, o: Outcome, h: f32| {
         let s0 = t(a).unwrap_or(start);
         let e0 = t(b).filter(|e| *e >= s0).unwrap_or(if o.is_running() { now } else { s0 });
-        let off = ((s0 - start) as f32 / span).clamp(0.0, 1.0);
-        let len = (((e0 - s0) as f32) / span).clamp(0.004, 1.0 - off);
+        let (off, len) = bar_place((s0 - start) as f32 / span, (e0 - s0) as f32 / span);
         row()
             .key(key)
             .w_full()
@@ -337,4 +336,28 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     }
     c = c.child(col().w_full().gap(8.0).child(text("Jobs timeline").font(k.ty.small_medium).color(k.c.text_muted)).child(timeline));
     Some(side_pane(k, "run-pane", c))
+}
+
+/// Where a timeline bar sits, as shares of the run: (offset, length). Every bar is at least
+/// 0.4% wide so a one-second step still shows; one that starts at the very end moves left to
+/// fit instead of running past the edge.
+fn bar_place(off: f32, len: f32) -> (f32, f32) {
+    let len = if len.is_finite() { len.clamp(0.004, 1.0) } else { 0.004 };
+    let off = if off.is_finite() { off.clamp(0.0, 1.0 - len) } else { 0.0 };
+    (off, len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bar_place;
+
+    #[test]
+    fn bars_stay_inside_the_timeline() {
+        // The crash: a step starting in the last 0.4% (min 0.004 > max 1 - off).
+        let (off, len) = bar_place(0.998, 0.0);
+        assert!((len - 0.004).abs() < 1e-6 && off + len <= 1.0 + 1e-6, "{off} {len}");
+        assert_eq!(bar_place(0.25, 0.5), (0.25, 0.5));
+        assert_eq!(bar_place(-1.0, 3.0), (0.0, 1.0));
+        assert_eq!(bar_place(f32::NAN, f32::NAN), (0.0, 0.004));
+    }
 }
