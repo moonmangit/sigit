@@ -1093,3 +1093,4 @@ Found {total} clones · {new} new · {known} already known · {skipped} skipped	
  · stopped early in {folder}	 · หยุดก่อนกำหนดใน {folder}
 Added {new} new clones from your folders	เพิ่ม clone ใหม่ {new} รายการจากโฟลเดอร์ของคุณ
 Choose a folder that holds your git clones	เลือกโฟลเดอร์ที่เก็บ git clone ของคุณ
+Loading this repo's comparisons stopped unexpectedly	การโหลดการเปรียบเทียบของ repo นี้หยุดกะทันหัน

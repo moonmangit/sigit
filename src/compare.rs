@@ -120,7 +120,8 @@ pub struct RepoCompare {
 type Rows = [(String, Vec<Option<Comparison>>)];
 
 const MAX_CHECKED: u32 = 500;
-const CHUNK: usize = 10;
+/// Repos per request: one (see `fetch`).
+const CHUNK: usize = 1;
 
 fn esc(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
@@ -313,22 +314,38 @@ fn graphql(q: &str) -> Result<serde_json::Value, String> {
     }
 }
 
+/// Every repo's comparisons, one request per repo, all at once. A request covering several
+/// repos takes ~2.5 s per repo on GitHub's side (each commit's PRs are looked up), so ten in
+/// one went past GitHub's ~10 s limit and every row failed with 502/504. One repo per request
+/// keeps each well under it, and a slow or failing repo no longer takes the others down.
 pub fn fetch(rows: Vec<(String, Vec<Option<Comparison>>)>) -> Vec<RepoCompare> {
-    let mut all = Vec::with_capacity(rows.len());
-    for chunk in rows.chunks(CHUNK) {
+    std::thread::scope(|s| {
+        let workers: Vec<_> = rows.chunks(CHUNK).map(|chunk| s.spawn(move || fetch_chunk(chunk))).collect();
+        workers
+            .into_iter()
+            .zip(rows.chunks(CHUNK))
+            .flat_map(|(w, chunk)| {
+                w.join().unwrap_or_else(|_| {
+                    let e = crate::i18n::t("Loading this repo's comparisons stopped unexpectedly").to_owned();
+                    chunk.iter().map(|(slug, cmps)| RepoCompare { slug: slug.clone(), cells: vec![Cell::Off; cmps.len()], error: Some(e.clone()) }).collect()
+                })
+            })
+            .collect()
+    })
+}
+
+fn fetch_chunk(chunk: &Rows) -> Vec<RepoCompare> {
+    {
         if !needs_query(chunk) {
-            all.extend(parse(chunk, &serde_json::Value::Null).0);
-            continue;
+            return parse(chunk, &serde_json::Value::Null).0;
         }
         let json = match graphql(&query(chunk)) {
             Ok(j) => j,
             Err(e) => {
-                all.extend(chunk.iter().map(|(slug, cmps)| RepoCompare {
-                    slug: slug.clone(),
-                    cells: vec![Cell::Off; cmps.len()],
-                    error: Some(e.clone()),
-                }));
-                continue;
+                return chunk
+                    .iter()
+                    .map(|(slug, cmps)| RepoCompare { slug: slug.clone(), cells: vec![Cell::Off; cmps.len()], error: Some(e.clone()) })
+                    .collect();
             }
         };
         let (mut out, mut pending) = parse(chunk, &json);
@@ -347,9 +364,8 @@ pub fn fetch(rows: Vec<(String, Vec<Option<Comparison>>)>) -> Vec<RepoCompare> {
                 }
             }
         }
-        all.extend(out);
+        out
     }
-    all
 }
 
 #[cfg(test)]
@@ -560,6 +576,21 @@ mod tests {
         assert_eq!((*checked, prs.len()), (500, 100));
         let mut early = Cell::Waiting { commits: 900, prs: vec![], loose: vec![], checked: 100 };
         assert_eq!(apply_page(&mut early, &c, &page), Some("n".to_string()));
+    }
+
+    /// Your own tracked repos with your comparisons, as the Dashboard loads them (needs gh).
+    #[test]
+    #[ignore]
+    fn live_fetch_tracked() {
+        let p = crate::config::load_prefs();
+        let rows: Vec<_> = p.tracked.iter().map(|s| (s.clone(), effective(&p.comparisons, &p.comparison_overrides, s))).collect();
+        let t = std::time::Instant::now();
+        let out = fetch(rows);
+        println!("{} repos in {:?}", out.len(), t.elapsed());
+        for r in &out {
+            println!("{} error={:?} cells={:?}", r.slug, r.error, r.cells.iter().map(|c| match c { Cell::Waiting { commits, prs, .. } => format!("{commits}c/{}pr", prs.len()), c => format!("{c:?}") }).collect::<Vec<_>>());
+        }
+        assert!(out.iter().all(|r| r.error.is_none()));
     }
 
     #[test]
