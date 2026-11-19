@@ -30,6 +30,7 @@ mod gh;
 mod git;
 mod guard;
 mod jobs;
+mod lane;
 mod model;
 mod pulse;
 mod risk;
