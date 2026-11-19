@@ -54,6 +54,14 @@ use model::{Branch, Cleanup, Commit, CommitDetail, Envs, Inbox, LocalStatus, Not
 // State
 // ---------------------------------------------------------------------------------------------
 
+/// Which repos the Comparisons tab shows: one of your sidebar groups, or the tracked repos in no
+/// group. `None` in State means all.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompareScope {
+    Group(String),
+    Other,
+}
+
 /// How the open comparison lane is read: grouped by contributor, and the folder picked as
 /// a filter (path, whether it's a root).
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -448,6 +456,8 @@ pub struct State {
     pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
     /// How the open lane's changed code is shown.
     pub lane_view: LaneView,
+    /// The Comparisons tab's group filter (None: all groups). Kept for the session.
+    pub compare_scope: Option<CompareScope>,
     pub compare_edit: Option<CompareEdit>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
     /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
@@ -577,6 +587,7 @@ impl State {
             compare_sel: None,
             lane_details: HashMap::new(),
             lane_view: LaneView::default(),
+            compare_scope: None,
             compare_edit: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
@@ -2192,6 +2203,13 @@ fn main() {
                 compare_fixture(s);
                 s.compare_sel = Some(("acme/api".into(), 0));
                 s.lane_view.by_contributor = true;
+            }),
+            ("comparisons-group", |s: &mut State| {
+                // The Comparisons tab filtered to one group.
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = None;
+                s.compare_scope = Some(CompareScope::Group("Back office".into()));
             }),
             ("comparisons-edit", |s: &mut State| {
                 s.show(Page::Inbox);

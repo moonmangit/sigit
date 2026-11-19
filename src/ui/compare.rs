@@ -10,7 +10,7 @@ use crate::compare::{Cell, Comparison, LooseCommit, PrDetail, RepoCompare, Waiti
 use crate::lane::{self, FolderShare, Folders};
 use crate::i18n::text;
 use crate::model::{ago_str, now};
-use crate::State;
+use crate::{CompareScope, State};
 
 /// Lane layout: the two branch chips, the track between them, and the label after.
 const CHIP_W: f32 = 120.0;
@@ -63,14 +63,12 @@ fn flows(s: &State, k: &Kit, rows: &[RepoCompare]) -> El {
     if groups.is_empty() {
         return group_block(s, k, rows.iter().collect()).key("cmp-flows");
     }
-    let mut out = col().key("cmp-flows").w_full().gap(20.0);
-    let mut sections: Vec<(String, Vec<&RepoCompare>)> =
-        groups.iter().map(|g| (g.name.clone(), rows.iter().filter(|r| g.repos.contains(&r.slug)).collect())).collect();
-    sections.push((crate::i18n::t("Other"), rows.iter().filter(|r| !groups.iter().any(|g| g.repos.contains(&r.slug))).collect()));
-    for (i, (name, repos)) in sections.into_iter().enumerate() {
-        if repos.is_empty() {
-            continue;
-        }
+    let mut out = col().key("cmp-flows").w_full().gap(20.0).child(scope_picker(s, k, rows));
+    for (i, (scope, repos)) in sections(groups, rows, s.compare_scope.as_ref()).into_iter().enumerate() {
+        let name = match scope {
+            CompareScope::Group(g) => g,
+            CompareScope::Other => crate::i18n::t("Other"),
+        };
         let waiting_here = repos.iter().filter(|r| r.cells.iter().any(|c| waiting(c) > 0)).count();
         let head = row()
             .gap(8.0)
@@ -81,6 +79,46 @@ fn flows(s: &State, k: &Kit, rows: &[RepoCompare]) -> El {
         out = out.child(col().key(tf!("cmp-g-{i}")).w_full().gap(10.0).child(head).child(group_block(s, k, repos)));
     }
     out
+}
+
+/// The repos sorted into your sidebar groups, in the sidebar's order (a repo in two groups is in
+/// both), then `Other` for tracked repos in no group; empty sections dropped. With a scope, only
+/// that section; a scope naming a group that no longer exists shows them all.
+pub(crate) fn sections<'a>(groups: &[crate::config::Group], rows: &'a [RepoCompare], scope: Option<&CompareScope>) -> Vec<(CompareScope, Vec<&'a RepoCompare>)> {
+    let mut all: Vec<(CompareScope, Vec<&RepoCompare>)> =
+        groups.iter().map(|g| (CompareScope::Group(g.name.clone()), rows.iter().filter(|r| g.repos.contains(&r.slug)).collect())).collect();
+    all.push((CompareScope::Other, rows.iter().filter(|r| !groups.iter().any(|g| g.repos.contains(&r.slug))).collect()));
+    all.retain(|(_, repos)| !repos.is_empty());
+    match scope {
+        Some(sc) if all.iter().any(|(x, _)| x == sc) => all.into_iter().filter(|(x, _)| x == sc).collect(),
+        _ => all,
+    }
+}
+
+/// All / each group / Other, like the Activity tab's picker. Picking closes an open lane pane.
+fn scope_picker(s: &State, k: &Kit, rows: &[RepoCompare]) -> El {
+    let present = sections(&s.prefs.groups, rows, None);
+    let mut labels = vec![tf!("All ({n})", n = rows.len())];
+    labels.extend(present.iter().map(|(sc, repos)| match sc {
+        CompareScope::Group(g) => format!("{g} ({})", repos.len()),
+        CompareScope::Other => tf!("Other ({n})", n = repos.len()),
+    }));
+    let scopes: Vec<Option<CompareScope>> = std::iter::once(None).chain(present.into_iter().map(|(sc, _)| Some(sc))).collect();
+    let picked = scopes.iter().position(|x| x.as_ref() == s.compare_scope.as_ref()).unwrap_or(0);
+    row().w_full().child(
+        SegmentedControl::new(&labels, Some(picked))
+            .label(crate::i18n::t("Which group"))
+            .fit()
+            .on_pick(move |s: &mut State, i, _| {
+                let next = scopes.get(i).cloned().flatten();
+                if next != s.compare_scope {
+                    s.compare_scope = next;
+                    s.compare_sel = None;
+                }
+            })
+            .build(k)
+            .key("cmp-scope"),
+    )
 }
 
 /// One group's repos: cards for those with something waiting (most first), then the calm ones
@@ -633,9 +671,45 @@ pub fn repo_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{active_folder, filter_prs};
-    use crate::compare::{PrDetail, WaitingPr};
+    use super::{active_folder, filter_prs, sections};
+    use crate::CompareScope;
+    use crate::compare::{PrDetail, RepoCompare, WaitingPr};
+    use crate::config::Group;
     use crate::lane::{by_author, folders};
+
+    fn repo(slug: &str) -> RepoCompare {
+        RepoCompare { slug: slug.into(), cells: Vec::new(), error: None }
+    }
+    fn names(v: &[(CompareScope, Vec<&RepoCompare>)]) -> Vec<(CompareScope, Vec<String>)> {
+        v.iter().map(|(sc, rs)| (sc.clone(), rs.iter().map(|r| r.slug.clone()).collect())).collect()
+    }
+
+    #[test]
+    fn sections_follow_groups_then_other() {
+        let groups = vec![Group { name: "office".into(), repos: vec!["a/1".into(), "a/2".into()] }];
+        let rows = [repo("a/1"), repo("a/2"), repo("b/3")];
+        assert_eq!(
+            names(&sections(&groups, &rows, None)),
+            vec![(CompareScope::Group("office".into()), vec!["a/1".into(), "a/2".into()]), (CompareScope::Other, vec!["b/3".into()])]
+        );
+    }
+
+    #[test]
+    fn scope_shows_only_the_picked_section() {
+        let groups = vec![Group { name: "office".into(), repos: vec!["a/1".into()] }, Group { name: "games".into(), repos: vec!["g/1".into()] }];
+        let rows = [repo("a/1"), repo("g/1"), repo("b/3")];
+        let games = sections(&groups, &rows, Some(&CompareScope::Group("games".into())));
+        assert_eq!(names(&games), vec![(CompareScope::Group("games".into()), vec!["g/1".into()])]);
+        let other = sections(&groups, &rows, Some(&CompareScope::Other));
+        assert_eq!(names(&other), vec![(CompareScope::Other, vec!["b/3".into()])]);
+    }
+
+    #[test]
+    fn scope_for_a_removed_group_shows_everything() {
+        let groups = vec![Group { name: "office".into(), repos: vec!["a/1".into()] }];
+        let rows = [repo("a/1"), repo("b/3")];
+        assert_eq!(sections(&groups, &rows, Some(&CompareScope::Group("gone".into()))).len(), 2);
+    }
 
     fn pr(number: u64, author: &str) -> WaitingPr {
         WaitingPr { number, title: String::new(), author: author.into(), merged_at: format!("2026-11-{number:02}") }
