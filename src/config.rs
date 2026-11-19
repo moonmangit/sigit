@@ -115,6 +115,12 @@ pub struct Prefs {
     /// Show the gh / git command behind each action: in its tooltip, before it runs, and in
     /// the result and the activity log.
     pub show_commands: bool,
+    /// Branch comparisons shown on every repo's Dashboard.
+    pub comparisons: Vec<crate::compare::Comparison>,
+    /// Per-repo changes to the shared comparisons.
+    pub comparison_overrides: Vec<crate::compare::Override>,
+    /// Folders whose git clones the Dashboard scan looks through.
+    pub clone_folders: Vec<PathBuf>,
 }
 
 impl Default for Prefs {
@@ -141,6 +147,9 @@ impl Default for Prefs {
             owner_order: Vec::new(),
             owner_styles: Vec::new(),
             tracked: Vec::new(),
+            comparisons: crate::compare::defaults(),
+            comparison_overrides: Vec::new(),
+            clone_folders: Vec::new(),
         }
     }
 }

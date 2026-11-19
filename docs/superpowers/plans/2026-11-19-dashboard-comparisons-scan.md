@@ -328,7 +328,7 @@ Toasts (exact copy): announced scan `Found {n} clones · {new} new · {known} al
 #[test]
 fn add_clones_keeps_known_paths_and_counts() {
     // state with repo "a/b" at path P1; scans contain a/b at P2 and c/d at P3
-    // → returns (1, 1); a/b still at P1; c/d at P3 and listed first (local clones sort first)
+    // → returns (1, 1); a/b still at P1; c/d at P3 and placed before every repo without a path (local clones sort first; `add_repo` appends after existing local clones)
 }
 ```
 

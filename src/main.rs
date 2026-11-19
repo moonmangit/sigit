@@ -1,6 +1,6 @@
 //! sigit: a fast desktop view of your everyday git and GitHub work.
 //!
-//! - **Inbox**: PRs waiting for your review, your open PRs, assigned issues, recent runs.
+//! - **Dashboard** (formerly Inbox): PRs waiting for your review, your open PRs, assigned issues, recent runs.
 //! - **Per repo**: pull requests (review, merge, close, checkout), Actions (re-run, cancel,
 //!   job timeline), environments (deployments timeline), commit graph, branches
 //!   (checkout, fetch, fast-forward pull).
@@ -23,6 +23,7 @@ mod onboarding;
 mod settings;
 mod update;
 mod window_icon;
+mod compare;
 mod config;
 mod daily;
 mod gh;
@@ -32,6 +33,7 @@ mod jobs;
 mod model;
 mod pulse;
 mod risk;
+mod scan;
 mod ui;
 
 use std::collections::{HashMap, HashSet};
@@ -97,6 +99,9 @@ impl<T> Load<T> {
         !self.loading && self.at.is_none_or(|t| model::now() - t >= ttl)
     }
 }
+
+/// The Dashboard tab that holds the branch comparisons (0 Activity, 1 Needs you).
+pub const COMPARE_TAB: usize = 2;
 
 /// How long fetched data counts as fresh (seconds). Opening a page, going back, and the 30 s
 /// tick reload only what's older; Ctrl+R and finished actions reload everything on the page.
@@ -198,7 +203,7 @@ impl Page {
     pub const REPO: [Page; 5] = [Page::Pulls, Page::Actions, Page::Envs, Page::Commits, Page::Branches];
     pub fn label(self) -> &'static str {
         match self {
-            Page::Inbox => "Inbox",
+            Page::Inbox => "Dashboard",
             Page::Pulls => "Pull requests",
             Page::Actions => "Actions",
             Page::Envs => "Environments",
@@ -243,6 +248,12 @@ pub enum MenuTarget {
     Group(String),
     /// An owner (you or an organization) section header.
     Owner(String),
+}
+
+/// A repo's "Comparisons for …" dialog: one (From, To, On) line per shared comparison.
+pub struct CompareEdit {
+    pub slug: String,
+    pub rows: Vec<(TextEdit, TextEdit, bool)>,
 }
 
 /// The "New group" / "Rename group" dialog.
@@ -418,128 +429,152 @@ pub struct State {
     pub pulse_topics: HashSet<String>,
     /// Per-day activity and contributors shown on the Activity page.
     pub pulse_details: bool,
+    /// The Comparisons tab: one row per tracked repo.
+    pub compare: Load<Vec<compare::RepoCompare>>,
+    /// What `compare` answers (repos, comparisons, overrides); a changed key means reload.
+    pub compare_key: String,
+    /// The cell whose detail pane is open: (repo, comparison index).
+    pub compare_sel: Option<(String, usize)>,
+    pub compare_edit: Option<CompareEdit>,
+    /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
+    /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
+    pub cmp_rows: Vec<(TextEdit, TextEdit, TextEdit)>,
+    pub cmp_ids: Vec<Option<String>>,
     pub tracked_q: TextEdit,
     /// The dialog's name field (kept here, not inside the Option, so it always exists).
     pub group_name: TextEdit,
 }
 
+impl State {
+    /// The starting state for a given set of prefs: no disk, no jobs.
+    pub fn new(prefs: config::Prefs) -> State {
+        State {
+            page: Page::Inbox,
+            sidebar: PaneState::new(264.0).range(200.0, 420.0),
+            repos: Vec::new(),
+            repo_filter: TextEdit::new(""),
+            me: String::new(),
+            collapsed: HashSet::new(),
+            repo_hits: (String::new(), Vec::new()),
+            repo_search: Arc::new(AtomicU64::new(0)),
+            repo_searching: false,
+            cur: None,
+            data: HashMap::new(),
+            inbox: Load::default(),
+            pr_state: 0,
+            pr_filter: TextEdit::new(""),
+            pr_hits: None,
+            pr_search: Arc::new(AtomicU64::new(0)),
+            pr_searching: false,
+            pr_limit: PR_PAGE,
+            run_limit: RUN_PAGE,
+            commit_limit: COMMIT_PAGE,
+            prs_table: TableState::new(),
+            pr_sel: None,
+            pr_detail: Load::default(),
+            pr_memo: HashMap::new(),
+            run_memo: HashMap::new(),
+            commit_memo: HashMap::new(),
+            pr_tab: 0,
+            comment: TextEdit::new(""),
+            runs_table: TableState::new(),
+            run_sel: None,
+            run_detail: Load::default(),
+            all_branches: true,
+            commits_table: TableState::new(),
+            commit_sel: None,
+            commit_detail: Load::default(),
+            branch_view: 0,
+            branches_table: TableState::new(),
+            branch_sel: None,
+            pending: None,
+            typed: TextEdit::new(""),
+            grace: None,
+            activity: Vec::new(),
+            settings_prod: TextEdit::new(""),
+            settings_sensitive: TextEdit::new(""),
+            notifs: Load::default(),
+            last_notif: Instant::now(),
+            queue: HashMap::new(),
+            queue_sel: 0,
+            triage: Load::default(),
+            triage_for: None,
+            group_cur: None,
+            group_data: HashMap::new(),
+            watches: Vec::new(),
+            last_watch: Instant::now(),
+            last_cache: Instant::now(),
+            last_tick: Instant::now(),
+            reveal: None,
+            want_failed: None,
+            focus_run: None,
+            focus_pr: None,
+            window_icon_set: false,
+            setup: onboarding::Setup::Checking,
+            setup_busy: false,
+            setup_at: Instant::now(),
+            settings_open: false,
+            settings_sec: 0,
+            accounts: Load::default(),
+            git_name: TextEdit::new(""),
+            git_email: TextEdit::new(""),
+            git_saved: (String::new(), String::new()),
+            versions: None,
+            update: update::Update::NotChecked,
+            cmd_tip: None,
+            away_since: None,
+            clock: 0.0,
+            split_boxes: HashMap::new(),
+            palette: false,
+            palette_q: TextEdit::new(""),
+            palette_sel: 0,
+            guide_open: false,
+            guide_sec: 0,
+            crash: Vec::new(),
+            toasts: Vec::new(),
+            next_toast: 0,
+            busy: Vec::new(),
+            prefs,
+            menu: None,
+            group_edit: None,
+            pin_drag: Reorder::new(),
+            group_drags: [Reorder::new(); MAX_DRAG_GROUPS],
+            owner_edit: None,
+            owner_icon: TextEdit::new(""),
+            owner_hex: TextEdit::new(""),
+            expanded_orgs: HashSet::new(),
+            inbox_tab: 0,
+            pulse: Load::default(),
+            pulse_key: String::new(),
+            pulse_next: None,
+            pulse_seen: HashMap::new(),
+            pulse_preset: pulse::Preset::Week,
+            pulse_scope: None,
+            pulse_from: TextEdit::new(""),
+            pulse_to: TextEdit::new(""),
+            tracked_open: false,
+            back: Vec::new(),
+            fwd: Vec::new(),
+            restoring: false,
+            pulse_open_repos: HashSet::new(),
+            pulse_topics: HashSet::new(),
+            pulse_details: false,
+            compare: Load::default(),
+            compare_key: String::new(),
+            compare_sel: None,
+            compare_edit: None,
+            cmp_rows: Vec::new(),
+            cmp_ids: Vec::new(),
+            tracked_q: TextEdit::new(""),
+            group_name: TextEdit::new(""),
+        }
+    }
+}
+
 fn init() -> State {
     config::migrate_old_folder(); // before anything reads the folder
     update::clean_up_previous(); // the copy the last update set aside
-    let mut s = State {
-        page: Page::Inbox,
-        sidebar: PaneState::new(264.0).range(200.0, 420.0),
-        repos: Vec::new(),
-        repo_filter: TextEdit::new(""),
-        me: String::new(),
-        collapsed: HashSet::new(),
-        repo_hits: (String::new(), Vec::new()),
-        repo_search: Arc::new(AtomicU64::new(0)),
-        repo_searching: false,
-        cur: None,
-        data: HashMap::new(),
-        inbox: Load::default(),
-        pr_state: 0,
-        pr_filter: TextEdit::new(""),
-        pr_hits: None,
-        pr_search: Arc::new(AtomicU64::new(0)),
-        pr_searching: false,
-        pr_limit: PR_PAGE,
-        run_limit: RUN_PAGE,
-        commit_limit: COMMIT_PAGE,
-        prs_table: TableState::new(),
-        pr_sel: None,
-        pr_detail: Load::default(),
-        pr_memo: HashMap::new(),
-        run_memo: HashMap::new(),
-        commit_memo: HashMap::new(),
-        pr_tab: 0,
-        comment: TextEdit::new(""),
-        runs_table: TableState::new(),
-        run_sel: None,
-        run_detail: Load::default(),
-        all_branches: true,
-        commits_table: TableState::new(),
-        commit_sel: None,
-        commit_detail: Load::default(),
-        branch_view: 0,
-        branches_table: TableState::new(),
-        branch_sel: None,
-        pending: None,
-        typed: TextEdit::new(""),
-        grace: None,
-        activity: Vec::new(),
-        settings_prod: TextEdit::new(""),
-        settings_sensitive: TextEdit::new(""),
-        notifs: Load::default(),
-        last_notif: Instant::now(),
-        queue: HashMap::new(),
-        queue_sel: 0,
-        triage: Load::default(),
-        triage_for: None,
-        group_cur: None,
-        group_data: HashMap::new(),
-        watches: Vec::new(),
-        last_watch: Instant::now(),
-        last_cache: Instant::now(),
-        last_tick: Instant::now(),
-        reveal: None,
-        want_failed: None,
-        focus_run: None,
-        focus_pr: None,
-        window_icon_set: false,
-        setup: onboarding::Setup::Checking,
-        setup_busy: false,
-        setup_at: Instant::now(),
-        settings_open: false,
-        settings_sec: 0,
-        accounts: Load::default(),
-        git_name: TextEdit::new(""),
-        git_email: TextEdit::new(""),
-        git_saved: (String::new(), String::new()),
-        versions: None,
-        update: update::Update::NotChecked,
-        cmd_tip: None,
-        away_since: None,
-        clock: 0.0,
-        split_boxes: HashMap::new(),
-        palette: false,
-        palette_q: TextEdit::new(""),
-        palette_sel: 0,
-        guide_open: false,
-        guide_sec: 0,
-        crash: Vec::new(),
-        toasts: Vec::new(),
-        next_toast: 0,
-        busy: Vec::new(),
-        prefs: config::load_prefs(),
-        menu: None,
-        group_edit: None,
-        pin_drag: Reorder::new(),
-        group_drags: [Reorder::new(); MAX_DRAG_GROUPS],
-        owner_edit: None,
-        owner_icon: TextEdit::new(""),
-        owner_hex: TextEdit::new(""),
-        expanded_orgs: HashSet::new(),
-        inbox_tab: 0,
-        pulse: Load::default(),
-        pulse_key: String::new(),
-        pulse_next: None,
-        pulse_seen: HashMap::new(),
-        pulse_preset: pulse::Preset::Week,
-        pulse_scope: None,
-        pulse_from: TextEdit::new(""),
-        pulse_to: TextEdit::new(""),
-        tracked_open: false,
-        back: Vec::new(),
-        fwd: Vec::new(),
-        restoring: false,
-        pulse_open_repos: HashSet::new(),
-        pulse_topics: HashSet::new(),
-        pulse_details: false,
-        tracked_q: TextEdit::new(""),
-        group_name: TextEdit::new(""),
-    };
+    let mut s = State::new(config::load_prefs());
     s.collapsed = s.prefs.collapsed.iter().cloned().collect();
     // Messages built before the first frame (toasts, risk checks) are in the right language too.
     i18n::apply(s.prefs.language);
@@ -551,6 +586,9 @@ fn init() -> State {
         if saved.path.exists() {
             s.add_repo(saved.slug, Some(saved.path));
         }
+    }
+    if !jobs::is_inline_run() {
+        s.rescan_folders(false);
     }
     // A repo named on the command line (or the folder we started in) opens first. It isn't
     // saved: only "Add local repo" remembers one.
@@ -756,6 +794,9 @@ impl State {
                 if self.pulse.stale(ttl::PULSE.min(cap.max(ttl::PULSE_REVALIDATE))) || (!self.pulse.loading && self.pulse_key != self.pulse_key_now()) {
                     self.refresh_pulse();
                 }
+                if self.inbox_tab == COMPARE_TAB && (self.compare.stale(ttl::GH.min(cap)) || (!self.compare.loading && self.compare_key != self.compare_key_now())) {
+                    self.refresh_compare();
+                }
                 return;
             }
             Page::Group => return self.load_group(true),
@@ -839,6 +880,9 @@ impl State {
                 self.refresh_inbox();
                 self.refresh_notifications();
                 self.refresh_pulse();
+                if self.inbox_tab == COMPARE_TAB {
+                    self.refresh_compare();
+                }
             }
             Page::Pulls => self.refresh_prs(),
             Page::Actions => self.refresh_runs(),
@@ -913,6 +957,83 @@ impl State {
             }
         }
         v
+    }
+
+    /// What the Comparisons tab asks for now: tracked repos, comparisons and overrides.
+    pub fn compare_key_now(&self) -> String {
+        serde_json::to_string(&(self.tracked(), &self.prefs.comparisons, &self.prefs.comparison_overrides)).unwrap_or_default()
+    }
+
+    /// Load the Comparisons tab: each tracked repo (A-Z) against the comparisons that apply to it.
+    pub fn refresh_compare(&mut self) {
+        let mut slugs = self.tracked();
+        slugs.sort_by_key(|s| s.to_lowercase());
+        if slugs.is_empty() || self.prefs.comparisons.is_empty() {
+            self.compare = Load::default();
+            self.compare_key.clear();
+            self.compare_sel = None;
+            self.compare_edit = None;
+            return;
+        }
+        let rows: Vec<(String, Vec<Option<compare::Comparison>>)> = slugs
+            .into_iter()
+            .map(|slug| {
+                let cells = compare::effective(&self.prefs.comparisons, &self.prefs.comparison_overrides, &slug);
+                (slug, cells)
+            })
+            .collect();
+        let key = self.compare_key_now();
+        if self.compare_key != key {
+            // Rows for other repos or comparisons must never sit under the new key, and the
+            // detail pane and dialog point at comparisons by position.
+            self.compare = Load::default();
+            self.compare_sel = None;
+            self.compare_edit = None;
+        }
+        self.compare_key = key.clone();
+        self.compare.loading = true;
+        self.compare.error = None;
+        jobs::spawn(self, move || compare::fetch(rows), move |s, out| {
+            if s.compare_key != key {
+                return;
+            }
+            s.compare.finish(Ok(out));
+            s.save_cache();
+        });
+    }
+
+    /// Open the comparison dialog for `slug`, each line showing what applies to it now.
+    pub fn open_compare_edit(&mut self, slug: &str) {
+        let shared = &self.prefs.comparisons;
+        let rows = compare::effective(shared, &self.prefs.comparison_overrides, slug)
+            .into_iter()
+            .zip(shared)
+            .map(|(e, c)| {
+                let on = e.is_some();
+                let e = e.unwrap_or_else(|| c.clone());
+                (TextEdit::new(&e.from), TextEdit::new(&e.to), on)
+            })
+            .collect();
+        self.compare_edit = Some(CompareEdit { slug: slug.to_owned(), rows });
+    }
+
+    /// Keep the dialog's lines that differ from the shared comparisons as this repo's overrides.
+    pub fn save_compare_edit(&mut self) {
+        let Some(edit) = self.compare_edit.take() else { return };
+        let rows: Vec<(String, String, bool)> = edit.rows.iter().map(|(f, t, on)| (f.text.clone(), t.text.clone(), *on)).collect();
+        let mine = compare::edit_overrides(&self.prefs.comparisons, &edit.slug, &rows);
+        self.prefs.comparison_overrides.retain(|o| o.slug != edit.slug);
+        self.prefs.comparison_overrides.extend(mine);
+        self.save_prefs();
+        self.refresh_compare();
+    }
+
+    /// Drop this repo's overrides: it follows the shared comparisons again.
+    pub fn reset_compare_edit(&mut self) {
+        let Some(edit) = self.compare_edit.take() else { return };
+        self.prefs.comparison_overrides.retain(|o| o.slug != edit.slug);
+        self.save_prefs();
+        self.refresh_compare();
     }
 
     /// The repos the Activity page shows now (all tracked, or one of your groups).
@@ -1589,6 +1710,80 @@ impl State {
         self.toast(crate::i18n::t("Safety settings saved"), false);
     }
 
+    /// Remembers every repo that has a local clone, so the next launch finds them.
+    fn save_repo_list(&mut self) {
+        let saved: Vec<config::Saved> =
+            self.repos.iter().filter_map(|r| Some(config::Saved { slug: r.slug.clone(), path: r.path.clone()? })).collect();
+        if let Err(e) = config::save(&saved) {
+            self.toast(crate::i18n::t(tf!("Couldn't save the repo list: {e}")), true);
+        }
+    }
+
+    /// Adds the clones a scan found. A repo that already has a path keeps it. Returns
+    /// (new, already known) and saves the repo list once when anything is new.
+    pub fn add_clones(&mut self, scans: Vec<scan::Scan>) -> (usize, usize) {
+        let (mut new, mut known) = (0, 0);
+        for f in scans.into_iter().flat_map(|sc| sc.found) {
+            if self.repos.iter().any(|r| r.slug == f.slug && r.path.is_some()) {
+                known += 1;
+            } else {
+                self.add_repo(f.slug, Some(f.path));
+                new += 1;
+            }
+        }
+        if new > 0 && !jobs::is_inline_run() {
+            self.save_repo_list();
+        }
+        (new, known)
+    }
+
+    /// Scans every clone folder in the background and adds what it finds. `announce` is a
+    /// scan the user asked for (always answered); a launch scan only speaks when it adds clones.
+    pub fn rescan_folders(&mut self, announce: bool) {
+        let folders = self.prefs.clone_folders.clone();
+        if folders.is_empty() {
+            return;
+        }
+        jobs::spawn(
+            self,
+            move || folders.into_iter().map(|f| { let r = scan::scan(&f); (f, r) }).collect::<Vec<_>>(),
+            move |s, done| {
+                let stopped: Vec<String> = done.iter().filter(|(_, r)| r.stopped_early).map(|(f, _)| f.display().to_string()).collect();
+                let (total, skipped) = (done.iter().map(|(_, r)| r.found.len()).sum::<usize>(), done.iter().map(|(_, r)| r.skipped).sum::<usize>());
+                let (new, known) = s.add_clones(done.into_iter().map(|(_, r)| r).collect());
+                if announce {
+                    let mut msg = crate::i18n::t(tf!("Found {total} clones · {new} new · {known} already known · {skipped} skipped"));
+                    if !stopped.is_empty() {
+                        let folder = stopped.join(", ");
+                        msg.push_str(&crate::i18n::t(tf!(" · stopped early in {folder}")));
+                    }
+                    s.toast(msg, false);
+                } else if new > 0 {
+                    s.toast(crate::i18n::t(tf!("Added {new} new clones from your folders")), false);
+                }
+                if new > 0 {
+                    s.revalidate_page();
+                }
+            },
+        );
+    }
+
+    /// Settings: stop scanning a folder. Clones already added stay.
+    pub fn remove_clone_folder(&mut self, i: usize) {
+        if i < self.prefs.clone_folders.len() {
+            self.prefs.clone_folders.remove(i);
+            self.save_prefs();
+        }
+    }
+
+    fn add_clone_folder(&mut self, dir: PathBuf) {
+        if !self.prefs.clone_folders.contains(&dir) {
+            self.prefs.clone_folders.push(dir);
+            self.save_prefs();
+        }
+        self.rescan_folders(true);
+    }
+
     fn add_local_repo(&mut self, dir: PathBuf) {
         let Some(top) = git::toplevel(&dir) else {
             self.toast(crate::i18n::t(tf!("{} isn't a git repository", dir.display())), true);
@@ -1599,11 +1794,7 @@ impl State {
             return;
         };
         self.add_repo(slug.clone(), Some(top));
-        let saved: Vec<config::Saved> =
-            self.repos.iter().filter_map(|r| Some(config::Saved { slug: r.slug.clone(), path: r.path.clone()? })).collect();
-        if let Err(e) = config::save(&saved) {
-            self.toast(crate::i18n::t(tf!("Couldn't save the repo list: {e}")), true);
-        }
+        self.save_repo_list();
         self.select_repo(&slug, Page::Commits);
     }
 }
@@ -1613,6 +1804,16 @@ pub fn ask_local_repo(s: &mut State, tx: &mut Tx) {
     let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.local_path(), ..Default::default() };
     tx.open_folder(options, |s: &mut State, r, _| match r {
         Ok(Some(dir)) => s.add_local_repo(dir),
+        Ok(None) => {}
+        Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
+    });
+}
+
+/// Settings → Git "Add folder…": the OS folder picker, then a scan of the folder.
+pub fn ask_clone_folder(_s: &mut State, tx: &mut Tx) {
+    let options = FileDialogOptions { title: "Choose a folder that holds your git clones".into(), ..Default::default() };
+    tx.open_folder(options, |s: &mut State, r, _| match r {
+        Ok(Some(dir)) => s.add_clone_folder(dir),
         Ok(None) => {}
         Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
     });
@@ -1775,6 +1976,43 @@ const FONTS: &[&[u8]] = &[
 /// Latin in Inter; Thai, which Inter lacks, falls through to Noto Sans Thai.
 const FAMILIES: (&str, &str) = ("Inter, Noto Sans Thai", "IBM Plex Mono, Noto Sans Thai");
 
+/// The Comparisons tab with fixed rows (no network): waiting, up to date, missing branches,
+/// an error row, a turned-off cell and a retargeted one.
+fn compare_fixture(s: &mut State) {
+    use compare::{Cell, LooseCommit, Override, RepoCompare, WaitingPr};
+    s.prefs.tracked = ["acme/web", "acme/api", "acme/docs", "acme/admin", "acme/gone"].map(String::from).to_vec();
+    s.prefs.comparisons = compare::defaults();
+    s.prefs.comparison_overrides = vec![
+        Override { slug: "acme/web".into(), name: "To production".into(), to: Some("master".into()), ..Default::default() },
+        Override { slug: "acme/admin".into(), name: "Back-merge".into(), off: true, ..Default::default() },
+    ];
+    let pr = |number: u64, title: &str, author: &str, day: u32| WaitingPr { number, title: title.into(), author: author.into(), merged_at: format!("2026-11-{day:02}T09:00:00Z") };
+    let loose = |sha: &str, subject: &str| LooseCommit { sha: sha.into(), subject: subject.into(), author: "mai".into() };
+    let wait = |commits, prs, loose, checked| Cell::Waiting { commits, prs, loose, checked };
+    let missing = |b: &[&str]| Cell::Missing(b.iter().map(|b| b.to_string()).collect());
+    let row = |slug: &str, cells, error: Option<&str>| RepoCompare { slug: slug.into(), cells, error: error.map(str::to_owned) };
+    let many = (0..39).map(|n| pr(300 + n, &format!("Sample change {n}"), "ploy", 1 + n as u32 % 18)).collect();
+    let rows = vec![
+        row("acme/admin", vec![wait(149, many, vec![loose("9c1e2d4a", "Sample hotfix")], 100), Cell::Off, wait(0, vec![], vec![], 0)], None),
+        row(
+            "acme/api",
+            vec![
+                wait(8, vec![pr(141, "Sample rate limit", "ploy", 18), pr(139, "Sample bet history", "nok", 17), pr(137, "Sample payout fix", "ploy", 15)], vec![loose("4be07f11", "Sample header logo")], 8),
+                wait(0, vec![], vec![], 0),
+                wait(7, (116..123).map(|n| pr(n, &format!("Sample release {n}"), "nok", 10)).collect(), vec![], 7),
+            ],
+            None,
+        ),
+        row("acme/docs", vec![missing(&["dev", "staging"]), missing(&["staging", "dev"]), missing(&["staging", "main"])], None),
+        row("acme/gone", vec![Cell::Off, Cell::Off, Cell::Off], Some("Could not resolve to a Repository with the name 'acme/gone'.")),
+        row("acme/web", vec![missing(&["dev"]), missing(&["dev"]), wait(1, vec![pr(88, "Sample footer links", "mai", 12)], vec![], 1)], None),
+    ];
+    s.inbox_tab = COMPARE_TAB;
+    s.compare = Load::default();
+    s.compare.finish(Ok(rows));
+    s.compare_key = s.compare_key_now();
+}
+
 
 fn main() {
     config::migrate_old_folder(); // before the crash log makes the folder
@@ -1864,6 +2102,16 @@ fn main() {
             ("needs", |s: &mut State| {
                 s.inbox_tab = 1;
                 s.show(Page::Inbox);
+            }),
+            ("comparisons", |s: &mut State| {
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = Some(("acme/api".into(), 0));
+            }),
+            ("comparisons-edit", |s: &mut State| {
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.open_compare_edit("acme/web");
             }),
             ("limit", |s: &mut State| {
                 s.prefs.pinned.clear();
@@ -2118,6 +2366,12 @@ fn main() {
                 s.inbox_tab = 1;
                 s.show(Page::Inbox);
             }),
+            ("light-comparisons", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = Some(("acme/admin".into(), 0));
+            }),
             ("light-activity", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;
                 s.show(Page::Inbox);
@@ -2271,6 +2525,152 @@ mod cache_tests {
     }
 
     #[test]
+    fn refresh_compare_skips_when_nothing_to_compare() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked.clear();
+        s.prefs.pinned.clear();
+        s.prefs.groups.clear();
+        s.refresh_compare();
+        assert!(!s.compare.loading && s.compare.data.is_none());
+    }
+
+    fn loaded_compare(s: &mut State) {
+        s.compare = Load::from_cache(vec![compare::RepoCompare { slug: "a/b".into(), cells: vec![], error: None }], 5);
+        s.compare_key = "old".into();
+    }
+
+    #[test]
+    fn refresh_compare_clears_old_rows_when_no_repos() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked.clear();
+        s.prefs.pinned.clear();
+        s.prefs.groups.clear();
+        loaded_compare(&mut s);
+        s.refresh_compare();
+        assert!(s.compare.data.is_none() && s.compare.at.is_none() && s.compare_key.is_empty());
+    }
+
+    #[test]
+    fn refresh_compare_clears_old_rows_when_no_comparisons() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked = vec!["a/b".into()];
+        s.prefs.comparisons.clear();
+        loaded_compare(&mut s);
+        s.refresh_compare();
+        assert!(s.compare.data.is_none() && s.compare.at.is_none() && s.compare_key.is_empty());
+    }
+
+    #[test]
+    fn compare_edit_prefills_saves_and_resets() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.comparison_overrides = vec![
+            compare::Override { slug: "a/b".into(), name: "To production".into(), to: Some("master".into()), ..Default::default() },
+            compare::Override { slug: "x/y".into(), name: "To staging".into(), off: true, ..Default::default() },
+        ];
+        s.open_compare_edit("a/b");
+        let e = s.compare_edit.as_ref().unwrap();
+        let shown: Vec<_> = e.rows.iter().map(|(f, t, on)| (f.text.as_str(), t.text.as_str(), *on)).collect();
+        assert_eq!(shown, vec![("dev", "staging", true), ("staging", "dev", true), ("staging", "master", true)]);
+
+        let e = s.compare_edit.as_mut().unwrap();
+        e.rows[0].2 = false;
+        e.rows[2].1 = TextEdit::new("main"); // back to shared
+        s.save_compare_edit();
+        assert!(s.compare_edit.is_none());
+        let mine: Vec<_> = s.prefs.comparison_overrides.iter().filter(|o| o.slug == "a/b").map(|o| (o.name.as_str(), o.off)).collect();
+        assert_eq!(mine, vec![("To staging", true)]);
+        assert!(s.prefs.comparison_overrides.iter().any(|o| o.slug == "x/y"), "other repos keep theirs");
+
+        s.open_compare_edit("a/b");
+        s.reset_compare_edit();
+        assert!(s.compare_edit.is_none());
+        assert_eq!(s.prefs.comparison_overrides.iter().map(|o| o.slug.as_str()).collect::<Vec<_>>(), vec!["x/y"]);
+    }
+
+    #[test]
+    fn refresh_compare_clears_positional_state_when_key_changes() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.tracked = vec!["a/b".into()];
+        s.compare_key = "old".into();
+        s.compare_sel = Some(("a/b".into(), 1));
+        s.open_compare_edit("a/b");
+        s.refresh_compare();
+        assert!(s.compare_sel.is_none() && s.compare_edit.is_none());
+
+        s.prefs.comparisons.clear();
+        s.compare_sel = Some(("a/b".into(), 0));
+        s.open_compare_edit("a/b");
+        s.refresh_compare();
+        assert!(s.compare_sel.is_none() && s.compare_edit.is_none());
+    }
+
+    fn cmp_rows(s: &mut State, rows: &[(&str, &str, &str)]) {
+        s.cmp_rows = rows.iter().map(|(n, f, t)| (TextEdit::new(*n), TextEdit::new(*f), TextEdit::new(*t))).collect();
+    }
+
+    #[test]
+    fn save_comparisons_rejects_duplicates_and_keeps_overrides_on_rename() {
+        let mut s = State::new(config::Prefs::default());
+        s.open_cmp_rows();
+        let before = s.prefs.comparisons.clone();
+        cmp_rows(&mut s, &[("A", "dev", "staging"), ("A", "staging", "main")]);
+        assert_eq!(s.save_comparisons(), Err("Two comparisons are called A".to_owned()));
+        assert_eq!(s.prefs.comparisons, before);
+        cmp_rows(&mut s, &[("A", "dev", "")]);
+        assert_eq!(s.save_comparisons(), Err("Every comparison needs a name and two branches".to_owned()));
+        cmp_rows(&mut s, &[("A", "dev", "dev")]);
+        assert_eq!(s.save_comparisons(), Err("A compares dev with itself".to_owned()));
+        assert_eq!(s.prefs.comparisons, before);
+
+        s.prefs.comparison_overrides = vec![compare::Override { slug: "a/b".into(), name: "Back-merge".into(), off: true, ..Default::default() }];
+        s.open_cmp_rows();
+        s.cmp_rows[1].0 = TextEdit::new("Hotfix back");
+        assert_eq!(s.save_comparisons(), Ok(()));
+        assert_eq!(s.prefs.comparisons[1].name, "Hotfix back");
+        assert_eq!(s.prefs.comparison_overrides[0].name, "Hotfix back");
+    }
+
+    #[test]
+    fn save_comparisons_handles_swapped_names_removal_and_moves() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.comparison_overrides = vec![
+            compare::Override { slug: "a/b".into(), name: "To staging".into(), off: true, ..Default::default() },
+            compare::Override { slug: "a/b".into(), name: "To production".into(), off: true, ..Default::default() },
+        ];
+        s.open_cmp_rows();
+        s.cmp_rows[0].0 = TextEdit::new("To production"); // names trade places
+        s.cmp_rows[2].0 = TextEdit::new("To staging");
+        s.cmp_remove(1);
+        assert_eq!(s.save_comparisons(), Ok(()));
+        let names: Vec<_> = s.prefs.comparisons.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["To production", "To staging"]);
+        let offs: Vec<_> = s.prefs.comparison_overrides.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(offs, vec!["To production", "To staging"], "overrides trade names with their comparisons");
+        assert_eq!(s.prefs.comparisons[0].from, "dev");
+
+        s.open_cmp_rows();
+        s.cmp_move(1, -1);
+        assert_eq!(s.save_comparisons(), Ok(()));
+        assert_eq!(s.prefs.comparisons[0].name, "To staging", "a move is not a rename");
+        assert_eq!(s.prefs.comparison_overrides.len(), 2);
+        s.cmp_swap(0);
+        assert_eq!((s.cmp_rows[0].1.text.as_str(), s.cmp_rows[0].2.text.as_str()), ("main", "staging"));
+    }
+
+    #[test]
+    fn snapshot_round_trips_compare() {
+        let rc = compare::RepoCompare {
+            slug: "a/b".into(),
+            cells: vec![compare::Cell::Waiting { commits: 2, prs: vec![], loose: vec![], checked: 2 }],
+            error: None,
+        };
+        let snap = cache::Snapshot { compare: Some(("k".into(), vec![rc.clone()])), compare_at: 9, ..Default::default() };
+        let back: cache::Snapshot = serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
+        assert_eq!(back.compare, Some(("k".into(), vec![rc])));
+        assert_eq!(back.compare_at, 9);
+    }
+
+    #[test]
     fn snapshot_round_trips_pulse() {
         let mut p = pulse::Pulse::default();
         p.open_total = 4;
@@ -2279,5 +2679,57 @@ mod cache_tests {
         let back: cache::Snapshot = serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
         let (k, p) = back.pulse.unwrap();
         assert_eq!((k.as_str(), p.open_total, p.repos[0].runs[0].outcome), ("k", 4, Some(model::Outcome::Failure)));
+    }
+
+    fn found(slug: &str, path: &str) -> scan::Found {
+        scan::Found { slug: slug.into(), path: PathBuf::from(path), depth: 1 }
+    }
+
+    #[test]
+    fn add_clones_keeps_known_paths_and_counts() {
+        let mut s = State::new(config::Prefs::default());
+        s.add_repo("a/b".into(), Some(PathBuf::from("P1")));
+        s.add_repo("x/y".into(), None);
+        let scans = vec![
+            scan::Scan { found: vec![found("a/b", "P2"), found("c/d", "P3")], skipped: 0, stopped_early: false },
+            scan::Scan { found: vec![found("c/d", "P4")], skipped: 1, stopped_early: false },
+        ];
+        assert_eq!(s.add_clones(scans), (1, 2), "c/d is new once; a/b and the repeat of c/d were known");
+        let path = |slug: &str| s.repos.iter().find(|r| r.slug == slug).unwrap().path.clone();
+        assert_eq!(path("a/b"), Some(PathBuf::from("P1")), "a saved path is kept");
+        assert_eq!(path("c/d"), Some(PathBuf::from("P3")));
+        let order: Vec<&str> = s.repos.iter().map(|r| r.slug.as_str()).collect();
+        assert_eq!(order, ["a/b", "c/d", "x/y"], "local clones sort before repos without a path");
+    }
+
+    #[test]
+    fn add_clones_gives_a_pathless_repo_its_clone() {
+        let mut s = State::new(config::Prefs::default());
+        s.add_repo("x/y".into(), None);
+        let scans = vec![scan::Scan { found: vec![found("x/y", "P9")], skipped: 0, stopped_early: false }];
+        assert_eq!(s.add_clones(scans), (1, 0));
+        assert_eq!(s.repos[0].path, Some(PathBuf::from("P9")));
+    }
+
+    #[test]
+    fn remove_clone_folder_only_drops_the_folder() {
+        let mut s = State::new(config::Prefs::default());
+        s.prefs.clone_folders = vec![PathBuf::from("A"), PathBuf::from("B")];
+        s.add_repo("a/b".into(), Some(PathBuf::from("A/b")));
+        s.remove_clone_folder(0);
+        s.remove_clone_folder(7);
+        assert_eq!(s.prefs.clone_folders, vec![PathBuf::from("B")]);
+        assert_eq!(s.repos.len(), 1);
+    }
+
+    /// Reads the real disk: run by hand with `-- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_scan() {
+        let r = scan::scan(std::path::Path::new("C:/Users/seaga/Desktop/Project"));
+        println!("found={} skipped={} stopped_early={}", r.found.len(), r.skipped, r.stopped_early);
+        for f in &r.found {
+            println!("{} {} depth {}", f.slug, f.path.display(), f.depth);
+        }
     }
 }

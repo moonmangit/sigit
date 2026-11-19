@@ -59,7 +59,7 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let content = match s.settings_sec {
         0 => appearance(s, k),
         1 => accounts(s, k),
-        2 => git_identity(s, k),
+        2 => col().w_full().gap(18.0).child(git_identity(s, k)).child(clone_folders(s, k)).child(comparisons(s, k)),
         3 => safety(s, k),
         4 => notifications(s, k),
         5 => data(s, k),
@@ -348,6 +348,120 @@ fn git_identity(s: &State, k: &Kit) -> El {
         .child(group(k, "Author identity", vec![block(k, "git-id", col().w_full().gap(10.0).child(muted(k, "The name and email git puts on commits you make on this computer (git config --global user.name / user.email). A repo can still override them with its own config.").wrap().w_full()).child(fields))]))
 }
 
+/// Folders sigit searches for git clones at launch, and the buttons to add, rescan or drop one.
+fn clone_folders(s: &State, k: &Kit) -> El {
+    let mut list = col().w_full().gap(6.0);
+    if s.prefs.clone_folders.is_empty() {
+        list = list.child(muted(k, "No folders yet."));
+    }
+    for (i, f) in s.prefs.clone_folders.iter().enumerate() {
+        list = list.child(
+            row()
+                .key(crate::tf!("clone-folder-{i}"))
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(rune::text(f.display().to_string()).font(k.ty.ui).color(k.c.text_strong).wrap().w(0.0).grow(1.0))
+                .child(Button::new(crate::i18n::t("Remove")).variant(ButtonVariant::Outline).on_press(move |s: &mut State| s.remove_clone_folder(i)).build(k).key(crate::tf!("clone-remove-{i}"))),
+        );
+    }
+    let foot = row()
+        .w_full()
+        .gap(8.0)
+        .child(Button::new(crate::i18n::t("Add folder…")).variant(ButtonVariant::Outline).on_press_tx(crate::ask_clone_folder).build(k).key("clone-add"))
+        .child(Button::new(crate::i18n::t("Rescan now")).variant(ButtonVariant::Outline).disabled(s.prefs.clone_folders.is_empty()).on_press(|s: &mut State| s.rescan_folders(true)).build(k).key("clone-rescan"));
+    group(
+        k,
+        "Clone folders",
+        vec![block(
+            k,
+            "git-clones",
+            col()
+                .w_full()
+                .gap(10.0)
+                .child(muted(k, "sigit looks for git clones in these folders at launch, so Commits and Branches work without locating each one.").wrap().w_full())
+                .child(list)
+                .child(foot),
+        )],
+    )
+}
+
+/// A field of comparison row `i` (0 name, 1 From, 2 To). Edits reach only a row that exists.
+fn cmp_field(s: &mut State, i: usize, f: usize) -> &mut rune::TextEdit {
+    match s.cmp_rows.get_mut(i) {
+        Some(r) if f == 0 => &mut r.0,
+        Some(r) if f == 1 => &mut r.1,
+        Some(r) => &mut r.2,
+        None => Box::leak(Box::new(rune::TextEdit::new(""))),
+    }
+}
+
+/// The shared branch comparisons: name, From, To, and the buttons that swap, move or remove one.
+fn comparisons(s: &State, k: &Kit) -> El {
+    let n = s.cmp_rows.len();
+    let mut list = col().w_full().gap(10.0);
+    for (i, (name, from, to)) in s.cmp_rows.iter().enumerate() {
+        let input = |e: &rune::TextEdit, label: &str, f: usize, key: &str| {
+            TextField::new(label, e).on_edit(move |s: &mut State| cmp_field(s, i, f)).build(k).key(crate::tf!("{key}-{i}"))
+        };
+        let icon = |g: &'static rune::Icon, label: &str, off: bool, key: &str, press: fn(&mut State, usize)| {
+            IconButton::new(g)
+                .variant(IconButtonVariant::GhostMuted)
+                .label(crate::i18n::t(label))
+                .help(crate::i18n::t(label))
+                .disabled(off)
+                .on_press(move |s: &mut State| press(s, i))
+                .build(k)
+                .key(crate::tf!("{key}-{i}"))
+        };
+        list = list.child(
+            row()
+                .key(crate::tf!("set-cmp-row-{i}"))
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(row().w(0.0).grow(1.2).child(input(name, "Name", 0, "set-cmp-name")))
+                .child(row().w(0.0).grow(1.0).child(input(from, "From", 1, "set-cmp-from")))
+                .child(rune::text("→").font(k.ty.ui).color(k.c.text_faint))
+                .child(row().w(0.0).grow(1.0).child(input(to, "To", 2, "set-cmp-to")))
+                .child(Button::new(crate::i18n::t("Swap")).variant(ButtonVariant::Outline).on_press(move |s: &mut State| s.cmp_swap(i)).build(k).key(crate::tf!("set-cmp-swap-{i}")))
+                .child(icon(&glyphs::CHEVRON_UP, "Move up", i == 0, "set-cmp-up", |s, i| s.cmp_move(i, -1)))
+                .child(icon(&glyphs::CHEVRON_DOWN, "Move down", i + 1 == n, "set-cmp-down", |s, i| s.cmp_move(i, 1)))
+                .child(icon(&glyphs::CLOSE, "Remove", false, "set-cmp-remove", |s, i| s.cmp_remove(i))),
+        );
+    }
+    let foot = row()
+        .w_full()
+        .gap(8.0)
+        .child(Button::new(crate::i18n::t("Add comparison")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.cmp_add()).build(k).key("set-cmp-add"))
+        .child(spacer())
+        .child(
+            Button::new(crate::i18n::t("Save"))
+                .variant(ButtonVariant::Submit)
+                .on_press(|s: &mut State| {
+                    if let Err(e) = s.save_comparisons() {
+                        s.toast(e, true);
+                    }
+                })
+                .build(k)
+                .key("set-cmp-save-all"),
+        );
+    group(
+        k,
+        "Branch comparisons",
+        vec![block(
+            k,
+            "git-cmp",
+            col()
+                .w_full()
+                .gap(10.0)
+                .child(muted(k, "Each counts the commits and PRs on From that To doesn't have yet. Change one per repo from the Dashboard.").wrap().w_full())
+                .child(list)
+                .child(foot),
+        )],
+    )
+}
+
 fn safety(s: &State, k: &Kit) -> El {
     let builtin = SENSITIVE.iter().map(|(p, what)| tf!("{p}  ({what})")).collect::<Vec<_>>().join("\n");
     let graces = [0u32, 3, 5, 10];
@@ -523,7 +637,7 @@ const SHORTCUTS: [(&str, &str); 14] = [
     ("F1", "Guide"),
     ("Ctrl+R", "Reload this page"),
     ("Alt+← / Alt+→", "Back / forward"),
-    ("Ctrl+1", "Inbox"),
+    ("Ctrl+1", "Dashboard"),
     ("Ctrl+2 … 6", "Pull requests, Actions, Environments, Commits, Branches"),
     ("J / K", "Needs you: next / previous in the review queue"),
     ("Enter", "Needs you: open the selected PR"),

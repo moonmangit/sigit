@@ -409,7 +409,7 @@ fn build(s: &State, i: usize, k: &Kit) -> El {
 
 pub fn view(s: &State, k: &Kit) -> El {
     let reviews = s.inbox.data.as_ref().map_or(0, |i| i.review_requested.len());
-    let mut inbox = SidebarRow::new(crate::i18n::t("Inbox")).icon(&I_INBOX).height(32.0).selected(s.page == Page::Inbox).on_select(|s: &mut State, _| s.show(Page::Inbox));
+    let mut inbox = SidebarRow::new(crate::i18n::t("Dashboard")).icon(&I_INBOX).height(32.0).selected(s.page == Page::Inbox).on_select(|s: &mut State, _| s.show(Page::Inbox));
     if reviews > 0 {
         inbox = inbox.trailing(chip(k, reviews.to_string(), Some(Outcome::Running)));
     }

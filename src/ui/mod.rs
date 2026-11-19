@@ -5,6 +5,7 @@ mod actions;
 mod branches;
 pub mod cmd;
 mod commits;
+mod compare;
 mod envs;
 mod group;
 mod inbox;
@@ -350,6 +351,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     group_dialog(s, &k, &mut layer);
     org::dialog(s, &k, &mut layer);
     pulse::tracked_dialog(s, &k, &mut layer);
+    compare::repo_dialog(s, &k, &mut layer);
     let menu_anchor = sidebar::context(s, &k, &mut layer);
     overlays::palette(s, &k, &mut layer);
     settings::dialog(s, &k, &mut layer);
@@ -363,7 +365,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
 
     let title = match (s.page, s.cur.as_deref(), s.group_cur.as_deref()) {
         (Page::Group, _, Some(g)) => tf!("Group · {g}"),
-        (Page::Inbox, ..) | (_, None, _) => crate::i18n::t("Inbox"),
+        (Page::Inbox, ..) | (_, None, _) => crate::i18n::t("Dashboard"),
         (p, Some(slug), _) => tf!("{slug} · {}", crate::i18n::t(p.label())),
     };
     let mut trailing = row().gap(10.0).center_y();
@@ -461,7 +463,7 @@ pub fn crash_screen(s: &State, cx: &mut Cx<State>) -> El {
                 .child(spacer())
                 .child(overlays::copy_report_button(&k, report.as_ref()))
                 .child(
-                    Button::new(crate::i18n::t("Go to Inbox"))
+                    Button::new(crate::i18n::t("Go to Dashboard"))
                         .variant(ButtonVariant::Submit)
                         .on_press(|s: &mut State| {
                             s.crash.clear();
@@ -516,14 +518,23 @@ fn group_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
 /// The Inbox: Activity (your tracked repos over a range) and Needs you (queue, notifications).
 fn inbox_page(s: &State, k: &Kit) -> El {
     let needs = s.review_queue().len() + s.visible_notifs().len();
-    let tabs = SegmentedControl::new(&crate::i18n::all(&["Activity".to_owned(), tf!("Needs you ({needs})")]), Some(s.inbox_tab))
-        .label(crate::i18n::t("Inbox view"))
+    let tabs = SegmentedControl::new(&crate::i18n::all(&["Activity".to_owned(), tf!("Needs you ({needs})"), "Comparisons".to_owned()]), Some(s.inbox_tab))
+        .label(crate::i18n::t("Dashboard view"))
         .fit()
-        .on_pick(|s: &mut State, i, _| s.inbox_tab = i)
+        .on_pick(|s: &mut State, i, _| {
+            s.inbox_tab = i;
+            if i == crate::COMPARE_TAB {
+                s.revalidate_page();
+            }
+        })
         .build(k)
         .key("inbox-tabs")
-        .help(crate::i18n::t("Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs."));
-    let body = if s.inbox_tab == 0 { pulse::view(s, k) } else { inbox::view(s, k) };
+        .help(crate::i18n::t("Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs. Comparisons: commits and PRs waiting between branches."));
+    let body = match s.inbox_tab {
+        0 => pulse::view(s, k),
+        crate::COMPARE_TAB => compare::view(s, k),
+        _ => inbox::view(s, k),
+    };
     col().key("inbox-page").w_full().h_full().child(row().w_full().px(24.0).pt(14.0).child(tabs)).child(col().w_full().grow(1.0).min_h(0.0).child(body))
 }
 
@@ -561,6 +572,7 @@ fn freshness(s: &State) -> Option<Fresh> {
             f.add(&s.pulse);
             f.ttl = ttl::PULSE;
         }
+        Page::Inbox if s.inbox_tab == crate::COMPARE_TAB => f.add(&s.compare),
         Page::Inbox => {
             f.add(&s.inbox);
             f.add(&s.notifs);

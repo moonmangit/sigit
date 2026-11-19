@@ -41,7 +41,7 @@ Active	ใช้งานอยู่
 Activity	ความเคลื่อนไหว
 Activity follows your pinned repos and your groups: right-click any repo in the sidebar to pin it, add it to a group, or track it.	หน้าความเคลื่อนไหวติดตาม repo ที่ปักหมุดและกลุ่มของคุณ: คลิกขวาที่ repo ใดก็ได้ในแถบข้างเพื่อปักหมุด เพิ่มเข้ากลุ่ม หรือติดตาม
 Activity log	บันทึกการทำงาน
-Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs.	ความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตาม · รอคุณอยู่: งานรีวิว การแจ้งเตือน และ PR ของคุณ
+Activity: what changed in your tracked repos. Needs you: reviews, notifications, your PRs. Comparisons: commits and PRs waiting between branches.	ความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตาม · รอคุณอยู่: งานรีวิว การแจ้งเตือน และ PR ของคุณ · เปรียบเทียบ: commit และ PR ที่รอระหว่าง branch
 Add a local clone…	เพิ่ม clone ในเครื่อง…
 Add a repo: type to search	เพิ่ม repo: พิมพ์เพื่อค้นหา
 Add local repo	เพิ่ม repo ในเครื่อง
@@ -174,7 +174,7 @@ Couldn't save the repo list: {e}	บันทึกรายการ repo ไ�
 Couldn't write the activity log: {e}	เขียนบันทึกการทำงานไม่สำเร็จ: {e}
 Counting PRs opened and merged {label}…	กำลังนับ PR ที่เปิดและ merge {label}…
 Ctrl+2 … 6	Ctrl+2 … 6
-Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Inbox / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.	Ctrl+K palette · F1 คู่มือ · Ctrl+R รีเฟรช · Alt+←/→ ย้อนกลับ/ไปข้างหน้า · Ctrl+1…6 กล่องงาน / PR / Actions / Environment / Commit / Branch · Esc ปิด palette หรือยกเลิกการนับถอยหลัง merge
+Ctrl+K palette · F1 guide · Ctrl+R refresh · Alt+←/→ back/forward · Ctrl+1…6 Dashboard / PRs / Actions / Environments / Commits / Branches · Esc closes the palette or cancels a merge countdown.	Ctrl+K palette · F1 คู่มือ · Ctrl+R รีเฟรช · Alt+←/→ ย้อนกลับ/ไปข้างหน้า · Ctrl+1…6 แดชบอร์ด / PR / Actions / Environment / Commit / Branch · Esc ปิด palette หรือยกเลิกการนับถอยหลัง merge
 Current branch	branch ปัจจุบัน
 Custom	กำหนดเอง
 Custom colour	สีกำหนดเอง
@@ -287,9 +287,9 @@ How long they've been open	เปิดมานานเท่าไรแล�
 How many of each organization's repos the sidebar lists before "Show more". The ones you opened recently come first; search always shows every match.	จำนวน repo ของแต่ละองค์กรที่แถบข้างแสดงก่อนปุ่ม "แสดงเพิ่ม" ที่เปิดล่าสุดจะขึ้นก่อน การค้นหาจะแสดงทุกรายการที่ตรงเสมอ
 Icon	ไอคอน
 If you're an admin, GitHub would let a merge through its rules anyway. sigit says so and still asks.	ถ้าคุณเป็นผู้ดูแล GitHub จะยอมให้ merge ผ่านกฎได้อยู่ดี sigit จะแจ้งให้ทราบและยังถามก่อนเสมอ
-Inbox	กล่องงาน
-Inbox & notifications	กล่องงานและการแจ้งเตือน
-Inbox view	มุมมองกล่องงาน
+Dashboard	แดชบอร์ด
+Dashboard & notifications	แดชบอร์ดและการแจ้งเตือน
+Dashboard view	มุมมองแดชบอร์ด
 Install Git	ติดตั้ง Git
 Install the GitHub CLI (gh)	ติดตั้ง GitHub CLI (gh)
 Install the GitHub CLI first	ติดตั้ง GitHub CLI ก่อน
@@ -585,7 +585,7 @@ Sections side by side (a list and its detail, the Activity panels, each repo's c
 Sensitive files and possible secrets. Merging this PR is High risk.	ไฟล์สำคัญและอาจมีข้อมูลลับ การ merge PR นี้มีความเสี่ยงสูง
 Settings	การตั้งค่า
 Settings & shortcuts	การตั้งค่าและปุ่มลัด
-Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email), Safety (production names, sensitive paths, merge countdown), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About.	การตั้งค่า (รูปเฟืองมุมขวาบนของหน้าต่าง หรือ Ctrl+,) เปิดหน้าต่างการตั้งค่า: การแสดงผล (ธีม, ภาษา, ขนาดข้อความ, repo ต่อองค์กร, ขนาดส่วนต่าง ๆ), บัญชี (บัญชี GitHub ที่ gh เข้าสู่ระบบไว้และการสลับบัญชี), Git (ชื่อและอีเมลสำหรับ commit), ความปลอดภัย (ชื่อ production, path สำคัญ, การนับถอยหลังก่อน merge), การแจ้งเตือนและการติดตาม, ข้อมูลและพื้นที่จัดเก็บ (แคช), บันทึกการทำงาน, ปุ่มลัด และเกี่ยวกับ
+Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email, clone folders, branch comparisons), Safety (production names, sensitive paths, merge countdown), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About.	การตั้งค่า (รูปเฟืองมุมขวาบนของหน้าต่าง หรือ Ctrl+,) เปิดหน้าต่างการตั้งค่า: การแสดงผล (ธีม, ภาษา, ขนาดข้อความ, repo ต่อองค์กร, ขนาดส่วนต่าง ๆ), บัญชี (บัญชี GitHub ที่ gh เข้าสู่ระบบไว้และการสลับบัญชี), Git (ชื่อและอีเมลสำหรับ commit, โฟลเดอร์ clone, การเปรียบเทียบ branch), ความปลอดภัย (ชื่อ production, path สำคัญ, การนับถอยหลังก่อน merge), การแจ้งเตือนและการติดตาม, ข้อมูลและพื้นที่จัดเก็บ (แคช), บันทึกการทำงาน, ปุ่มลัด และเกี่ยวกับ
 Settings folder	โฟลเดอร์การตั้งค่า
 Settings: appearance, accounts, git identity, safety, notifications	การตั้งค่า: การแสดงผล, บัญชี, ข้อมูลผู้ใช้ git, ความปลอดภัย, การแจ้งเตือน
 Shortcuts	ปุ่มลัด
@@ -640,8 +640,9 @@ Take it back (available for 10 s)	ย้อนกลับ (ทำได้ภ�
 Take the tour	ดูทัวร์แนะนำ
 Text size	ขนาดข้อความ
 That email doesn't look right	อีเมลนี้ดูไม่ถูกต้อง
-The Inbox opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.	กล่องงานเปิดที่หน้าความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตามในช่วงเวลาหนึ่ง (ค่าเริ่มต้นคือสัปดาห์นี้ หรือเลือกวันนี้, 7 วัน, เดือนนี้, 30 วัน หรือกำหนดวันเอง) PR ที่เปิด, merge และปิด; commit และจำนวนบรรทัดที่เปลี่ยน; CI run, อัตราสำเร็จ และนาทีที่ใช้; deployment และ release; ใครมีส่วนร่วมเท่าไร; และตัวเลขของแต่ละ repo เรียงจากที่เปลี่ยนมากที่สุด
+The Dashboard opens on Activity: what changed in the repos you track over a range (this week by default; Today, 7 days, this month, 30 days or custom dates). PRs opened, merged and closed; commits and lines changed; CI runs, success rate and minutes; deployments and releases; who contributed what share; and each repo's numbers, most changed first.	แดชบอร์ดเปิดที่หน้าความเคลื่อนไหว: สิ่งที่เปลี่ยนใน repo ที่ติดตามในช่วงเวลาหนึ่ง (ค่าเริ่มต้นคือสัปดาห์นี้ หรือเลือกวันนี้, 7 วัน, เดือนนี้, 30 วัน หรือกำหนดวันเอง) PR ที่เปิด, merge และปิด; commit และจำนวนบรรทัดที่เปลี่ยน; CI run, อัตราสำเร็จ และนาทีที่ใช้; deployment และ release; ใครมีส่วนร่วมเท่าไร; และตัวเลขของแต่ละ repo เรียงจากที่เปลี่ยนมากที่สุด
 The Needs you tab is your day: PRs waiting for your review, your own PRs, assigned issues, recent CI runs, and your GitHub notifications.	แท็บรอคุณอยู่คืองานของวันนี้: PR ที่รอคุณรีวิว, PR ของคุณ, issue ที่มอบหมาย, CI run ล่าสุด และการแจ้งเตือนจาก GitHub
+The Comparisons tab shows, for each tracked repo, how far one branch is ahead of another (dev → staging, say): commits and PRs waiting. Click a cell for the PRs and commits, or the gear on a row to change that repo's branches. Set the defaults in Settings → Git.	แท็บ Comparisons แสดงของแต่ละ repo ที่ติดตาม ว่า branch หนึ่งนำอีก branch หนึ่งอยู่เท่าไร (เช่น dev → staging): commit และ PR ที่รออยู่ คลิกช่องเพื่อดู PR และ commit หรือกดรูปเฟืองที่แถวเพื่อเปลี่ยน branch ของ repo นั้น ตั้งค่าเริ่มต้นได้ที่ ตั้งค่า → Git
 The branch your local clone is on	branch ที่ clone ในเครื่องของคุณใช้อยู่
 The detail pane: Conversation (description, reviews, comments, your comment box), Files (with the diff), Checks. A 'Why this needs care' box lists sensitive files and possible secrets.	แผงรายละเอียด: การสนทนา (คำอธิบาย, รีวิว, ความคิดเห็น, ช่องความคิดเห็นของคุณ), ไฟล์ (พร้อม diff), Check กล่อง 'ทำไมต้องระวัง' จะแสดงไฟล์สำคัญและสิ่งที่อาจเป็นข้อมูลลับ
 The download didn't contain sigit	ไฟล์ที่ดาวน์โหลดไม่มี sigit อยู่
@@ -1038,14 +1039,61 @@ Turn this off in Settings → Safety → Show gh / git commands.	ปิดได
 Language & updates	ภาษาและการอัปเดต
 Settings → Appearance → Language: System (follows your computer), English or ไทย. The whole interface switches at once, dates and times included. Git and GitHub terms stay in English, and GitHub's own text (titles, comments, names) is shown as written.	การตั้งค่า → การแสดงผล → ภาษา: ตามระบบ (ตามเครื่องของคุณ), English หรือ ไทย ทั้งหน้าจอเปลี่ยนทันที รวมถึงวันที่และเวลา คำศัพท์ของ Git และ GitHub ยังเป็นภาษาอังกฤษ และข้อความจาก GitHub เอง (ชื่อเรื่อง, ความคิดเห็น, ชื่อ) แสดงตามต้นฉบับ
 Settings → About → Check for updates looks for a newer release on GitHub. Update now downloads it, checks it against the release's checksums and replaces this copy; your settings stay. If sigit is installed for all users, your computer asks for administrator permission.	การตั้งค่า → เกี่ยวกับ → ตรวจหาอัปเดต จะหา release ใหม่บน GitHub อัปเดตเลย จะดาวน์โหลด ตรวจกับ checksum ของ release แล้วแทนที่สำเนานี้ การตั้งค่าของคุณยังอยู่ครบ ถ้าติดตั้ง sigit ไว้สำหรับผู้ใช้ทุกคน เครื่องจะขอสิทธิ์ผู้ดูแลระบบ
-Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, language, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email), Safety (merge countdown, showing gh / git commands, production names, sensitive paths), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About (version and updates).	การตั้งค่า (รูปเฟืองมุมขวาบนของหน้าต่าง หรือ Ctrl+,) เปิดหน้าต่างการตั้งค่า: การแสดงผล (ธีม, ภาษา, ขนาดข้อความ, repo ต่อองค์กร, ขนาดส่วนต่าง ๆ), บัญชี (บัญชี GitHub ที่ gh เข้าสู่ระบบไว้และการสลับบัญชี), Git (ชื่อและอีเมลสำหรับ commit), ความปลอดภัย (การนับถอยหลังก่อน merge, การแสดงคำสั่ง gh / git, ชื่อ production, path สำคัญ), การแจ้งเตือนและการติดตาม, ข้อมูลและพื้นที่จัดเก็บ (แคช), บันทึกการทำงาน, ปุ่มลัด และเกี่ยวกับ (เวอร์ชันและการอัปเดต)
+Settings (the gear at the top right of the window, or Ctrl+,) opens a Settings window: Appearance (theme, language, text size, repos per organization, section sizes), Accounts (the GitHub accounts gh is signed in to, and switching between them), Git (your commit name and email, clone folders, branch comparisons), Safety (merge countdown, showing gh / git commands, production names, sensitive paths), Notifications and watches, Data & storage (the cache), the Activity log, Shortcuts and About (version and updates).	การตั้งค่า (รูปเฟืองมุมขวาบนของหน้าต่าง หรือ Ctrl+,) เปิดหน้าต่างการตั้งค่า: การแสดงผล (ธีม, ภาษา, ขนาดข้อความ, repo ต่อองค์กร, ขนาดส่วนต่าง ๆ), บัญชี (บัญชี GitHub ที่ gh เข้าสู่ระบบไว้และการสลับบัญชี), Git (ชื่อและอีเมลสำหรับ commit, โฟลเดอร์ clone, การเปรียบเทียบ branch), ความปลอดภัย (การนับถอยหลังก่อน merge, การแสดงคำสั่ง gh / git, ชื่อ production, path สำคัญ), การแจ้งเตือนและการติดตาม, ข้อมูลและพื้นที่จัดเก็บ (แคช), บันทึกการทำงาน, ปุ่มลัด และเกี่ยวกับ (เวอร์ชันและการอัปเดต)
 (no details)	(ไม่มีรายละเอียด)
 Copy error details	คัดลอกรายละเอียดข้อผิดพลาด
 Dismiss	ปิด
 Error details copied	คัดลอกรายละเอียดข้อผิดพลาดแล้ว
-Go to Inbox	ไปที่ Inbox
+Go to Dashboard	ไปที่แดชบอร์ด
 Next error	ข้อผิดพลาดถัดไป
 Something went wrong	เกิดข้อผิดพลาด
 This page hit an error, so sigit stopped drawing it. Everything else is still running.	หน้านี้เกิดข้อผิดพลาด sigit จึงหยุดแสดงหน้านี้ ส่วนอื่นยังทำงานตามปกติ
 sigit caught this error and kept running. Copy it to report it.	sigit จับข้อผิดพลาดนี้ไว้และยังทำงานต่อได้ คัดลอกไปแจ้งปัญหาได้
 sigit caught this error and {more} more, and kept running. Copy it to report it.	sigit จับข้อผิดพลาดนี้และอีก {more} รายการไว้ และยังทำงานต่อได้ คัดลอกไปแจ้งปัญหาได้
+GitHub returned nothing for this repo	GitHub ไม่ส่งข้อมูลของ repo นี้กลับมา
+`gh api graphql` failed	`gh api graphql` ล้มเหลว
+To staging	ไปยัง staging
+Back-merge	ผสานกลับ
+To production	ไปยัง production
+couldn't start `gh`: {e}	เริ่ม `gh` ไม่สำเร็จ: {e}
+1 PR	1 PR
+1 commit	1 commit
+{n} PRs	{n} PR
+{n} commits	{n} commit
+Add a comparison in Settings → Git.	เพิ่มการเปรียบเทียบได้ที่ การตั้งค่า → Git
+Changed for this repo	เปลี่ยนเฉพาะ repo นี้
+Close	ปิด
+Commits without a PR ({n})	Commit ที่ไม่มี PR ({n})
+Comparisons	เปรียบเทียบ
+Comparisons for {slug}	การเปรียบเทียบของ {slug}
+Edit comparisons for this repo…	แก้การเปรียบเทียบของ repo นี้…
+Merged PRs waiting ({n})	PR ที่ merge แล้วรออยู่ ({n})
+On	เปิด
+PRs counted from the first {checked} commits	นับ PR จาก {checked} commit แรก
+Reset to shared	กลับไปใช้ค่าที่ใช้ร่วมกัน
+Track some repos to compare their branches.	ติดตาม repo ก่อน เพื่อเปรียบเทียบ branch
+— no {a} or {b}	— ไม่มี {a} หรือ {b}
+— no {branch}	— ไม่มี {branch}
+off	ปิด
+Branch comparisons	การเปรียบเทียบ branch
+Each counts the commits and PRs on From that To doesn't have yet. Change one per repo from the Dashboard.	แต่ละรายการนับ commit และ PR ที่มีบน From แต่ยังไม่มีบน To เปลี่ยนต่อ repo ได้จากแดชบอร์ด
+Add comparison	เพิ่มการเปรียบเทียบ
+Swap	สลับ
+Remove	ลบ
+Comparisons saved	บันทึกการเปรียบเทียบแล้ว
+Every comparison needs a name and two branches	ทุกการเปรียบเทียบต้องมีชื่อและ branch สองอัน
+Two comparisons are called {name}	มีการเปรียบเทียบสองรายการชื่อ {name}
+{name} compares {branch} with itself	{name} เปรียบเทียบ {branch} กับตัวมันเอง
+Clone folders	โฟลเดอร์ที่เก็บ clone
+sigit looks for git clones in these folders at launch, so Commits and Branches work without locating each one.	sigit จะค้นหา git clone ในโฟลเดอร์เหล่านี้ตอนเปิดแอป ทำให้ Commits และ Branches ใช้งานได้โดยไม่ต้องระบุตำแหน่งทีละรายการ
+Add folder…	เพิ่มโฟลเดอร์…
+Rescan now	สแกนใหม่ตอนนี้
+No folders yet.	ยังไม่มีโฟลเดอร์
+Found {total} clones · {new} new · {known} already known · {skipped} skipped	พบ {total} clone · ใหม่ {new} · รู้จักแล้ว {known} · ข้าม {skipped}
+ · stopped early in {folder}	 · หยุดก่อนกำหนดใน {folder}
+Added {new} new clones from your folders	เพิ่ม clone ใหม่ {new} รายการจากโฟลเดอร์ของคุณ
+Choose a folder that holds your git clones	เลือกโฟลเดอร์ที่เก็บ git clone ของคุณ
+Loading this repo's comparisons stopped unexpectedly	การโหลดการเปรียบเทียบของ repo นี้หยุดกะทันหัน
+Nothing waiting ({n})	ไม่มีอะไรรอ ({n})
+no {b} branch	ไม่มี branch {b}
+{hidden} older not drawn	อีก {hidden} รายการที่เก่ากว่าไม่ได้แสดง

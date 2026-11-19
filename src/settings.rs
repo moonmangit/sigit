@@ -18,6 +18,7 @@ impl State {
         }
         self.settings_open = true;
         self.palette = false;
+        self.open_cmp_rows();
         let t = model::now();
         jobs::spawn(self, move || activity::recent(t), |s, v| s.activity = v);
         self.load_accounts();
@@ -29,6 +30,82 @@ impl State {
                 s.versions = Some(versions);
             }
         });
+    }
+
+    /// Fill the Settings → Git comparison rows from the saved comparisons.
+    pub fn open_cmp_rows(&mut self) {
+        let cs = &self.prefs.comparisons;
+        self.cmp_rows = cs.iter().map(|c| (TextEdit::new(&c.name), TextEdit::new(&c.from), TextEdit::new(&c.to))).collect();
+        self.cmp_ids = cs.iter().map(|c| Some(c.name.clone())).collect();
+    }
+
+    pub fn cmp_add(&mut self) {
+        self.cmp_rows.push((TextEdit::new(""), TextEdit::new(""), TextEdit::new("")));
+        self.cmp_ids.push(None);
+    }
+
+    pub fn cmp_remove(&mut self, i: usize) {
+        if i < self.cmp_rows.len() {
+            self.cmp_rows.remove(i);
+            self.cmp_ids.remove(i);
+        }
+    }
+
+    /// Move row `i` one place up (`-1`) or down (`1`), its identity with it.
+    pub fn cmp_move(&mut self, i: usize, by: isize) {
+        let j = i.checked_add_signed(by).filter(|j| *j < self.cmp_rows.len());
+        if let (Some(j), true) = (j, i < self.cmp_rows.len()) {
+            self.cmp_rows.swap(i, j);
+            self.cmp_ids.swap(i, j);
+        }
+    }
+
+    /// Exchange row `i`'s From and To.
+    pub fn cmp_swap(&mut self, i: usize) {
+        if let Some(r) = self.cmp_rows.get_mut(i) {
+            std::mem::swap(&mut r.1, &mut r.2);
+        }
+    }
+
+    /// Check the rows, apply renames and removals to the comparisons and their overrides, then
+    /// save. On an error nothing changes.
+    pub fn save_comparisons(&mut self) -> Result<(), String> {
+        let rows: Vec<(String, String, String)> =
+            self.cmp_rows.iter().map(|(n, f, t)| (n.text.trim().to_owned(), f.text.trim().to_owned(), t.text.trim().to_owned())).collect();
+        for (i, (n, f, t)) in rows.iter().enumerate() {
+            if n.is_empty() || f.is_empty() || t.is_empty() {
+                return Err(crate::i18n::t("Every comparison needs a name and two branches").to_string());
+            }
+            if rows[..i].iter().any(|(m, ..)| m == n) {
+                return Err(crate::tf!("Two comparisons are called {name}", name = n));
+            }
+            if f == t {
+                return Err(crate::tf!("{name} compares {branch} with itself", name = n, branch = f));
+            }
+        }
+        for old in self.prefs.comparisons.iter().map(|c| c.name.clone()).collect::<Vec<_>>() {
+            if !self.cmp_ids.iter().flatten().any(|id| *id == old) {
+                crate::compare::delete(&mut self.prefs, &old);
+            }
+        }
+        // Renames go through a placeholder, so two rows trading names don't merge their overrides.
+        let renamed: Vec<(usize, String, String)> = rows
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (n, ..))| self.cmp_ids.get(i).cloned().flatten().filter(|id| id != n).map(|id| (i, id, n.clone())))
+            .collect();
+        for (i, old, _) in &renamed {
+            crate::compare::rename(&mut self.prefs, old, &format!("\u{0}{i}"));
+        }
+        for (i, _, new) in &renamed {
+            crate::compare::rename(&mut self.prefs, &format!("\u{0}{i}"), new);
+        }
+        self.prefs.comparisons = rows.into_iter().map(|(name, from, to)| crate::compare::Comparison { name, from, to }).collect();
+        self.open_cmp_rows();
+        self.save_prefs();
+        self.toast(crate::i18n::t("Comparisons saved"), false);
+        self.refresh_compare();
+        Ok(())
     }
 
     pub fn close_settings(&mut self) {

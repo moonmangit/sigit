@@ -299,6 +299,10 @@ impl State {
             self.pulse_key = key;
             self.pulse = Load::from_cache(p, snap.pulse_at.max(1));
         }
+        if let Some((key, rows)) = snap.compare.filter(|(k, _)| *k == self.compare_key_now()) {
+            self.compare_key = key;
+            self.compare = Load::from_cache(rows, snap.compare_at.max(1));
+        }
         for (slug, prs) in snap.prs {
             self.rd_mut_pub(&slug).prs = Load::from_cache(prs, at);
         }
@@ -355,6 +359,8 @@ impl State {
             groups: self.group_data.iter().filter_map(|(k, v)| Some((k.clone(), v.data.clone()?))).collect(),
             pulse: self.pulse.data.clone().map(|p| (self.pulse_key.clone(), p)),
             pulse_at: self.pulse.at.unwrap_or(0),
+            compare: self.compare.data.clone().map(|c| (self.compare_key.clone(), c)),
+            compare_at: self.compare.at.unwrap_or(0),
         };
         jobs::spawn(self, move || cache::save(&snap), |_, _| {});
     }
@@ -376,7 +382,9 @@ impl State {
         // Matches the title as shown (Thai, say) or in English, whichever fits better.
         let mut add = |item: PaletteItem, title: String, hint: String, boost: i64| {
             let shown = crate::i18n::t(title.as_str());
-            let score = fuzzy(&q, &shown.to_lowercase()).max(fuzzy(&q, &title.to_lowercase()));
+            let score = fuzzy(&q, &shown.to_lowercase()).max(fuzzy(&q, &title.to_lowercase()))
+                // The page used to be called Inbox.
+                .max(if title == "Dashboard" { fuzzy(&q, "inbox") } else { None });
             if let Some(score) = score {
                 out.push((score + boost, item, title, hint));
             }
@@ -432,7 +440,7 @@ impl State {
             }
             PaletteItem::Group(g) => self.open_group(&g),
             PaletteItem::Command(c) => match c {
-                "Inbox" => self.show(Page::Inbox),
+                "Dashboard" => self.show(Page::Inbox),
                 "Settings" => self.open_settings(0),
                 "Guide" => self.guide_open = true,
                 "Refresh" => self.refresh_page(),
@@ -461,7 +469,7 @@ impl State {
 }
 
 pub const COMMANDS: [(&str, &str); 10] = [
-    ("Inbox", "Ctrl+1"),
+    ("Dashboard", "Ctrl+1"),
     ("Settings", "appearance, accounts, git identity, safety, notifications (Ctrl+,)"),
     ("Guide", "how everything works · F1"),
     ("Refresh", "Ctrl+R"),
@@ -601,7 +609,7 @@ fn group_repo(slug: &str, prod_names: &[String]) -> Result<GroupRepo, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::fuzzy;
+    use super::{PaletteItem, fuzzy};
 
     #[test]
     fn fuzzy_ranks_exact_and_word_starts() {
@@ -610,5 +618,17 @@ mod tests {
         assert!(exact > spread);
         assert!(fuzzy("rlcrg", "rust-lang/cargo").is_some());
         assert!(fuzzy("xyz", "anomalyco/rune").is_none());
+    }
+
+    #[test]
+    fn palette_finds_dashboard_by_old_name() {
+        let mut s = crate::State::new(crate::config::Prefs::default());
+        s.palette_q = rune::TextEdit::new("inbox");
+        assert!(s.palette_items().iter().any(|(item, title, _)| matches!(item, PaletteItem::Command("Dashboard")) && title == "Dashboard"));
+    }
+
+    #[test]
+    fn page_is_called_dashboard() {
+        assert_eq!(crate::Page::Inbox.label(), "Dashboard");
     }
 }

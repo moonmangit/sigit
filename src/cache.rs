@@ -30,6 +30,9 @@ pub struct Snapshot {
     /// The Activity page: (what it answers, see `State::pulse_key_now`), and when it loaded.
     pub pulse: Option<(String, Pulse)>,
     pub pulse_at: i64,
+    /// The Comparisons tab: (what it answers, see `State::compare_key_now`), and when it loaded.
+    pub compare: Option<(String, Vec<crate::compare::RepoCompare>)>,
+    pub compare_at: i64,
 }
 
 /// Where the cache lives (Settings → Data shows it).
