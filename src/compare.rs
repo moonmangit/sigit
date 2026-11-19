@@ -368,6 +368,104 @@ fn fetch_chunk(chunk: &Rows) -> Vec<RepoCompare> {
     }
 }
 
+/// Who wrote a PR. `name` and `company` are empty for bots and for profiles that leave them blank.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub struct Person {
+    pub login: String,
+    pub name: String,
+    pub company: String,
+    /// A bot account (no profile page to link to).
+    #[serde(default)]
+    pub bot: bool,
+}
+
+/// What a lane's pane shows about one PR: labels, a one-line summary, size, author, changed files.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub struct PrDetail {
+    pub number: u64,
+    pub labels: Vec<String>,
+    pub summary: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub author: Person,
+    /// (path, additions, deletions), the first 100 files.
+    pub files: Vec<(String, u64, u64)>,
+}
+
+/// PRs per request, so a lane of dozens stays under GitHub's time limit.
+const DETAILS_CHUNK: usize = 20;
+const SUMMARY_MAX: usize = 140;
+
+pub fn details_query(slug: &str, numbers: &[u64]) -> String {
+    let mut q = format!("query {{ {} {{", head(slug));
+    for (i, n) in numbers.iter().enumerate() {
+        q += &format!(
+            " p{i}: pullRequest(number: {n}) {{ labels(first: 10) {{ nodes {{ name }} }} bodyText additions deletions              author {{ __typename login ... on User {{ name company }} }} files(first: 100) {{ nodes {{ path additions deletions }} }} }}"
+        );
+    }
+    q + " } }"
+}
+
+/// PRs missing from the response (not found, no access) are skipped.
+pub fn parse_details(numbers: &[u64], json: &serde_json::Value) -> Vec<PrDetail> {
+    let repo = &json["data"]["repository"];
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().trim().to_owned();
+    numbers
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &number)| {
+            let p = &repo[format!("p{i}")];
+            if !p.is_object() {
+                return None;
+            }
+            let author = &p["author"];
+            let login = text(&author["login"]);
+            Some(PrDetail {
+                number,
+                labels: p["labels"]["nodes"].as_array().into_iter().flatten().map(|l| text(&l["name"])).collect(),
+                summary: p["bodyText"]
+                    .as_str()
+                    .and_then(|b| b.lines().map(str::trim).find(|l| !l.is_empty()))
+                    .map(|l| l.chars().take(SUMMARY_MAX).collect())
+                    .unwrap_or_default(),
+                additions: p["additions"].as_u64().unwrap_or(0),
+                deletions: p["deletions"].as_u64().unwrap_or(0),
+                author: Person {
+                    login: if login.is_empty() { "ghost".into() } else { login },
+                    name: text(&author["name"]),
+                    company: text(&author["company"]),
+                    bot: author["__typename"].as_str().is_some_and(|t| t.eq_ignore_ascii_case("bot")),
+                },
+                files: p["files"]["nodes"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|f| (text(&f["path"]), f["additions"].as_u64().unwrap_or(0), f["deletions"].as_u64().unwrap_or(0)))
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Details for `numbers`, in that order, fetched 20 per request in parallel. `Err` only when
+/// every request failed; otherwise the PRs that did load are returned.
+pub fn fetch_details(slug: &str, numbers: Vec<u64>) -> Result<Vec<PrDetail>, String> {
+    let results: Vec<Result<Vec<PrDetail>, String>> = std::thread::scope(|s| {
+        let workers: Vec<_> = numbers
+            .chunks(DETAILS_CHUNK)
+            .map(|chunk| s.spawn(move || graphql(&details_query(slug, chunk)).map(|j| parse_details(chunk, &j))))
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().unwrap_or_else(|_| Err(crate::i18n::t("Loading this lane's details stopped unexpectedly").to_owned())))
+            .collect()
+    });
+    if let Some(Err(e)) = results.iter().find(|r| r.is_err()).filter(|_| results.iter().all(|r| r.is_err())) {
+        return Err(e.clone());
+    }
+    Ok(results.into_iter().flatten().flatten().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -608,5 +706,93 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn details_json(prs: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "data": { "repository": prs } })
+    }
+
+    #[test]
+    fn details_query_aliases_and_escapes() {
+        let q = details_query("o/n\"x", &[5, 9]);
+        assert!(q.contains(r#"repository(owner: "o", name: "n\"x")"#));
+        assert!(q.contains("p0: pullRequest(number: 5)") && q.contains("p1: pullRequest(number: 9)"));
+        assert!(q.contains("files(first: 100)"));
+    }
+
+    #[test]
+    fn parse_details_reads_fields() {
+        let json = details_json(serde_json::json!({ "p0": {
+            "labels": { "nodes": [{ "name": "ui" }] },
+            "bodyText": "
+
+  Adds the win-loss page.
+More",
+            "additions": 421, "deletions": 3,
+            "author": { "login": "pluem", "name": "Pluem", "company": "Thread" },
+            "files": { "nodes": [
+                { "path": "src/a.ts", "additions": 400, "deletions": 3 },
+                { "path": "src/b.ts", "additions": 21, "deletions": 0 }
+            ] }
+        } }));
+        assert_eq!(
+            parse_details(&[121], &json),
+            vec![PrDetail {
+                number: 121,
+                labels: vec!["ui".into()],
+                summary: "Adds the win-loss page.".into(),
+                additions: 421,
+                deletions: 3,
+                author: Person { login: "pluem".into(), name: "Pluem".into(), company: "Thread".into(), bot: false },
+                files: vec![("src/a.ts".into(), 400, 3), ("src/b.ts".into(), 21, 0)],
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_details_caps_summary_at_140() {
+        let json = details_json(serde_json::json!({ "p0": { "bodyText": "x".repeat(200), "author": { "login": "a" } } }));
+        let d = parse_details(&[1], &json);
+        assert_eq!(d[0].summary.chars().count(), 140);
+    }
+
+    #[test]
+    fn parse_details_handles_missing_profile() {
+        let json = details_json(serde_json::json!({
+            "p0": { "author": { "login": "x", "name": null, "company": null } },
+            "p1": { "author": null }
+        }));
+        let d = parse_details(&[1, 2], &json);
+        assert_eq!(d[0].author, Person { login: "x".into(), ..Person::default() });
+        assert_eq!(d[1].author.login, "ghost");
+    }
+
+    #[test]
+    fn parse_details_marks_bot_authors() {
+        let json = details_json(serde_json::json!({
+            "p0": { "author": { "__typename": "Bot", "login": "dependabot" } },
+            "p1": { "author": { "__typename": "User", "login": "ann" } }
+        }));
+        let d = parse_details(&[1, 2], &json);
+        assert!(d[0].author.bot);
+        assert!(!d[1].author.bot);
+    }
+
+    #[test]
+    fn parse_details_skips_null_pr() {
+        let json = details_json(serde_json::json!({ "p0": null, "p1": { "author": { "login": "a" } } }));
+        let d = parse_details(&[1, 2], &json);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].number, 2);
+    }
+
+    /// Needs `gh` signed in and network access: `cargo test live_fetch_details -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_fetch_details() {
+        let d = fetch_details("threadsoftwareth/aom-bet-lottery-admin-fe", vec![116, 117, 118, 119, 120, 121, 122]).unwrap();
+        println!("{d:#?}");
+        assert_eq!(d.len(), 7);
+        assert_eq!(d.iter().find(|p| p.number == 121).unwrap().files.len(), 7);
     }
 }

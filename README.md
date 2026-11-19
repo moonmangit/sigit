@@ -169,15 +169,17 @@ cargo run -- --snap shot.png --scene prs --size 1400x860    # headless still of 
 ```
 
 Scenes (in `src/main.rs`): `inbox`, `activity`, `needs`, `prs`, `actions`, `envs`, `commits`,
-`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-edit`, `guide`, `group`, `groups`, `orgs`; `light-*` for
-the light theme (`light-comparisons`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
+`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-by-contributor`, `comparisons-edit`, `guide`, `group`, `groups`, `orgs`; `light-*` for
+the light theme (`light-comparisons`, `light-comparisons-by-contributor`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
 it); `setup`, `welcome`, `update-available`, and more. They use public repositories and sample
 data and never write anything. Add `SIGIT_LANG=th` to render in Thai.
 
 **Comparisons.** Edited in Settings → Git (name, From, To; a pair like dev → staging), and changed
 per repo from the gear on that repo's row on the Dashboard. Each cell counts the commits and PRs
 on From that To doesn't have yet. The second number counts merged PRs, so squash merges count;
-PRs are counted from up to 500 commits per comparison.
+PRs are counted from up to 500 commits per comparison. Click a lane to list its PRs with labels,
+a one-line summary and size; switch to **By contributor** to see who wrote them (name, company,
+profile), and click a folder in **Changed code** to show only the PRs that touched it.
 
 **Clone folders.** Add folders in Settings → Git; they're scanned at launch and on Rescan now,
 5 levels deep, skipping hidden folders, `node_modules`, `target`, `vendor`, `dist` and `build`.
@@ -196,6 +198,7 @@ every English string it actually shows that the catalog lacks.
 | `src/gh.rs` / `src/git.rs` | every `gh` and `git` call, and the `Cmd`s actions show and run |
 | `src/pulse.rs` | the Activity page's data |
 | `src/compare.rs` | branch-comparison settings and the batched GitHub query |
+| `src/lane.rs` | grouping a lane's PRs by folder and by author |
 | `src/scan.rs` | finding clones inside a folder |
 | `src/ui/compare.rs` | the Comparisons tab and the per-repo dialog |
 | `src/guard.rs` / `src/risk.rs` | risk checks, confirmations, undo |

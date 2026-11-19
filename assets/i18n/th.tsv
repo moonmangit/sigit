@@ -1101,3 +1101,20 @@ Other	อื่น ๆ
 {waiting_here} of {n} with work waiting	มีงานรอ {waiting_here} จาก {n}
 Storefront	Storefront
 Back office	Back office
+Loading this lane's details stopped unexpectedly	การโหลดรายละเอียดของเลนนี้หยุดกะทันหัน
+By PR	ตาม PR
+By contributor	ตามผู้มีส่วนร่วม
+Group PRs	จัดกลุ่ม PR
+{n} PRs · +{a} −{d}	{n} PR · +{a} −{d}
+1 PR · +{a} −{d}	1 PR · +{a} −{d}
+Profile	โปรไฟล์
+(root)	(ราก)
+other {n} folders	โฟลเดอร์อื่น {n} โฟลเดอร์
+Clear	ล้าง
+Changed code	โค้ดที่เปลี่ยน
+Couldn't load PR details: {error}	โหลดรายละเอียด PR ไม่สำเร็จ: {error}
+Retry	ลองอีกครั้ง
+Showing PRs that touched {folder}	แสดง PR ที่แก้ไข {folder}
+Ploy Srisuk	Ploy Srisuk
+Nok Chai	Nok Chai
+Acme Labs	Acme Labs
