@@ -9,7 +9,8 @@ use super::{I_GEAR, chip, click_to_copy, hue, muted, pending, ref_chip, scroll, 
 use crate::compare::{Cell, Comparison, LooseCommit, PrDetail, RepoCompare, WaitingPr, effective, is_changed};
 use crate::lane::{self, FolderShare, Folders};
 use crate::i18n::text;
-use crate::model::{ago_str, now};
+use crate::model::{Outcome, ago_str, now};
+use crate::modules;
 use crate::{CompareScope, State};
 
 /// Lane layout: the two branch chips, the track between them, and the label after.
@@ -408,12 +409,22 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
     }
 
     let f = lane::folders(details);
-    let active = active_folder(s.lane_view.folder.as_ref(), &f);
+    // Modules learned from this repo's tree, when it has any; the folder diagram otherwise
+    // (and while the tree loads, or if it couldn't be read).
+    let layout = s.lane_branch().and_then(|key| s.layouts.get(&key)).and_then(|l| l.data.as_ref()).filter(|l| !l.containers.is_empty());
+    let summary = layout.map(|l| modules::summarize(l, details));
+    let active = match &summary {
+        Some(sm) => active_in_summary(s.lane_view.folder.as_ref(), sm),
+        None => active_folder(s.lane_view.folder.as_ref(), &f).cloned(),
+    };
     if load.is_some_and(|l| l.data.is_some()) && !f.top.is_empty() {
-        c = c.child(changed_code(k, &f, active));
+        c = c.child(match &summary {
+            Some(sm) => modules_view(k, sm, active.as_ref()),
+            None => changed_code(k, &f, active.as_ref()),
+        });
     }
 
-    let shown = filter_prs(prs, details, active);
+    let shown = filter_prs(prs, details, active.as_ref());
     let detail_of = |n: u64| details.iter().find(|d| d.number == n);
     let mut list = col().w_full().gap(2.0);
     if s.lane_view.by_contributor {
@@ -463,6 +474,16 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
 fn active_folder<'a>(sel: Option<&(String, bool)>, f: &'a Folders) -> Option<&'a FolderShare> {
     let (path, root) = sel?;
     f.top.iter().find(|x| &x.path == path && x.root == *root)
+}
+
+/// The picked module or shared folder among the summary's rows, as a filter; none when it isn't
+/// there any more.
+fn active_in_summary(sel: Option<&(String, bool)>, sm: &modules::Summary) -> Option<FolderShare> {
+    let (path, root) = sel?;
+    if let Some(m) = sm.modules.iter().find(|m| &m.path == path && !root) {
+        return Some(FolderShare { label: m.name.clone(), path: m.path.clone(), root: false, added: m.added, removed: m.removed, share: 0.0 });
+    }
+    sm.shared.top.iter().take(modules::MAX_SHARED_ROWS).find(|x| &x.path == path && x.root == *root).cloned()
 }
 
 /// The lane's PRs that touched `active` (all of them with no folder picked).
@@ -545,6 +566,77 @@ fn changed_code(k: &Kit, f: &Folders, active: Option<&FolderShare>) -> El {
         );
     }
     section(k, crate::i18n::t("Changed code"), body).key("cmp-changed")
+}
+
+/// "Modules": each module the lane touches (learned from the repo's tree), how big a share of the
+/// change it is, whether it's new or removed, which of its parts changed and in which PRs; then
+/// the code outside modules as "Shared code" folders. Clicking a row filters the PRs to it.
+fn modules_view(k: &Kit, sm: &modules::Summary, active: Option<&FolderShare>) -> El {
+    let lines = |a: u64, r: u64| a + r;
+    let most = sm.modules.iter().map(|m| lines(m.added, m.removed)).chain(sm.shared.top.iter().map(|f| lines(f.added, f.removed))).max().unwrap_or(0).max(1);
+    let picked = |path: &str, root: bool| active.is_some_and(|a| a.path == path && a.root == root);
+    let row_for = |key: String, i: usize, name: String, badge: Option<(String, Outcome)>, detail: String, prs: String, size: u64, on: bool, pick: (String, bool)| {
+        let mut head = row().w_full().gap(6.0).center_y().child(rune::text(name).font(k.ty.small_medium).color(k.c.text_base).shrink().truncate());
+        if let Some((label, o)) = badge {
+            head = head.child(chip(k, label, Some(o)));
+        }
+        head = head.child(spacer()).child(muted(k, prs));
+        let bar = row().w_full().h(6.0).radius(3.0).fill(k.c.surface_base).child(el().w_frac(size as f32 / most as f32).h_full().radius(3.0).fill(hue(i)));
+        row()
+            .key(key)
+            .w_full()
+            .px(6.0)
+            .py(5.0)
+            .radius(k.radius.md)
+            .border(1.0, if on { k.c.border_focus } else { rune::Color::TRANSPARENT })
+            .hover(k.c.hover)
+            .role("button")
+            .on_press(move |s: &mut State| {
+                s.lane_view.folder = if s.lane_view.folder.as_ref() == Some(&pick) { None } else { Some(pick.clone()) };
+            })
+            .child(col().w_full().gap(3.0).child(head).child(bar).child(muted(k, detail).wrap()))
+    };
+    let mut body = col().w_full().gap(2.0);
+    for (i, m) in sm.modules.iter().enumerate() {
+        let badge = match m.kind {
+            modules::Kind::New => Some((crate::i18n::t("NEW"), Outcome::Success)),
+            modules::Kind::Removed => Some((crate::i18n::t("REMOVED"), Outcome::Failure)),
+            modules::Kind::Changed => None,
+        };
+        let mut parts: Vec<String> = m.parts.iter().map(|(p, n)| if *n > 1 { format!("{p} ×{n}") } else { p.clone() }).collect();
+        if m.other > 0 {
+            parts.push(if m.other > 1 { tf!("other ×{n}", n = m.other) } else { crate::i18n::t("other") });
+        }
+        let detail = format!("{} · +{} −{}", parts.join(" · "), m.added, m.removed);
+        let prs = m.prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
+        body = body.child(row_for(tf!("cmp-mod-{}", m.path), i, m.name.clone(), badge, detail, prs, lines(m.added, m.removed), picked(&m.path, false), (m.path.clone(), false)));
+    }
+    if sm.more_modules > 0 {
+        body = body.child(row().px(6.0).child(muted(k, tf!("{n} more modules", n = sm.more_modules))));
+    }
+    let shared: Vec<&FolderShare> = sm.shared.top.iter().take(modules::MAX_SHARED_ROWS).collect();
+    if !shared.is_empty() {
+        body = body.child(row().px(6.0).pt(6.0).child(rune::text(crate::i18n::t("Shared code")).font(k.ty.small_medium).color(k.c.text_muted)));
+        for (i, fs) in shared.iter().enumerate() {
+            let name = if fs.path.is_empty() { crate::i18n::t("(root)") } else { fs.path.clone() };
+            let detail = format!("+{} −{}", fs.added, fs.removed);
+            body = body.child(row_for(tf!("cmp-shared-{i}"), sm.modules.len() + i, name, None, detail, String::new(), lines(fs.added, fs.removed), picked(&fs.path, fs.root), (fs.path.clone(), fs.root)));
+        }
+    }
+    if let Some(a) = active {
+        let folder = if a.path.is_empty() { crate::i18n::t("(root)") } else { a.path.clone() };
+        body = body.child(
+            row()
+                .key("cmp-fold-filter")
+                .w_full()
+                .pt(4.0)
+                .gap(8.0)
+                .center_y()
+                .child(muted(k, tf!("Showing PRs that touched {folder}")).wrap().grow(1.0).shrink())
+                .child(Button::new(crate::i18n::t("Clear")).variant(ButtonVariant::GhostMuted).on_press(|s: &mut State| s.lane_view.folder = None).build(k).key("cmp-fold-clear")),
+        );
+    }
+    section(k, crate::i18n::t("Modules"), body).key("cmp-modules")
 }
 
 /// One author's heading in By contributor: who, where they work, what they brought, their profile.
@@ -706,6 +798,27 @@ mod tests {
     }
     fn names(v: &[(CompareScope, Vec<&RepoCompare>)]) -> Vec<(CompareScope, Vec<String>)> {
         v.iter().map(|(sc, rs)| (sc.clone(), rs.iter().map(|r| r.slug.clone()).collect())).collect()
+    }
+
+    #[test]
+    fn module_and_shared_rows_filter_the_prs() {
+        let mut tree = Vec::new();
+        for m in ["agent", "report", "auth"] {
+            tree.extend([format!("src/feature/{m}/view/a.vue"), format!("src/feature/{m}/service/a.ts")]);
+        }
+        let layout = crate::modules::learn(&tree);
+        let prs = [pr(1, "a"), pr(2, "b"), pr(3, "c")];
+        let details = [
+            detail(1, "a", &["src/feature/agent/view/a.vue"]),
+            detail(2, "b", &["src/feature/report/service/a.ts"]),
+            detail(3, "c", &["src/shared/component/Table.vue", "src/feature/agent/service/a.ts"]),
+        ];
+        let sm = crate::modules::summarize(&layout, &details);
+        let agent = super::active_in_summary(Some(&("src/feature/agent".to_string(), false)), &sm);
+        assert_eq!(filter_prs(&prs, &details, agent.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [1, 3]);
+        let shared = super::active_in_summary(Some(&("src/shared/component".to_string(), true)), &sm);
+        assert_eq!(filter_prs(&prs, &details, shared.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [3]);
+        assert!(super::active_in_summary(Some(&("src/feature/gone".to_string(), false)), &sm).is_none());
     }
 
     #[test]

@@ -1121,3 +1121,9 @@ Acme Labs	Acme Labs
 All ({n})	ทั้งหมด ({n})
 Other ({n})	อื่น ๆ ({n})
 Which group	กลุ่มไหน
+Modules	โมดูล
+NEW	ใหม่
+REMOVED	ถูกลบ
+Shared code	โค้ดที่ใช้ร่วมกัน
+{n} more modules	อีก {n} โมดูล
+other ×{n}	อื่น ๆ ×{n}

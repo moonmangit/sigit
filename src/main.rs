@@ -31,6 +31,7 @@ mod git;
 mod guard;
 mod jobs;
 mod lane;
+mod modules;
 mod model;
 mod pulse;
 mod risk;
@@ -460,6 +461,8 @@ pub struct State {
     /// loading, or failed (the initial shows). Kept for the session.
     pub avatars: HashMap<String, rune::Image>,
     pub avatars_asked: std::collections::HashSet<String>,
+    /// Module layouts learned from repo file trees, by (repo, branch). Kept for the session.
+    pub layouts: HashMap<(String, String), Load<modules::Layout>>,
     /// How the open lane's changed code is shown.
     pub lane_view: LaneView,
     /// The Comparisons tab's group filter (None: all groups). Kept for the session.
@@ -595,6 +598,7 @@ impl State {
             images: None,
             avatars: HashMap::new(),
             avatars_asked: Default::default(),
+            layouts: HashMap::new(),
             lane_view: LaneView::default(),
             compare_scope: None,
             compare_edit: None,
@@ -1009,6 +1013,32 @@ impl State {
         Some((slug.clone(), nums))
     }
 
+    /// The open lane's repo and From branch (as this repo compares it), whose tree its modules
+    /// are learned from.
+    pub fn lane_branch(&self) -> Option<(String, String)> {
+        let (slug, j) = self.compare_sel.as_ref()?;
+        let c = compare::effective(&self.prefs.comparisons, &self.prefs.comparison_overrides, slug).get(*j).cloned().flatten()?;
+        Some((slug.clone(), c.from))
+    }
+
+    /// Learn the open lane's module layout, once per repo and branch per session (again with
+    /// `retry`). A failure just leaves the folder diagram.
+    pub fn load_layout(&mut self, retry: bool) {
+        let Some(key) = self.lane_branch() else { return };
+        if !retry && self.layouts.get(&key).is_some_and(|l| l.data.is_some() || l.loading) {
+            return;
+        }
+        let entry = self.layouts.entry(key.clone()).or_default();
+        entry.loading = true;
+        entry.error = None;
+        let (slug, branch) = key.clone();
+        jobs::spawn(self, move || modules::fetch_tree(&slug, &branch).map(|files| modules::learn(&files)), move |s, out| {
+            if let Some(l) = s.layouts.get_mut(&key) {
+                l.finish(out);
+            }
+        });
+    }
+
     /// Open the lane (repo, comparison `j`), or close it when it's already open.
     pub fn select_lane(&mut self, slug: &str, j: usize) {
         let pick = (slug.to_owned(), j);
@@ -1023,6 +1053,7 @@ impl State {
         if key.1.is_empty() {
             return; // only loose commits: nothing to fetch
         }
+        self.load_layout(retry);
         if !retry && self.lane_details.get(&key).is_some_and(|l| l.data.is_some() || l.loading) {
             return;
         }
@@ -2138,13 +2169,26 @@ fn compare_fixture(s: &mut State) {
         deletions: files.iter().map(|f| f.2).sum(),
         author: author.clone(),
         files: files.iter().map(|(p, a, r)| (p.to_string(), *a, *r)).collect(),
+        ..Default::default()
     };
     let details = vec![
-        detail(141, &["feature"], "Sample summary: limit agent requests to 60 a minute.", &ploy, &[("src/feature/agent/limit.ts", 120, 14), ("docs/limits.md", 18, 0)]),
-        detail(139, &["feature", "report"], "Sample summary: show each bet's history on the report page.", &nok, &[("src/feature/report/history.vue", 210, 40), ("src/feature/report/api.ts", 35, 6)]),
-        detail(137, &["bug"], "", &ploy, &[("src/feature/agent/payout.ts", 12, 9)]),
+        detail(141, &["feature"], "Sample summary: limit agent requests to 60 a minute.", &ploy, &[("src/feature/agent/service/limit.ts", 120, 14), ("docs/limits.md", 18, 0)]),
+        compare::PrDetail {
+            added_files: vec!["src/feature/history/view/History.vue".into(), "src/feature/history/service/history.ts".into(), "src/feature/history/route.ts".into()],
+            ..detail(139, &["feature", "report"], "Sample summary: show each bet's history on its own page.", &nok, &[("src/feature/history/view/History.vue", 210, 0), ("src/feature/history/service/history.ts", 35, 0), ("src/feature/history/route.ts", 12, 0)])
+        },
+        detail(137, &["bug"], "", &ploy, &[("src/feature/agent/view/Payout.vue", 12, 9), ("src/shared/component/Table.vue", 6, 2)]),
     ];
     s.lane_details.insert(("acme/api".into(), vec![137, 139, 141]), Load { data: Some(details), ..Default::default() });
+    // The module layout learned from acme/api's dev branch (src/feature/* are modules).
+    let mut tree: Vec<String> = Vec::new();
+    for m in ["agent", "report", "history", "auth"] {
+        for f in ["view/Main.vue", "service/index.ts", "locale/en.ts", "route.ts"] {
+            tree.push(format!("src/feature/{m}/{f}"));
+        }
+    }
+    tree.extend(["src/shared/component/Table.vue".to_owned(), "docs/limits.md".to_owned()]);
+    s.layouts.insert(("acme/api".into(), "dev".into()), Load { data: Some(modules::learn(&tree)), ..Default::default() });
 }
 
 

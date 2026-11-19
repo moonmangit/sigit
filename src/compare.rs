@@ -393,17 +393,27 @@ pub struct PrDetail {
     pub author: Person,
     /// (path, additions, deletions), the first 100 files.
     pub files: Vec<(String, u64, u64)>,
+    /// Which of `files` the PR added, and which it deleted (the rest were modified or renamed).
+    #[serde(default)]
+    pub added_files: Vec<String>,
+    #[serde(default)]
+    pub deleted_files: Vec<String>,
 }
 
 /// PRs per request, so a lane of dozens stays under GitHub's time limit.
 const DETAILS_CHUNK: usize = 20;
 const SUMMARY_MAX: usize = 140;
 
+/// Paths of a PR's files with this `changeType`.
+fn files_with(p: &serde_json::Value, change: &str) -> Vec<String> {
+    p["files"]["nodes"].as_array().into_iter().flatten().filter(|f| f["changeType"].as_str() == Some(change)).filter_map(|f| f["path"].as_str().map(str::to_owned)).collect()
+}
+
 pub fn details_query(slug: &str, numbers: &[u64]) -> String {
     let mut q = format!("query {{ {} {{", head(slug));
     for (i, n) in numbers.iter().enumerate() {
         q += &format!(
-            " p{i}: pullRequest(number: {n}) {{ labels(first: 10) {{ nodes {{ name }} }} bodyText additions deletions              author {{ __typename login avatarUrl(size: 64) ... on User {{ name company }} }} files(first: 100) {{ nodes {{ path additions deletions }} }} }}"
+            " p{i}: pullRequest(number: {n}) {{ labels(first: 10) {{ nodes {{ name }} }} bodyText additions deletions              author {{ __typename login avatarUrl(size: 64) ... on User {{ name company }} }} files(first: 100) {{ nodes {{ path additions deletions changeType }} }} }}"
         );
     }
     q + " } }"
@@ -446,6 +456,8 @@ pub fn parse_details(numbers: &[u64], json: &serde_json::Value) -> Vec<PrDetail>
                     .flatten()
                     .map(|f| (text(&f["path"]), f["additions"].as_u64().unwrap_or(0), f["deletions"].as_u64().unwrap_or(0)))
                     .collect(),
+                added_files: files_with(&p, "ADDED"),
+                deleted_files: files_with(&p, "DELETED"),
             })
         })
         .collect()
@@ -735,8 +747,8 @@ More",
             "additions": 421, "deletions": 3,
             "author": { "login": "pluem", "name": "Pluem", "company": "Thread", "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=64" },
             "files": { "nodes": [
-                { "path": "src/a.ts", "additions": 400, "deletions": 3 },
-                { "path": "src/b.ts", "additions": 21, "deletions": 0 }
+                { "path": "src/a.ts", "additions": 400, "deletions": 3, "changeType": "ADDED" },
+                { "path": "src/b.ts", "additions": 21, "deletions": 0, "changeType": "MODIFIED" }
             ] }
         } }));
         assert_eq!(
@@ -749,6 +761,8 @@ More",
                 deletions: 3,
                 author: Person { login: "pluem".into(), name: "Pluem".into(), company: "Thread".into(), bot: false, avatar_url: "https://avatars.githubusercontent.com/u/1?s=64".into() },
                 files: vec![("src/a.ts".into(), 400, 3), ("src/b.ts".into(), 21, 0)],
+                added_files: vec!["src/a.ts".into()],
+                deleted_files: vec![],
             }]
         );
     }
