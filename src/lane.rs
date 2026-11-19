@@ -89,8 +89,10 @@ pub fn folders(details: &[PrDetail]) -> Folders {
         };
         let inside: Vec<(&[&str], u64, u64)> = rels.iter().filter(|(d, _, _)| d.starts_with(&big)).copied().collect();
         let split = group_at(&inside, &big, big.len() + 1);
-        if split.len() < 2 {
-            break; // every file sits directly in it: nothing deeper to show
+        // One subfolder only (src → feature): the loop takes it, still dominant, next round. Only
+        // files sitting directly in it (a single root group) leave nothing deeper to show.
+        if split.len() == 1 && split.keys().all(|(_, root)| *root) {
+            break;
         }
         groups.remove(&(big, false));
         groups.extend(split);
@@ -217,6 +219,16 @@ mod tests {
     }
 
     #[test]
+    fn folders_split_through_a_single_subfolder() {
+        // src → only feature → agent / report: walk through "feature" instead of stopping at src.
+        let d = detail(1, &[("src/feature/agent/a.ts", 300, 0), ("src/feature/report/b.ts", 140, 0), ("docs/x.md", 18, 0)]);
+        let f = folders(&[d]);
+        let mut got = labels(&f);
+        got.sort();
+        assert_eq!(got, vec!["docs", "src/feature/agent", "src/feature/report"]);
+    }
+
+    #[test]
     fn folders_split_keeps_files_directly_in_the_folder() {
         let d = detail(1, &[("src/main.ts", 5, 0), ("src/a/x.ts", 90, 0), ("docs/y.md", 5, 0)]);
         let f = folders(&[d.clone()]);
@@ -251,7 +263,7 @@ mod tests {
             number,
             additions: add,
             deletions: del,
-            author: Person { login: login.into(), name: format!("{login} name"), company: String::new(), bot: false },
+            author: Person { login: login.into(), name: format!("{login} name"), company: String::new(), ..Default::default() },
             ..PrDetail::default()
         }
     }
