@@ -94,15 +94,15 @@ and in `src/main.rs`:
 
 **Interfaces:**
 - Produces in `src/compare.rs`: `pub fn fetch_commit_files(slug: &str, sha: &str) -> Result<Vec<(String, u64, u64)>, String>` (`gh api repos/{slug}/commits/{sha} --jq '.files[] | [.filename, .additions, .deletions] | @tsv'`), and `pub fn parse_commit_files(tsv: &str) -> Vec<(String, u64, u64)>`.
-- Produces in `src/main.rs`: `pub commit_files: HashMap<(String, String), Load<Vec<(String, u64, u64)>>>`, `pub open_commits: HashSet<String>` (sha), `pub fn toggle_commit(&mut self, slug: &str, sha: &str)` — opens/closes; on open fetches if absent or errored (retry).
+- Produces in `src/main.rs`: `pub commit_files: HashMap<(String, String), Load<Vec<(String, u64, u64)>>>`, `pub open_commits: HashSet<String>` (sha), `pub fn wants_commit_fetch(entry: Option<&Load<Vec<(String, u64, u64)>>>) -> bool` (true when absent, or errored and not loading), `pub fn toggle_commit(&mut self, slug: &str, sha: &str)` — opens/closes; on open fetches when `wants_commit_fetch` says so.
 
 - [ ] **Step 1: Failing tests:**
 ```rust
 #[test] fn parse_commit_files_tsv() { /* "src/a.ts\t10\t2\nREADME.md\t1\t0\n" → [("src/a.ts",10,2),("README.md",1,0)]; blank/garbled lines skipped */ }
-#[test] fn commit_files_retry_after_error() { /* entry with error and no data → toggle_commit (closed→open) restarts it (pre-insert so no spawn: assert it is marked loading via a test hook or that the error entry is replaced by Load::start when using a pre-check function `wants_commit_fetch(&Load) -> bool`) */ }
+#[test] fn commit_files_retry_after_error() { /* wants_commit_fetch(None) && wants_commit_fetch(Some(&errored)) && !wants_commit_fetch(Some(&loading)) && !wants_commit_fetch(Some(&loaded)) */ }
 #[test] fn toggle_commit_closes_without_fetch() { /* open then toggle again → removed from open_commits, entry unchanged */ }
 ```
-- [ ] **Step 2:** Run → FAIL. **Step 3:** Implement (`wants_commit_fetch` pure helper is fine). **Step 4:** `cargo test` → PASS.
+- [ ] **Step 2:** Run → FAIL. **Step 3:** Implement. **Step 4:** `cargo test` → PASS.
 - [ ] **Step 5: Commit** `Commits without a PR: load their files on click`.
 
 ---
@@ -126,5 +126,5 @@ and in `src/main.rs`:
 
 ## Final check
 
-- [ ] Live: on a real tracked repo, open a lane and a branch; both load; reselecting is instant (no new requests: check `%APPDATA%\sigit\activity` / no spinner).
+- [ ] Live: on a real tracked repo, open a lane and a branch; both load; closing and reopening each shows its data at once with no spinner.
 - [ ] README: a line under Branches about the detail pane; mention the per-item bars under Comparisons.
