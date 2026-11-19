@@ -69,6 +69,8 @@ pub enum CompareScope {
 pub struct LaneView {
     pub by_contributor: bool,
     pub folder: Option<(String, bool)>,
+    /// The Modules section shows its full list (otherwise one bar and a short legend).
+    pub modules_open: bool,
 }
 
 /// Something fetched in the background: the last good answer stays on screen while a new one
@@ -2292,6 +2294,13 @@ fn main() {
                 s.compare_sel = Some(("acme/api".into(), 0));
                 s.lane_view.by_contributor = true;
             }),
+            ("comparisons-modules-open", |s: &mut State| {
+                // The lane pane with the Modules section expanded.
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = Some(("acme/api".into(), 0));
+                s.lane_view.modules_open = true;
+            }),
             ("comparisons-group", |s: &mut State| {
                 // The Comparisons tab filtered to one group.
                 s.show(Page::Inbox);
@@ -2569,7 +2578,7 @@ fn main() {
                 s.show(Page::Inbox);
                 compare_fixture(s);
                 s.compare_sel = Some(("acme/api".into(), 0));
-                s.lane_view = LaneView { by_contributor: true, folder: Some(("docs".into(), false)) };
+                s.lane_view = LaneView { by_contributor: true, folder: Some(("docs".into(), false)), ..Default::default() };
             }),
             ("light-activity", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;

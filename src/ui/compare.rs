@@ -419,7 +419,7 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
     };
     if load.is_some_and(|l| l.data.is_some()) && !f.top.is_empty() {
         c = c.child(match &summary {
-            Some(sm) => modules_view(k, sm, active.as_ref()),
+            Some(sm) => modules_view(k, sm, active.as_ref(), s.lane_view.modules_open),
             None => changed_code(k, &f, active.as_ref()),
         });
     }
@@ -571,7 +571,7 @@ fn changed_code(k: &Kit, f: &Folders, active: Option<&FolderShare>) -> El {
 /// "Modules": each module the lane touches (learned from the repo's tree), how big a share of the
 /// change it is, whether it's new or removed, which of its parts changed and in which PRs; then
 /// the code outside modules as "Shared code" folders. Clicking a row filters the PRs to it.
-fn modules_view(k: &Kit, sm: &modules::Summary, active: Option<&FolderShare>) -> El {
+fn modules_view(k: &Kit, sm: &modules::Summary, active: Option<&FolderShare>, open: bool) -> El {
     let lines = |a: u64, r: u64| a + r;
     let most = sm.modules.iter().map(|m| lines(m.added, m.removed)).chain(sm.shared.top.iter().map(|f| lines(f.added, f.removed))).max().unwrap_or(0).max(1);
     let picked = |path: &str, root: bool| active.is_some_and(|a| a.path == path && a.root == root);
@@ -596,6 +596,26 @@ fn modules_view(k: &Kit, sm: &modules::Summary, active: Option<&FolderShare>) ->
             })
             .child(col().w_full().gap(3.0).child(head).child(bar).child(muted(k, detail).wrap()))
     };
+    let toggle = text(if open { "Hide details" } else { "Show details" })
+        .font(k.ty.small_medium)
+        .color(k.c.text_accent)
+        .hover(k.c.hover)
+        .role("button")
+        .on_press(|s: &mut State| s.lane_view.modules_open = !s.lane_view.modules_open)
+        .key("cmp-mod-toggle");
+    let shared: Vec<&FolderShare> = sm.shared.top.iter().take(modules::MAX_SHARED_ROWS).collect();
+    // The title line carries the Show / Hide details toggle, so neither state spends a row on it.
+    let titled = |body: El, toggle: El| {
+        col()
+            .key("cmp-modules")
+            .w_full()
+            .gap(6.0)
+            .child(row().w_full().center_y().child(rune::text(crate::i18n::t("Modules")).font(k.ty.small_medium).color(k.c.text_muted)).child(spacer()).child(toggle))
+            .child(body)
+    };
+    if !open {
+        return titled(modules_bar(k, sm, &shared, active), toggle);
+    }
     let mut body = col().w_full().gap(2.0);
     for (i, m) in sm.modules.iter().enumerate() {
         let badge = match m.kind {
@@ -614,7 +634,6 @@ fn modules_view(k: &Kit, sm: &modules::Summary, active: Option<&FolderShare>) ->
     if sm.more_modules > 0 {
         body = body.child(row().px(6.0).child(muted(k, tf!("{n} more modules", n = sm.more_modules))));
     }
-    let shared: Vec<&FolderShare> = sm.shared.top.iter().take(modules::MAX_SHARED_ROWS).collect();
     if !shared.is_empty() {
         body = body.child(row().px(6.0).pt(6.0).child(rune::text(crate::i18n::t("Shared code")).font(k.ty.small_medium).color(k.c.text_muted)));
         for (i, fs) in shared.iter().enumerate() {
@@ -623,20 +642,78 @@ fn modules_view(k: &Kit, sm: &modules::Summary, active: Option<&FolderShare>) ->
             body = body.child(row_for(tf!("cmp-shared-{i}"), sm.modules.len() + i, name, None, detail, String::new(), lines(fs.added, fs.removed), picked(&fs.path, fs.root), (fs.path.clone(), fs.root)));
         }
     }
-    if let Some(a) = active {
-        let folder = if a.path.is_empty() { crate::i18n::t("(root)") } else { a.path.clone() };
-        body = body.child(
-            row()
-                .key("cmp-fold-filter")
-                .w_full()
-                .pt(4.0)
-                .gap(8.0)
-                .center_y()
-                .child(muted(k, tf!("Showing PRs that touched {folder}")).wrap().grow(1.0).shrink())
-                .child(Button::new(crate::i18n::t("Clear")).variant(ButtonVariant::GhostMuted).on_press(|s: &mut State| s.lane_view.folder = None).build(k).key("cmp-fold-clear")),
-        );
+    if let Some(f) = filter_line(k, active) {
+        body = body.child(f);
     }
-    section(k, crate::i18n::t("Modules"), body).key("cmp-modules")
+    titled(body, toggle)
+}
+
+/// "Showing PRs that touched …" with Clear, when a module or folder is picked.
+fn filter_line(k: &Kit, active: Option<&FolderShare>) -> Option<El> {
+    let a = active?;
+    let folder = if a.path.is_empty() { crate::i18n::t("(root)") } else { a.path.clone() };
+    Some(
+        row()
+            .key("cmp-fold-filter")
+            .w_full()
+            .pt(4.0)
+            .gap(8.0)
+            .center_y()
+            .child(muted(k, tf!("Showing PRs that touched {folder}")).wrap().grow(1.0).shrink())
+            .child(Button::new(crate::i18n::t("Clear")).variant(ButtonVariant::GhostMuted).on_press(|s: &mut State| s.lane_view.folder = None).build(k).key("cmp-fold-clear")),
+    )
+}
+
+/// The collapsed Modules section: one bar split by module, then shared code (width = share of
+/// lines changed), and a short legend that wraps; segments and legend items filter the PRs.
+fn modules_bar(k: &Kit, sm: &modules::Summary, shared: &[&FolderShare], active: Option<&FolderShare>) -> El {
+    // (name, new?, lines, colour index, filter)
+    let mut items: Vec<(String, bool, u64, usize, (String, bool))> = sm
+        .modules
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.name.clone(), m.kind == modules::Kind::New, m.added + m.removed, i, (m.path.clone(), false)))
+        .collect();
+    items.extend(shared.iter().enumerate().map(|(i, f)| {
+        let name = if f.path.is_empty() { crate::i18n::t("(root)") } else { f.path.clone() };
+        (name, false, f.added + f.removed, sm.modules.len() + i, (f.path.clone(), f.root))
+    }));
+    let total: u64 = items.iter().map(|x| x.2).sum::<u64>().max(1);
+    let pick = |p: (String, bool)| {
+        move |s: &mut State| {
+            s.lane_view.folder = if s.lane_view.folder.as_ref() == Some(&p) { None } else { Some(p.clone()) };
+        }
+    };
+    let mut bar = row().key("cmp-mod-bar").w_full().h(10.0).radius(4.0).clip_rounded(4.0).fill(k.c.surface_base);
+    let mut legend = row().w_full().gap(10.0).flex_wrap().center_y();
+    for (name, new, lines, i, filter) in items {
+        let on = active.is_some_and(|a| a.path == filter.0 && a.root == filter.1);
+        let tone = if active.is_none() || on { hue(i) } else { rune::Color { a: 0.35, ..hue(i) } };
+        let pct = (lines as f32 * 100.0 / total as f32).round() as u32;
+        bar = bar.child(el().w_frac(lines as f32 / total as f32).h_full().fill(tone).role("button").help(format!("{name} · {pct}%")).on_press(pick(filter.clone())));
+        let mut item = row()
+            .key(tf!("cmp-mod-leg-{i}"))
+            .gap(5.0)
+            .center_y()
+            .px(4.0)
+            .radius(k.radius.sm)
+            .border(1.0, if on { k.c.border_focus } else { rune::Color::TRANSPARENT })
+            .hover(k.c.hover)
+            .role("button")
+            .on_press(pick(filter))
+            .child(el().size(8.0, 8.0).radius(2.0).fill(hue(i)))
+            .child(rune::text(name).font(k.ty.small).color(k.c.text_base))
+            .child(muted(k, format!("{pct}%")));
+        if new {
+            item = item.child(rune::text(crate::i18n::t("NEW")).font(k.ty.text_xsmall).color(k.c.success.fg));
+        }
+        legend = legend.child(item);
+    }
+    let mut body = col().w_full().gap(6.0).child(bar).child(legend);
+    if let Some(f) = filter_line(k, active) {
+        body = body.child(f);
+    }
+    body
 }
 
 /// One author's heading in By contributor: who, where they work, what they brought, their profile.
