@@ -36,7 +36,7 @@ pub fn view(s: &State, k: &Kit) -> El {
     } else {
         let rows = s.compare.data.as_deref().unwrap_or(&[]);
         let mut panes = vec![super::split::pane(scroll("cmp-scroll", flows(s, k, rows)), 0.64, 520.0)];
-        if let Some(pane) = detail(s, k, rows) {
+        if let Some(pane) = detail(s, k) {
             panes.push(super::split::pane(pane, 0.36, 320.0));
         }
         super::split::split(s, k, "compare", panes).key("cmp-body").h_full()
@@ -328,15 +328,13 @@ fn missing_label(b: &[String]) -> String {
 }
 
 /// The pane for the picked cell: its merged PRs waiting, then the commits that came from no PR.
-fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
-    let (slug, j) = s.compare_sel.as_ref()?;
-    let rc = rows.iter().find(|r| &r.slug == slug)?;
-    let Some(Cell::Waiting { commits, prs, loose, checked }) = rc.cells.get(*j) else { return None };
+fn detail(s: &State, k: &Kit) -> Option<El> {
+    let lane = s.open_lane()?;
+    let slug = lane.slug;
+    let Cell::Waiting { commits, prs, loose, checked } = lane.cell else { return None };
     if *commits == 0 {
         return None;
     }
-    let shared = s.prefs.comparisons.get(*j)?;
-    let eff = effective(&s.prefs.comparisons, &s.prefs.comparison_overrides, slug).get(*j).cloned().flatten().unwrap_or_else(|| shared.clone());
     let now = now();
     let mut c = col().w_full().gap(14.0);
     c = c.child(
@@ -349,8 +347,8 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
                     .grow(1.0)
                     .shrink()
                     .gap(4.0)
-                    .child(rune::text(shared.name.clone()).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap())
-                    .child(rune::text(slug.clone()).font(k.ty.small).color(k.c.text_muted)),
+                    .child(rune::text(lane.name.clone()).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap())
+                    .child(rune::text(slug.to_owned()).font(k.ty.small).color(k.c.text_muted)),
             )
             .child(
                 IconButton::new(&glyphs::CLOSE)
@@ -366,9 +364,9 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
         row()
             .gap(6.0)
             .center_y()
-            .child(ref_chip(k, &eff.from, hue(1)))
+            .child(ref_chip(k, &lane.from, hue(1)))
             .child(text("→").font(k.ty.small).color(k.c.text_faint))
-            .child(ref_chip(k, &eff.to, hue(0)))
+            .child(ref_chip(k, &lane.to, hue(0)))
             .child(muted(k, commits_label(*commits))),
     );
     if checked < commits {

@@ -117,7 +117,10 @@ fn table(s: &State, k: &Kit) -> El {
             _ => Cell::text(ago(b.time, now)).muted(),
         }
     })
-    .on_select(|s: &mut State, name, _| s.branch_sel = Some(name.to_owned()))
+    .on_select(|s: &mut State, name, _| {
+        s.branch_sel = Some(name.to_owned());
+        s.select_branch_lane(name);
+    })
     .on_open(|s: &mut State, name, _| {
         let remote = s.branch_view == 1;
         s.checkout_branch(name.to_owned(), remote);

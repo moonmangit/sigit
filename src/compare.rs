@@ -334,6 +334,16 @@ pub fn fetch(rows: Vec<(String, Vec<Option<Comparison>>)>) -> Vec<RepoCompare> {
     })
 }
 
+/// One branch compared with another in `slug` (a lane from the Branches page).
+pub fn fetch_branch(slug: &str, from: &str, to: &str) -> RepoCompare {
+    let row = (slug.to_owned(), vec![Some(Comparison { name: String::new(), from: from.to_owned(), to: to.to_owned() })]);
+    fetch(vec![row]).into_iter().next().unwrap_or_else(|| RepoCompare {
+        slug: slug.to_owned(),
+        cells: vec![Cell::Off],
+        error: Some(crate::i18n::t("Loading this repo's comparisons stopped unexpectedly").to_owned()),
+    })
+}
+
 fn fetch_chunk(chunk: &Rows) -> Vec<RepoCompare> {
     {
         if !needs_query(chunk) {

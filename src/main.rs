@@ -63,6 +63,16 @@ pub enum CompareScope {
     Other,
 }
 
+/// The lane whose detail pane is open: a Comparisons cell, or a branch picked on the Branches
+/// page compared with its base. `name` is the comparison's name, or the branch's.
+pub struct OpenLane<'a> {
+    pub slug: &'a str,
+    pub name: String,
+    pub from: String,
+    pub to: String,
+    pub cell: &'a compare::Cell,
+}
+
 /// How the open comparison lane is read: grouped by contributor, and the folder picked as
 /// a filter (path, whether it's a root).
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -455,6 +465,12 @@ pub struct State {
     pub compare_key: String,
     /// The cell whose detail pane is open: (repo, comparison index).
     pub compare_sel: Option<(String, usize)>,
+    /// Branches compared with a base on the Branches page, by (repo, branch, base); this session only.
+    pub branch_lanes: HashMap<(String, String, String), Load<compare::RepoCompare>>,
+    /// The branch whose lane is open on the Branches page: (repo, branch without `origin/`).
+    pub branch_lane_sel: Option<(String, String)>,
+    /// What branch lanes compare with (None: the repo's default branch).
+    pub branch_base: Option<String>,
     /// PR details of opened lanes, by (repo, sorted PR numbers); this session only.
     pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
     /// Decodes downloaded images (set up once the window exists).
@@ -596,6 +612,9 @@ impl State {
             compare: Load::default(),
             compare_key: String::new(),
             compare_sel: None,
+            branch_lanes: HashMap::new(),
+            branch_lane_sel: None,
+            branch_base: None,
             lane_details: HashMap::new(),
             images: None,
             avatars: HashMap::new(),
@@ -1007,20 +1026,88 @@ impl State {
 
     /// The open lane's repo and sorted PR numbers: what `lane_details` is keyed by.
     pub fn lane_key(&self) -> Option<(String, Vec<u64>)> {
-        let (slug, j) = self.compare_sel.as_ref()?;
-        let rc = self.compare.data.as_ref()?.iter().find(|r| &r.slug == slug)?;
-        let compare::Cell::Waiting { prs, .. } = rc.cells.get(*j)? else { return None };
+        let lane = self.open_lane()?;
+        let compare::Cell::Waiting { prs, .. } = lane.cell else { return None };
         let mut nums: Vec<u64> = prs.iter().map(|p| p.number).collect();
         nums.sort_unstable();
-        Some((slug.clone(), nums))
+        Some((lane.slug.to_owned(), nums))
     }
 
     /// The open lane's repo and From branch (as this repo compares it), whose tree its modules
     /// are learned from.
     pub fn lane_branch(&self) -> Option<(String, String)> {
-        let (slug, j) = self.compare_sel.as_ref()?;
-        let c = compare::effective(&self.prefs.comparisons, &self.prefs.comparison_overrides, slug).get(*j).cloned().flatten()?;
-        Some((slug.clone(), c.from))
+        let lane = self.open_lane()?;
+        Some((lane.slug.to_owned(), lane.from))
+    }
+
+    /// The lane the page shows: the picked Comparisons cell on the Dashboard's Comparisons tab,
+    /// the picked branch against its base on Branches (local or remote). None while it loads.
+    pub fn open_lane(&self) -> Option<OpenLane<'_>> {
+        match self.page {
+            Page::Inbox if self.inbox_tab == COMPARE_TAB => {
+                let (slug, j) = self.compare_sel.as_ref()?;
+                let rc = self.compare.data.as_ref()?.iter().find(|r| &r.slug == slug)?;
+                let cell = rc.cells.get(*j)?;
+                let c = compare::effective(&self.prefs.comparisons, &self.prefs.comparison_overrides, slug).get(*j).cloned().flatten()?;
+                Some(OpenLane { slug: &rc.slug, name: c.name, from: c.from, to: c.to, cell })
+            }
+            Page::Branches if self.branch_view <= 1 => {
+                let (slug, branch) = self.branch_lane_sel.as_ref()?;
+                if self.cur.as_ref() != Some(slug) {
+                    return None;
+                }
+                let base = self.branch_base_for(slug)?;
+                let key = (slug.clone(), branch.clone(), base);
+                let rc = self.branch_lanes.get(&key)?.data.as_ref()?;
+                let cell = rc.cells.first()?;
+                let (_, branch, base) = key;
+                Some(OpenLane { slug, name: branch.clone(), from: branch, to: base, cell })
+            }
+            _ => None,
+        }
+    }
+
+    /// What branch lanes in `slug` compare with: the picked base, or the repo's default branch.
+    pub fn branch_base_for(&self, slug: &str) -> Option<String> {
+        if let Some(b) = &self.branch_base {
+            return Some(b.clone());
+        }
+        self.data.get(slug)?.meta.data.as_ref().map(|m| m.default_branch.clone()).filter(|b| !b.is_empty())
+    }
+
+    /// Open `branch`'s lane on the Branches page (a remote `origin/x` is compared as `x`).
+    pub fn select_branch_lane(&mut self, branch: &str) {
+        let Some(slug) = self.cur.clone() else { return };
+        let branch = branch.strip_prefix("origin/").unwrap_or(branch).to_owned();
+        self.branch_lane_sel = Some((slug, branch));
+        self.lane_view.folder = None;
+        self.load_branch_lane();
+        self.load_lane_details(false);
+    }
+
+    /// Compare branch lanes with `base` (None: the default branch) from now on.
+    pub fn set_branch_base(&mut self, base: Option<String>) {
+        self.branch_base = base;
+        self.load_branch_lane();
+        self.load_lane_details(false);
+    }
+
+    /// Fetch the open branch lane against its base, unless it's loaded or on the way.
+    fn load_branch_lane(&mut self) {
+        let Some((slug, branch)) = self.branch_lane_sel.clone() else { return };
+        let Some(base) = self.branch_base_for(&slug) else { return };
+        let key = (slug, branch, base);
+        if self.branch_lanes.contains_key(&key) {
+            return;
+        }
+        self.branch_lanes.insert(key.clone(), Load::start());
+        let (slug, from, to) = key.clone();
+        jobs::spawn(self, move || compare::fetch_branch(&slug, &from, &to), move |s, rc| {
+            if let Some(l) = s.branch_lanes.get_mut(&key) {
+                l.finish(Ok(rc));
+            }
+            s.load_lane_details(false);
+        });
     }
 
     /// Learn the open lane's module layout, once per repo and branch per session (again with
@@ -2821,6 +2908,7 @@ mod cache_tests {
             checked: 1,
         };
         let mut s = State::new(config::Prefs::default());
+        s.inbox_tab = COMPARE_TAB;
         s.compare = Load { data: Some(vec![compare::RepoCompare { slug: "a/b".into(), cells: vec![waiting(7), waiting(9)], error: None }]), ..Default::default() };
         s
     }
@@ -2903,6 +2991,97 @@ mod cache_tests {
         s.load_lane_details(false);
         let l = &s.lane_details[&key];
         assert!(!l.loading && l.data.is_some());
+    }
+
+    fn branch_cell(commits: u32, pr: u64) -> compare::Cell {
+        compare::Cell::Waiting {
+            commits,
+            prs: if commits == 0 { vec![] } else { vec![compare::WaitingPr { number: pr, title: "t".into(), author: "a".into(), merged_at: "2026-01-01T00:00:00Z".into() }] },
+            loose: vec![],
+            checked: commits,
+        }
+    }
+
+    fn branch_lane(cell: compare::Cell) -> Load<compare::RepoCompare> {
+        Load { data: Some(compare::RepoCompare { slug: "a/b".into(), cells: vec![cell], error: None }), ..Default::default() }
+    }
+
+    /// A repo "a/b" whose default branch is main, with its Branches page open.
+    fn branch_state() -> State {
+        let mut s = lane_state();
+        s.cur = Some("a/b".into());
+        s.rd_mut("a/b").meta = Load { data: Some(RepoMeta { default_branch: "main".into(), ..Default::default() }), ..Default::default() };
+        s.page = Page::Branches;
+        s
+    }
+
+    #[test]
+    fn open_lane_follows_the_page() {
+        let mut s = branch_state();
+        s.prefs.comparisons = vec![compare::Comparison { name: "To staging".into(), from: "dev".into(), to: "staging".into() }];
+        s.compare_sel = Some(("a/b".into(), 0));
+        s.branch_lanes.insert(("a/b".into(), "feat".into(), "main".into()), branch_lane(branch_cell(3, 42)));
+        s.branch_lane_sel = Some(("a/b".into(), "feat".into()));
+
+        s.page = Page::Inbox;
+        s.inbox_tab = COMPARE_TAB;
+        let lane = s.open_lane().unwrap();
+        assert_eq!((lane.slug, lane.name.as_str(), lane.from.as_str(), lane.to.as_str()), ("a/b", "To staging", "dev", "staging"));
+        assert_eq!(s.lane_key(), Some(("a/b".to_string(), vec![7])));
+        assert_eq!(s.lane_branch(), Some(("a/b".to_string(), "dev".to_string())));
+
+        s.page = Page::Branches;
+        let lane = s.open_lane().unwrap();
+        assert_eq!((lane.slug, lane.name.as_str(), lane.from.as_str(), lane.to.as_str()), ("a/b", "feat", "feat", "main"));
+        assert_eq!(s.lane_key(), Some(("a/b".to_string(), vec![42])));
+        assert_eq!(s.lane_branch(), Some(("a/b".to_string(), "feat".to_string())));
+
+        // Stashes and clean up show no lane; nor does another Dashboard tab.
+        s.branch_view = 2;
+        assert!(s.open_lane().is_none());
+        s.page = Page::Inbox;
+        s.inbox_tab = 0;
+        assert!(s.open_lane().is_none());
+    }
+
+    #[test]
+    fn branch_lane_keyed_by_base() {
+        let mut s = branch_state();
+        s.branch_lanes.insert(("a/b".into(), "feat".into(), "main".into()), branch_lane(branch_cell(3, 42)));
+        s.branch_lane_sel = Some(("a/b".into(), "feat".into()));
+        // Main's lane details and layout are already on the way: going back loads nothing.
+        s.lane_details.insert(("a/b".into(), vec![42]), Load::start());
+        s.layouts.insert(("a/b".into(), "feat".into()), Load::start());
+        assert_eq!(s.branch_base_for("a/b").as_deref(), Some("main"));
+        s.branch_lanes.insert(("a/b".into(), "feat".into(), "dev".into()), Load::start());
+        s.set_branch_base(Some("dev".into()));
+        assert_eq!(s.branch_base_for("a/b").as_deref(), Some("dev"));
+        assert!(s.branch_lanes[&("a/b".to_string(), "feat".to_string(), "dev".to_string())].loading);
+        // Dev's lane is still loading: no cell, and never main's.
+        assert!(s.open_lane().is_none());
+        s.set_branch_base(None);
+        assert_eq!(s.open_lane().unwrap().to, "main");
+    }
+
+    #[test]
+    fn branch_lane_up_to_date() {
+        let mut s = branch_state();
+        s.branch_lanes.insert(("a/b".into(), "feat".into(), "main".into()), branch_lane(branch_cell(0, 0)));
+        s.branch_lane_sel = Some(("a/b".into(), "feat".into()));
+        let lane = s.open_lane().unwrap();
+        assert_eq!(lane.cell, &branch_cell(0, 0));
+    }
+
+    #[test]
+    fn remote_branch_name_drops_origin() {
+        let mut s = branch_state();
+        s.branch_view = 1;
+        s.lane_view.folder = Some(("src".into(), false));
+        s.branch_lanes.insert(("a/b".into(), "feat/x".into(), "main".into()), Load::start());
+        s.select_branch_lane("origin/feat/x");
+        assert_eq!(s.branch_lane_sel, Some(("a/b".into(), "feat/x".into())));
+        assert_eq!(s.lane_view.folder, None);
+        assert_eq!(s.branch_lanes.len(), 1);
     }
 
     fn cmp_rows(s: &mut State, rows: &[(&str, &str, &str)]) {
