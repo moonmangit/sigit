@@ -87,6 +87,9 @@ pane does today stays.
 - Group every PR file by folder: drop the folder prefix shared by all files (segment by segment),
   then take the next path segment. Files directly in that shared folder group as "(root)". (A
   single group can only happen when every file sits in one folder, so no deeper step is needed.)
+- A group holding 75% or more of the lines is replaced by its subfolders, repeatedly, so a lane
+  that touches `src/` and `docs/` shows `src/feature/agent`, `src/feature/report`, … and `docs`
+  instead of "src 96%". Files directly in a split folder show as `src/`.
 - Show the 8 biggest groups by lines changed, the rest as "other N folders".
 - Drawn as one horizontal stacked bar (each folder a segment, width = its share of lines
   changed) with a legend below: colour swatch, folder path, share %, +added −removed. Clicking a

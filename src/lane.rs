@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 /// Folder groups shown in the diagram; the rest collapse into "other N folders".
 const TOP_FOLDERS: usize = 8;
+/// A folder with at least this share of the lines is split into its subfolders.
+const DOMINANT: f32 = 0.75;
 
 /// One folder's slice of the lane's changed lines.
 #[derive(Clone, Debug, PartialEq)]
@@ -39,6 +41,19 @@ fn parent_segments(path: &str) -> Vec<&str> {
     s
 }
 
+/// Files under `under` (relative paths), grouped by their folder `depth` segments deep; files
+/// directly in `under` are the group `(under, true)`.
+fn group_at<'a>(rels: &[(&'a [&'a str], u64, u64)], under: &[&'a str], depth: usize) -> HashMap<(Vec<&'a str>, bool), (u64, u64)> {
+    let mut groups: HashMap<(Vec<&'a str>, bool), (u64, u64)> = HashMap::new();
+    for (dirs, a, r) in rels {
+        let key = if dirs.len() >= depth { (dirs[..depth].to_vec(), false) } else { (under.to_vec(), true) };
+        let e = groups.entry(key).or_default();
+        e.0 += a;
+        e.1 += r;
+    }
+    groups
+}
+
 /// Group every changed file by folder, dropping the prefix all files share.
 pub fn folders(details: &[PrDetail]) -> Folders {
     let files: Vec<(Vec<&str>, u64, u64)> = details
@@ -56,21 +71,35 @@ pub fn folders(details: &[PrDetail]) -> Folders {
     }
     let prefix_path = first.0[..prefix].join("/");
 
-    // Because the prefix is the longest folder prefix every file shares, the next segment already
-    // splits the files into 2+ groups unless they all sit directly in one folder, so there is
-    // never a single group to descend from.
-    let mut groups: HashMap<Vec<&str>, (u64, u64)> = HashMap::new();
-    for (dirs, a, r) in &files {
-        let e = groups.entry(dirs[prefix..].iter().take(1).copied().collect()).or_default();
-        e.0 += a;
-        e.1 += r;
+    // Group by the first folder below the shared prefix. Files directly in a group's folder are
+    // their own group, keyed `(folder, true)`.
+    let rels: Vec<(&[&str], u64, u64)> = files.iter().map(|(dirs, a, r)| (&dirs[prefix..], *a, *r)).collect();
+    let mut groups = group_at(&rels, &[], 1);
+    // A folder holding most of the lines says little ("src 96%"): replace it with its
+    // subfolders, again and again, until none dominates or the biggest can't split further.
+    loop {
+        let total: u64 = groups.values().map(|(a, r)| a + r).sum();
+        let Some(big) = groups
+            .iter()
+            .filter(|((_, root), _)| !root)
+            .find(|(_, (a, r))| total > 0 && (a + r) as f32 / total as f32 >= DOMINANT)
+            .map(|(k, _)| k.0.clone())
+        else {
+            break;
+        };
+        let inside: Vec<(&[&str], u64, u64)> = rels.iter().filter(|(d, _, _)| d.starts_with(&big)).copied().collect();
+        let split = group_at(&inside, &big, big.len() + 1);
+        if split.len() < 2 {
+            break; // every file sits directly in it: nothing deeper to show
+        }
+        groups.remove(&(big, false));
+        groups.extend(split);
     }
 
     let total: u64 = groups.values().map(|(a, r)| a + r).sum();
     let mut all: Vec<FolderShare> = groups
         .into_iter()
-        .map(|(key, (added, removed))| {
-            let root = key.is_empty();
+        .map(|((key, root), (added, removed))| {
             let rel = key.join("/");
             let path = match (prefix_path.is_empty(), rel.is_empty()) {
                 (_, true) => prefix_path.clone(),
@@ -79,7 +108,12 @@ pub fn folders(details: &[PrDetail]) -> Folders {
             };
             let lines = added + removed;
             FolderShare {
-                label: if root { "(root)".to_string() } else { rel },
+                // Files directly in a split folder read "src/"; at the shared prefix, "(root)".
+                label: match (root, rel.is_empty()) {
+                    (true, true) => "(root)".to_string(),
+                    (true, false) => format!("{rel}/"),
+                    (false, _) => rel,
+                },
                 path,
                 root,
                 added,
@@ -170,6 +204,40 @@ mod tests {
     fn labels(f: &Folders) -> Vec<&str> {
         f.top.iter().map(|s| s.label.as_str()).collect()
     }
+    #[test]
+    fn folders_split_a_dominant_folder() {
+        // src holds 94% → split; src/feature then holds 85% → split again; docs stays.
+        let d = detail(1, &[("src/feature/agent/a.ts", 50, 0), ("src/feature/report/b.ts", 30, 0), ("src/shared/c.ts", 10, 0), ("docs/x.md", 4, 0)]);
+        let f = folders(&[d]);
+        let mut got = labels(&f);
+        got.sort();
+        assert_eq!(got, vec!["docs", "src/feature/agent", "src/feature/report", "src/shared"]);
+        let agent = f.top.iter().find(|s| s.label == "src/feature/agent").unwrap();
+        assert_eq!((agent.path.as_str(), agent.root), ("src/feature/agent", false));
+    }
+
+    #[test]
+    fn folders_split_keeps_files_directly_in_the_folder() {
+        let d = detail(1, &[("src/main.ts", 5, 0), ("src/a/x.ts", 90, 0), ("docs/y.md", 5, 0)]);
+        let f = folders(&[d.clone()]);
+        let mut got = labels(&f);
+        got.sort();
+        assert_eq!(got, vec!["docs", "src/", "src/a"]);
+        let here = f.top.iter().find(|s| s.label == "src/").unwrap();
+        assert_eq!((here.path.as_str(), here.root), ("src", true));
+        assert!(touches(&detail(2, &[("src/main.ts", 1, 0)]), here));
+        assert!(!touches(&detail(3, &[("src/a/x.ts", 1, 0)]), here));
+    }
+
+    #[test]
+    fn folders_no_split_below_threshold() {
+        let d = detail(1, &[("src/a/x.ts", 70, 0), ("docs/y.md", 30, 0)]);
+        let f = folders(&[d]);
+        let mut got = labels(&f);
+        got.sort();
+        assert_eq!(got, vec!["docs", "src"]);
+    }
+
     fn pr(number: u64, author: &str, merged_at: &str) -> WaitingPr {
         WaitingPr {
             number,
