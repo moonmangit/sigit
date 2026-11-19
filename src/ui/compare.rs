@@ -5,13 +5,14 @@
 use std::collections::HashMap;
 
 use rune::{El, TextEdit, TextStyle, col, el, row, spacer};
-use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, SegmentedControl, Spinner, Switch, TextInput, glyphs};
+use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, SegmentedControl, Select, Spinner, Switch, TextInput, glyphs};
 
 use super::{I_GEAR, chip, click_to_copy, hue, muted, pending, ref_chip, scroll, side_pane};
 use crate::compare::{Cell, Comparison, LooseCommit, PrDetail, RepoCompare, WaitingPr, effective, is_changed};
 use crate::lane::{self, FolderShare, Folders};
+use crate::lane_model::{OTHER, Segment};
 use crate::i18n::text;
-use crate::model::{Outcome, ago_str, now};
+use crate::model::{Branch, Outcome, ago_str, now};
 use crate::modules;
 use crate::{CompareScope, State};
 
@@ -332,40 +333,145 @@ fn missing_label(b: &[String]) -> String {
 /// The pane for the picked cell: its merged PRs waiting, then the commits that came from no PR.
 fn detail(s: &State, k: &Kit) -> Option<El> {
     let lane = s.open_lane()?;
-    let slug = lane.slug;
-    let Cell::Waiting { commits, prs, loose, checked } = lane.cell else { return None };
+    let Cell::Waiting { commits, .. } = lane.cell else { return None };
     if *commits == 0 {
         return None;
     }
+    let c = col().w_full().gap(14.0).child(pane_head(k, lane.name.clone(), lane.slug, "cmp-close", |s: &mut State| s.compare_sel = None));
+    Some(side_pane(k, "cmp-pane", lane_content(s, k, &lane, c)))
+}
+
+/// A pane's title (and its repo under it) with a close button.
+fn pane_head(k: &Kit, title: String, slug: &str, close_key: &str, close: impl Fn(&mut State) + 'static) -> El {
+    row()
+        .w_full()
+        .gap(8.0)
+        .items_start()
+        .child(
+            col()
+                .grow(1.0)
+                .shrink()
+                .gap(4.0)
+                .child(rune::text(title).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap())
+                .child(rune::text(slug.to_owned()).font(k.ty.small).color(k.c.text_muted)),
+        )
+        .child(
+            IconButton::new(&glyphs::CLOSE)
+                .variant(IconButtonVariant::GhostMuted)
+                .label(crate::i18n::t("Close"))
+                .help(crate::i18n::t("Close"))
+                .on_press(close)
+                .build(k)
+                .key(close_key.to_owned()),
+        )
+}
+
+/// The Branches page's pane for the picked branch: what it brings to the branch it's compared
+/// with (the default one, or the one picked here), as the Comparisons lane pane shows a lane.
+pub fn branch_pane(s: &State, k: &Kit) -> Option<El> {
+    let (slug, branch) = s.branch_lane_sel.as_ref().filter(|(sl, _)| s.cur.as_ref() == Some(sl))?;
+    let mut c = col().w_full().gap(14.0).child(pane_head(k, branch.clone(), slug, "b-pane-close", |s: &mut State| s.close_branch_lane()));
+    let Some(base) = s.branch_base_for(slug) else {
+        // The repo's default branch isn't known yet; the lane loads once it is.
+        return Some(side_pane(k, "b-pane", c.child(loading_line(k, crate::i18n::t("Comparing…")))));
+    };
+    c = c.child(
+        row().key("b-base-row").w_full().gap(6.0).center_y().child(muted(k, crate::i18n::t("compared with"))).child(
+            Select::new("b-base", &[] as &[&str])
+                .label(crate::i18n::t("compared with"))
+                .current(Some(&base))
+                .open(s.branch_base_open)
+                .on_toggle(|s: &mut State| s.branch_base_open ^= true)
+                .trigger(k)
+                .shrink()
+                .min_w(0.0),
+        ),
+    );
+    if State::branch_lane_skipped(branch, &base) {
+        return Some(side_pane(k, "b-pane", c.child(text("up to date").font(k.ty.small).color(k.c.success.fg))));
+    }
+    let key = (slug.clone(), branch.clone(), base);
+    let rc = s.branch_lanes.get(&key).and_then(|l| l.data.as_ref());
+    let body = match (rc, s.open_lane()) {
+        (Some(rc), _) if rc.error.is_some() => {
+            let e = rc.error.clone().unwrap_or_default();
+            c.child(
+                row()
+                    .key("b-lane-error")
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(muted(k, tf!("Couldn't compare this branch: {error}", error = e)).wrap().grow(1.0).shrink())
+                    .child(
+                        Button::new(crate::i18n::t("Retry"))
+                            .variant(ButtonVariant::GhostMuted)
+                            .on_press(move |s: &mut State| {
+                                s.branch_lanes.remove(&key);
+                                s.select_branch_lane(&key.1);
+                            })
+                            .build(k)
+                            .key("b-lane-retry"),
+                    ),
+            )
+        }
+        (Some(_), Some(lane)) => match lane.cell {
+            Cell::Missing(b) if b.iter().any(|x| x == branch) => {
+                let n = s.rd().and_then(|d| d.branches.data.as_deref()).map_or(0, |list| not_pushed(list, branch));
+                let mut c = c.child(rune::text(crate::i18n::t("This branch isn't on GitHub yet")).font(k.ty.ui).color(k.c.text_base).wrap());
+                if n > 0 {
+                    c = c.child(muted(k, if n == 1 { crate::i18n::t("1 commit not pushed") } else { tf!("{n} commits not pushed") }));
+                }
+                c
+            }
+            Cell::Missing(b) => c.child(muted(k, missing_label(b))),
+            Cell::Waiting { commits: 0, .. } => c.child(text("up to date").font(k.ty.small).color(k.c.success.fg)),
+            Cell::Waiting { .. } => lane_content(s, k, &lane, c),
+            Cell::Off => c,
+        },
+        _ => match s.branch_lanes.get(&key).and_then(|l| l.error.clone()) {
+            Some(e) => c.child(muted(k, tf!("Couldn't compare this branch: {error}", error = e)).wrap()),
+            None => c.child(loading_line(k, crate::i18n::t("Comparing…"))),
+        },
+    };
+    Some(side_pane(k, "b-pane", body))
+}
+
+fn loading_line(k: &Kit, label: String) -> El {
+    row().key("b-lane-loading").gap(8.0).center_y().child(Spinner::new().size(12.0).build(k)).child(muted(k, label))
+}
+
+/// Commits on the local branch `name` not on its upstream (0 when it has none or isn't here).
+pub(crate) fn not_pushed(branches: &[Branch], name: &str) -> u32 {
+    branches.iter().find(|b| !b.remote && b.name == name).map_or(0, |b| b.ahead)
+}
+
+/// The open "compared with" list on the branch pane (`options`: the default branch, then the
+/// repo's other branches), anchored to its trigger.
+pub fn base_list(s: &State, k: &Kit, options: &[String], layer: &mut Vec<El>) {
+    let Some((slug, _)) = &s.branch_lane_sel else { return };
+    let current = s.branch_base_for(slug);
+    let default = s.data.get(slug).and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone());
+    let _trigger = Select::new("b-base", options)
+        .label(crate::i18n::t("compared with"))
+        .current(current.as_deref())
+        .open(true)
+        .on_close(|s: &mut State| s.branch_base_open = false)
+        .on_choose(move |s: &mut State, v: &str, _| s.set_branch_base(if default.as_deref() == Some(v) { None } else { Some(v.to_owned()) }))
+        .build(k, layer);
+}
+
+/// What a lane brings (shared by the Comparisons and Branches panes): from → to, PRs and the
+/// commits that came from no PR, each with its module map, after `c` (the pane's header).
+fn lane_content(s: &State, k: &Kit, lane: &crate::OpenLane, mut c: El) -> El {
+    let slug = lane.slug;
+    let Cell::Waiting { commits, prs, loose, checked } = lane.cell else { return c };
     let now = now();
-    let mut c = col().w_full().gap(14.0);
     c = c.child(
         row()
             .w_full()
-            .gap(8.0)
-            .items_start()
-            .child(
-                col()
-                    .grow(1.0)
-                    .shrink()
-                    .gap(4.0)
-                    .child(rune::text(lane.name.clone()).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap())
-                    .child(rune::text(slug.to_owned()).font(k.ty.small).color(k.c.text_muted)),
-            )
-            .child(
-                IconButton::new(&glyphs::CLOSE)
-                    .variant(IconButtonVariant::GhostMuted)
-                    .label(crate::i18n::t("Close"))
-                    .help(crate::i18n::t("Close"))
-                    .on_press(|s: &mut State| s.compare_sel = None)
-                    .build(k)
-                    .key("cmp-close"),
-            ),
-    );
-    c = c.child(
-        row()
             .gap(6.0)
             .center_y()
+            .flex_wrap()
             .child(ref_chip(k, &lane.from, hue(1)))
             .child(text("→").font(k.ty.small).color(k.c.text_faint))
             .child(ref_chip(k, &lane.to, hue(0)))
@@ -429,18 +535,19 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     let by_number = model.map_or(&no_details, |m| &m.details);
     let shown = filter_prs(prs, by_number, active.as_ref());
     let detail_of = |n: u64| by_number.get(&n);
+    let pr_map = |n: u64| model.and_then(|m| m.per_pr.get(&n));
     let mut list = col().w_full().gap(2.0);
     if s.lane_view.by_contributor {
         for (gi, g) in lane::by_author(&shown, details).iter().enumerate() {
-            let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(s, k, g));
+            let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(s, k, g, model.and_then(|m| m.per_author.get(&g.person.login))));
             for p in g.prs.iter().filter_map(|n| shown.iter().find(|p| p.number == *n)) {
-                group = group.child(pr_row(k, slug, p, detail_of(p.number), false, now));
+                group = group.child(pr_row(k, slug, p, detail_of(p.number), false, now, pr_map(p.number)));
             }
             list = list.child(group);
         }
     } else {
         for p in &shown {
-            list = list.child(pr_row(k, slug, p, detail_of(p.number), true, now));
+            list = list.child(pr_row(k, slug, p, detail_of(p.number), true, now, pr_map(p.number)));
         }
     }
     c = c.child(section(k, tf!("Merged PRs waiting ({n})", n = prs.len()), list));
@@ -449,6 +556,16 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
         let mut list = col().w_full().gap(2.0);
         for (i, l) in loose.iter().enumerate() {
             let sha = click_to_copy(rune::text(l.sha.get(..7).unwrap_or(&l.sha).to_owned()).font(k.ty.mono).color(k.c.text_muted).w(64.0), k, l.sha.clone(), "commit SHA");
+            let mut body = col()
+                .grow(1.0)
+                .shrink()
+                .gap(2.0)
+                .child(rune::text(l.subject.clone()).font(k.ty.ui).color(k.c.text_base).wrap())
+                .child(rune::text(l.author.clone()).font(k.ty.small).color(k.c.text_faint));
+            let open = (slug.to_owned(), l.sha.clone());
+            if s.open_commits.contains(&open) {
+                body = body.child(commit_map(s, k, key.as_ref(), &open));
+            }
             list = list.child(
                 row()
                     .key(tf!("cmp-loose-{i}"))
@@ -457,20 +574,64 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                     .py(6.0)
                     .gap(10.0)
                     .items_start()
+                    .radius(k.radius.md)
+                    .hover(k.c.hover)
+                    .role("button")
+                    .help(crate::i18n::t("Show the modules this commit touched"))
+                    .on_press(move |s: &mut State| s.toggle_commit(&open.0, &open.1))
                     .child(sha)
-                    .child(
-                        col()
-                            .grow(1.0)
-                            .shrink()
-                            .gap(2.0)
-                            .child(rune::text(l.subject.clone()).font(k.ty.ui).color(k.c.text_base).wrap())
-                            .child(rune::text(l.author.clone()).font(k.ty.small).color(k.c.text_faint)),
-                    ),
+                    .child(body),
             );
         }
         c = c.child(section(k, tf!("Commits without a PR ({n})", n = loose.len()), list));
     }
-    Some(side_pane(k, "cmp-pane", c))
+    c
+}
+
+/// Under an opened commit: its module map once its files are in, a spinner while they load,
+/// or why they couldn't (press to try again).
+fn commit_map(s: &State, k: &Kit, lane: Option<&(String, Vec<u64>)>, open: &(String, String)) -> El {
+    let load = s.commit_files.get(open);
+    if let Some(e) = load.filter(|l| l.data.is_none() && !l.loading).and_then(|l| l.error.as_ref()) {
+        let retry = open.clone();
+        return row()
+            .key("cmp-commit-error")
+            .w_full()
+            .gap(6.0)
+            .center_y()
+            .role("button")
+            .help(e.clone())
+            .on_press(move |s: &mut State| {
+                s.open_commits.remove(&retry);
+                s.toggle_commit(&retry.0, &retry.1);
+            })
+            .child(muted(k, crate::i18n::t("Couldn't load this commit's files")).wrap().shrink())
+            .child(text("Retry").font(k.ty.small_medium).color(k.c.text_accent));
+    }
+    if load.is_none_or(|l| l.data.is_none()) {
+        return row().key("cmp-commit-loading").gap(6.0).center_y().child(Spinner::new().size(10.0).build(k)).child(muted(k, crate::i18n::t("Loading files…")));
+    }
+    let segs = lane.and_then(|(sl, nums)| s.commit_segments.get(&(sl.clone(), nums.clone(), open.1.clone())));
+    match segs {
+        Some(v) if !v.is_empty() => item_bar(k, v).key("cmp-commit-map").mt(2.0),
+        _ => el(),
+    }
+}
+
+/// A segment's colour: the main bar's hue for its row, neutral for files outside the rows.
+fn tone(k: &Kit, color: usize) -> rune::Color {
+    if color == OTHER { k.c.border_base } else { hue(color) }
+}
+
+/// An item's module map: a 4 point bar split by module (main-bar colours), each slice naming its
+/// module and share on hover.
+pub fn item_bar(k: &Kit, segs: &[Segment]) -> El {
+    let mut bar = row().w_full().h(4.0).radius(2.0).clip_rounded(2.0).fill(k.c.surface_base);
+    for sg in segs.iter().filter(|x| x.share > 0.0) {
+        let pct = (sg.share * 100.0).round() as u32;
+        bar = bar.child(el().w_frac(sg.share).h_full().fill(tone(k, sg.color)).help(format!("{} · {pct}%", sg.label)));
+    }
+    bar
 }
 
 /// The picked folder among the lane's current folders; none (no filter) when it isn't there any more.
@@ -736,7 +897,7 @@ fn avatar(s: &State, k: &Kit, p: &crate::compare::Person, size: f32) -> El {
         .key(tf!("cmp-avatar-{}", p.login))
 }
 
-fn author_heading(s: &State, k: &Kit, g: &lane::AuthorGroup) -> El {
+fn author_heading(s: &State, k: &Kit, g: &lane::AuthorGroup, map: Option<&Vec<Segment>>) -> El {
     let p = &g.person;
     let mut who = row().w_full().gap(6.0).center_y().flex_wrap();
     if p.name.is_empty() {
@@ -771,11 +932,11 @@ fn author_heading(s: &State, k: &Kit, g: &lane::AuthorGroup) -> El {
         .gap(10.0)
         .items_start()
         .child(avatar(s, k, p, 32.0))
-        .child(col().grow(1.0).shrink().gap(2.0).child(who).child(stats))
+        .child(col().grow(1.0).shrink().gap(2.0).child(who).child(stats).children(map.filter(|m| !m.is_empty()).map(|m| item_bar(k, m).key("cmp-author-map").mt(2.0))))
 }
 
 /// A merged PR waiting: number, title, labels, summary, then who/when and its size.
-fn pr_row(k: &Kit, slug: &str, p: &WaitingPr, d: Option<&PrDetail>, with_author: bool, now: i64) -> El {
+fn pr_row(k: &Kit, slug: &str, p: &WaitingPr, d: Option<&PrDetail>, with_author: bool, now: i64, map: Option<&Vec<Segment>>) -> El {
     let (sl, n) = (slug.to_owned(), p.number);
     let mut body = col().grow(1.0).shrink().gap(2.0).child(rune::text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).wrap());
     if let Some(d) = d {
@@ -804,7 +965,7 @@ fn pr_row(k: &Kit, slug: &str, p: &WaitingPr, d: Option<&PrDetail>, with_author:
         .role("button")
         .on_press(move |s: &mut State| s.open_pr(&sl, n))
         .child(rune::text(format!("#{}", p.number)).font(k.ty.mono).color(k.c.text_muted).w(44.0))
-        .child(body.child(meta))
+        .child(body.child(meta).children(map.filter(|m| !m.is_empty()).map(|m| item_bar(k, m).key("cmp-pr-map").mt(2.0))))
 }
 
 fn section(k: &Kit, title: String, body: El) -> El {
@@ -969,5 +1130,28 @@ mod tests {
         assert_eq!(filter_prs(&prs, details, active_folder(Some(&gone), f)).len(), 2);
         // Same path but not the root group: not a match.
         assert!(active_folder(Some(&("src/agent".to_string(), true)), f).is_none());
+    }
+}
+
+#[cfg(test)]
+mod bar_tests {
+    use super::{not_pushed, tone};
+    use crate::lane_model::OTHER;
+    use crate::model::Branch;
+    use crate::ui::hue;
+
+    #[test]
+    fn other_is_neutral_and_rows_keep_the_main_bar_hue() {
+        let k = rune_kit::Kit::neutral(true);
+        assert_eq!(tone(&k, OTHER), k.c.border_base);
+        assert_eq!(tone(&k, 2), hue(2));
+    }
+
+    #[test]
+    fn not_pushed_counts_the_local_branch_ahead() {
+        let b = |name: &str, remote: bool, ahead: u32| Branch { name: name.into(), remote, ahead, ..Branch::default() };
+        let list = [b("origin/feat", true, 0), b("feat", false, 4), b("dev", false, 1)];
+        assert_eq!(not_pushed(&list, "feat"), 4);
+        assert_eq!(not_pushed(&list, "gone"), 0);
     }
 }
