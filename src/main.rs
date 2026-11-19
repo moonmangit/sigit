@@ -476,8 +476,8 @@ pub struct State {
     pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
     /// Files changed by commits that were clicked open, by (repo, sha); this session only.
     pub commit_files: HashMap<(String, String), Load<Vec<(String, u64, u64)>>>,
-    /// Commits (by sha) whose files are shown.
-    pub open_commits: HashSet<String>,
+    /// Commits, by (repo, sha), whose files are shown.
+    pub open_commits: HashSet<(String, String)>,
     /// What the pane shows for each lane in `lane_details`, built once when its details or
     /// layout arrive; the view only reads it.
     pub lane_models: HashMap<(String, Vec<u64>), lane_model::LaneModel>,
@@ -1218,9 +1218,9 @@ impl State {
     /// Open or close a commit's file list; opening fetches its files once per session
     /// (again after an error).
     pub fn toggle_commit(&mut self, slug: &str, sha: &str) {
-        if !self.open_commits.remove(sha) {
-            self.open_commits.insert(sha.to_owned());
-            let key = (slug.to_owned(), sha.to_owned());
+        let key = (slug.to_owned(), sha.to_owned());
+        if !self.open_commits.remove(&key) {
+            self.open_commits.insert(key.clone());
             if Self::wants_commit_fetch(self.commit_files.get(&key)) {
                 self.commit_files.insert(key.clone(), Load::start());
                 let (slug, sha) = key.clone();
@@ -2880,15 +2880,26 @@ mod cache_tests {
     }
 
     #[test]
+    fn open_commit_is_per_repo() {
+        let mut s = State::new(config::Prefs::default());
+        let mut l: Load<Vec<(String, u64, u64)>> = Load::start();
+        l.finish(Ok(vec![]));
+        s.commit_files.insert(("a/r".to_owned(), "abc".to_owned()), l);
+        s.toggle_commit("a/r", "abc");
+        assert!(s.open_commits.contains(&("a/r".to_owned(), "abc".to_owned())));
+        assert!(!s.open_commits.contains(&("b/r".to_owned(), "abc".to_owned())));
+    }
+
+    #[test]
     fn toggle_commit_closes_without_fetch() {
         let mut s = State::new(config::Prefs::default());
         let key = ("o/r".to_owned(), "abc".to_owned());
         let mut l: Load<Vec<(String, u64, u64)>> = Load::start();
         l.finish(Ok(vec![("a".into(), 1, 0)]));
         s.commit_files.insert(key.clone(), l);
-        s.open_commits.insert("abc".into());
+        s.open_commits.insert(key.clone());
         s.toggle_commit("o/r", "abc");
-        assert!(!s.open_commits.contains("abc"));
+        assert!(!s.open_commits.contains(&key));
         assert_eq!(s.commit_files[&key].data.as_deref(), Some(&[("a".to_owned(), 1, 0)][..]));
     }
 
