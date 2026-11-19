@@ -2,14 +2,17 @@
 //! comparison (from → to, a bar as long as what is waiting), a pane listing what a lane counts, and the
 //! per-repo dialog that retargets or turns comparisons off.
 
+use std::collections::HashMap;
+
 use rune::{El, TextEdit, TextStyle, col, el, row, spacer};
-use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, SegmentedControl, Spinner, Switch, TextInput, glyphs};
+use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, SegmentedControl, Select, Spinner, Switch, TextInput, glyphs};
 
 use super::{I_GEAR, chip, click_to_copy, hue, muted, pending, ref_chip, scroll, side_pane};
 use crate::compare::{Cell, Comparison, LooseCommit, PrDetail, RepoCompare, WaitingPr, effective, is_changed};
 use crate::lane::{self, FolderShare, Folders};
+use crate::lane_model::{LaneModel, OTHER, Segment};
 use crate::i18n::text;
-use crate::model::{Outcome, ago_str, now};
+use crate::model::{Branch, Outcome, ago_str, now};
 use crate::modules;
 use crate::{CompareScope, State};
 
@@ -36,7 +39,7 @@ pub fn view(s: &State, k: &Kit) -> El {
     } else {
         let rows = s.compare.data.as_deref().unwrap_or(&[]);
         let mut panes = vec![super::split::pane(scroll("cmp-scroll", flows(s, k, rows)), 0.64, 520.0)];
-        if let Some(pane) = detail(s, k, rows) {
+        if let Some(pane) = detail(s, k) {
             panes.push(super::split::pane(pane, 0.36, 320.0));
         }
         super::split::split(s, k, "compare", panes).key("cmp-body").h_full()
@@ -328,47 +331,156 @@ fn missing_label(b: &[String]) -> String {
 }
 
 /// The pane for the picked cell: its merged PRs waiting, then the commits that came from no PR.
-fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
-    let (slug, j) = s.compare_sel.as_ref()?;
-    let rc = rows.iter().find(|r| &r.slug == slug)?;
-    let Some(Cell::Waiting { commits, prs, loose, checked }) = rc.cells.get(*j) else { return None };
+fn detail(s: &State, k: &Kit) -> Option<El> {
+    let lane = s.open_lane()?;
+    let Cell::Waiting { commits, .. } = lane.cell else { return None };
     if *commits == 0 {
         return None;
     }
-    let shared = s.prefs.comparisons.get(*j)?;
-    let eff = effective(&s.prefs.comparisons, &s.prefs.comparison_overrides, slug).get(*j).cloned().flatten().unwrap_or_else(|| shared.clone());
+    let c = col().w_full().gap(14.0).child(pane_head(k, lane.name.clone(), lane.slug, "cmp-close", |s: &mut State| s.compare_sel = None));
+    Some(side_pane(k, "cmp-pane", lane_content(s, k, &lane, c)))
+}
+
+/// A pane's title (and its repo under it) with a close button.
+fn pane_head(k: &Kit, title: String, slug: &str, close_key: &str, close: impl Fn(&mut State) + 'static) -> El {
+    row()
+        .w_full()
+        .gap(8.0)
+        .items_start()
+        .child(
+            col()
+                .grow(1.0)
+                .shrink()
+                .gap(4.0)
+                .child(rune::text(title).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap())
+                .child(rune::text(slug.to_owned()).font(k.ty.small).color(k.c.text_muted)),
+        )
+        .child(
+            IconButton::new(&glyphs::CLOSE)
+                .variant(IconButtonVariant::GhostMuted)
+                .label(crate::i18n::t("Close"))
+                .help(crate::i18n::t("Close"))
+                .on_press(close)
+                .build(k)
+                .key(close_key.to_owned()),
+        )
+}
+
+/// The Branches page's pane for the picked branch: what it brings to the branch it's compared
+/// with (the default one, or the one picked here), as the Comparisons lane pane shows a lane.
+pub fn branch_pane(s: &State, k: &Kit) -> Option<El> {
+    let (slug, branch) = s.branch_lane_sel.as_ref().filter(|(sl, _)| s.cur.as_ref() == Some(sl))?;
+    let mut c = col().w_full().gap(14.0).child(pane_head(k, branch.clone(), slug, "b-pane-close", |s: &mut State| s.close_branch_lane()));
+    let Some(base) = s.branch_base_for(slug) else {
+        // The repo's default branch isn't known yet; the lane loads once it is (or says why it
+        // can't, when the repo's details failed to load).
+        let failed = s.data.get(slug).map(|d| &d.meta).filter(|m| !m.loading).and_then(|m| m.error.clone());
+        let body = match failed {
+            Some(e) => muted(k, tf!("Couldn't compare this branch: {error}", error = e)).wrap(),
+            None => loading_line(k, crate::i18n::t("Comparing…")),
+        };
+        return Some(side_pane(k, "b-pane", c.child(body)));
+    };
+    c = c.child(
+        row().key("b-base-row").w_full().gap(6.0).center_y().child(muted(k, crate::i18n::t("compared with"))).child(
+            Select::new("b-base", &[] as &[&str])
+                .label(crate::i18n::t("compared with"))
+                .current(Some(&base))
+                .open(s.branch_base_open)
+                .on_toggle(|s: &mut State| s.branch_base_open ^= true)
+                .trigger(k)
+                .shrink()
+                .min_w(0.0),
+        ),
+    );
+    if State::branch_lane_skipped(branch, &base) {
+        return Some(side_pane(k, "b-pane", c.child(text("up to date").font(k.ty.small).color(k.c.success.fg))));
+    }
+    let key = (slug.clone(), branch.clone(), base);
+    let rc = s.branch_lanes.get(&key).and_then(|l| l.data.as_ref());
+    let body = match (rc, s.open_lane()) {
+        (Some(rc), _) if rc.error.is_some() => {
+            let e = rc.error.clone().unwrap_or_default();
+            c.child(
+                row()
+                    .key("b-lane-error")
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(muted(k, tf!("Couldn't compare this branch: {error}", error = e)).wrap().grow(1.0).shrink())
+                    .child(
+                        Button::new(crate::i18n::t("Retry"))
+                            .variant(ButtonVariant::GhostMuted)
+                            .on_press(move |s: &mut State| {
+                                s.branch_lanes.remove(&key);
+                                s.select_branch_lane(&key.1);
+                            })
+                            .build(k)
+                            .key("b-lane-retry"),
+                    ),
+            )
+        }
+        (Some(_), Some(lane)) => match lane.cell {
+            Cell::Missing(b) if b.iter().any(|x| x == branch) => {
+                let n = s.rd().and_then(|d| d.branches.data.as_deref()).map_or(0, |list| not_pushed(list, branch));
+                let mut c = c.child(rune::text(crate::i18n::t("This branch isn't on GitHub yet")).font(k.ty.ui).color(k.c.text_base).wrap());
+                if n > 0 {
+                    c = c.child(muted(k, if n == 1 { crate::i18n::t("1 commit not pushed") } else { tf!("{n} commits not pushed") }));
+                }
+                c
+            }
+            Cell::Missing(b) => c.child(muted(k, missing_label(b))),
+            Cell::Waiting { commits: 0, .. } => c.child(text("up to date").font(k.ty.small).color(k.c.success.fg)),
+            Cell::Waiting { .. } => lane_content(s, k, &lane, c),
+            Cell::Off => c,
+        },
+        _ => match s.branch_lanes.get(&key).and_then(|l| l.error.clone()) {
+            Some(e) => c.child(muted(k, tf!("Couldn't compare this branch: {error}", error = e)).wrap()),
+            None => c.child(loading_line(k, crate::i18n::t("Comparing…"))),
+        },
+    };
+    Some(side_pane(k, "b-pane", body))
+}
+
+fn loading_line(k: &Kit, label: String) -> El {
+    row().key("b-lane-loading").gap(8.0).center_y().child(Spinner::new().size(12.0).build(k)).child(muted(k, label))
+}
+
+/// Commits on the local branch `name` not on its upstream (0 when it has none or isn't here).
+pub(crate) fn not_pushed(branches: &[Branch], name: &str) -> u32 {
+    branches.iter().find(|b| !b.remote && b.name == name).map_or(0, |b| b.ahead)
+}
+
+/// The open "compared with" list on the branch pane (`options`: the default branch, then the
+/// repo's other branches), anchored to its trigger.
+pub fn base_list(s: &State, k: &Kit, options: &[String], layer: &mut Vec<El>) {
+    let Some((slug, _)) = &s.branch_lane_sel else { return };
+    let current = s.branch_base_for(slug);
+    let default = s.data.get(slug).and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone());
+    let _trigger = Select::new("b-base", options)
+        .label(crate::i18n::t("compared with"))
+        .current(current.as_deref())
+        .open(true)
+        .on_close(|s: &mut State| s.branch_base_open = false)
+        .on_choose(move |s: &mut State, v: &str, _| s.set_branch_base(if default.as_deref() == Some(v) { None } else { Some(v.to_owned()) }))
+        .build(k, layer);
+}
+
+/// What a lane brings (shared by the Comparisons and Branches panes): from → to, PRs and the
+/// commits that came from no PR, each with its module map, after `c` (the pane's header).
+fn lane_content(s: &State, k: &Kit, lane: &crate::OpenLane, mut c: El) -> El {
+    let slug = lane.slug;
+    let Cell::Waiting { commits, prs, loose, checked } = lane.cell else { return c };
     let now = now();
-    let mut c = col().w_full().gap(14.0);
     c = c.child(
         row()
             .w_full()
-            .gap(8.0)
-            .items_start()
-            .child(
-                col()
-                    .grow(1.0)
-                    .shrink()
-                    .gap(4.0)
-                    .child(rune::text(shared.name.clone()).font(TextStyle { size: 16.0, ..k.ty.ui_medium }).color(k.c.text_strong).wrap())
-                    .child(rune::text(slug.clone()).font(k.ty.small).color(k.c.text_muted)),
-            )
-            .child(
-                IconButton::new(&glyphs::CLOSE)
-                    .variant(IconButtonVariant::GhostMuted)
-                    .label(crate::i18n::t("Close"))
-                    .help(crate::i18n::t("Close"))
-                    .on_press(|s: &mut State| s.compare_sel = None)
-                    .build(k)
-                    .key("cmp-close"),
-            ),
-    );
-    c = c.child(
-        row()
             .gap(6.0)
             .center_y()
-            .child(ref_chip(k, &eff.from, hue(1)))
+            .flex_wrap()
+            .child(ref_chip(k, &lane.from, hue(1)))
             .child(text("→").font(k.ty.small).color(k.c.text_faint))
-            .child(ref_chip(k, &eff.to, hue(0)))
+            .child(ref_chip(k, &lane.to, hue(0)))
             .child(muted(k, commits_label(*commits))),
     );
     if checked < commits {
@@ -376,9 +488,13 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
     }
 
     // Details (labels, summary, size, author profile, files) arrive after the lane opens; until
-    // then the rows show what the comparison already knows.
-    let load = s.lane_key().and_then(|key| s.lane_details.get(&key));
-    let details: &[PrDetail] = load.and_then(|l| l.data.as_deref()).unwrap_or(&[]);
+    // then the rows show what the comparison already knows. Keyed as `State::lane_key`.
+    let mut nums: Vec<u64> = prs.iter().map(|p| p.number).collect();
+    nums.sort_unstable();
+    let key = (slug.to_owned(), nums);
+    let load = s.lane_details.get(&key);
+    // Summaries, colours and the details by number, worked out when the details or layout came in.
+    let model = s.lane_models.get(&key);
     if !prs.is_empty() {
         // Shrinks (labels end in "…") rather than spill past a squeezed pane.
         let mut switch = row().w_full().gap(8.0).center_y().child(
@@ -408,36 +524,38 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
         );
     }
 
-    let f = lane::folders(details);
     // Modules learned from this repo's tree, when it has any; the folder diagram otherwise
     // (and while the tree loads, or if it couldn't be read).
-    let layout = s.lane_branch().and_then(|key| s.layouts.get(&key)).and_then(|l| l.data.as_ref()).filter(|l| !l.containers.is_empty());
-    let summary = layout.map(|l| modules::summarize(l, details));
-    let active = match &summary {
-        Some(sm) => active_in_summary(s.lane_view.folder.as_ref(), sm),
-        None => active_folder(s.lane_view.folder.as_ref(), &f).cloned(),
-    };
-    if load.is_some_and(|l| l.data.is_some()) && !f.top.is_empty() {
-        c = c.child(match &summary {
+    let sel = s.lane_view.folder.as_ref();
+    let active = model.and_then(|m| match &m.summary {
+        Some(sm) => active_in_summary(sel, sm),
+        None => active_folder(sel, &m.folders).cloned(),
+    });
+    if let Some(m) = model.filter(|m| !m.folders.top.is_empty()) {
+        c = c.child(match &m.summary {
             Some(sm) => modules_view(k, sm, active.as_ref(), s.lane_view.modules_open),
-            None => changed_code(k, &f, active.as_ref()),
+            None => changed_code(k, &m.folders, active.as_ref()),
         });
     }
 
-    let shown = filter_prs(prs, details, active.as_ref());
-    let detail_of = |n: u64| details.iter().find(|d| d.number == n);
+    let no_details = HashMap::new();
+    let by_number = model.map_or(&no_details, |m| &m.details);
+    let shown = filter_prs(prs, model, active.as_ref());
+    let detail_of = |n: u64| by_number.get(&n);
+    let pr_map = |n: u64| model.and_then(|m| m.per_pr.get(&n));
     let mut list = col().w_full().gap(2.0);
     if s.lane_view.by_contributor {
-        for (gi, g) in lane::by_author(&shown, details).iter().enumerate() {
-            let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(s, k, g));
-            for p in g.prs.iter().filter_map(|n| shown.iter().find(|p| p.number == *n)) {
-                group = group.child(pr_row(k, slug, p, detail_of(p.number), false, now));
+        let shown_by_number: HashMap<u64, &WaitingPr> = shown.iter().map(|p| (p.number, *p)).collect();
+        for (gi, g) in lane::by_author(&shown, by_number).iter().enumerate() {
+            let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(s, k, g, model.and_then(|m| m.per_author.get(&g.person.login))));
+            for p in g.prs.iter().filter_map(|n| shown_by_number.get(n)) {
+                group = group.child(pr_row(k, slug, p, detail_of(p.number), false, now, pr_map(p.number)));
             }
             list = list.child(group);
         }
     } else {
-        for p in &shown {
-            list = list.child(pr_row(k, slug, p, detail_of(p.number), true, now));
+        for p in shown {
+            list = list.child(pr_row(k, slug, p, detail_of(p.number), true, now, pr_map(p.number)));
         }
     }
     c = c.child(section(k, tf!("Merged PRs waiting ({n})", n = prs.len()), list));
@@ -446,6 +564,16 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
         let mut list = col().w_full().gap(2.0);
         for (i, l) in loose.iter().enumerate() {
             let sha = click_to_copy(rune::text(l.sha.get(..7).unwrap_or(&l.sha).to_owned()).font(k.ty.mono).color(k.c.text_muted).w(64.0), k, l.sha.clone(), "commit SHA");
+            let mut body = col()
+                .grow(1.0)
+                .shrink()
+                .gap(2.0)
+                .child(rune::text(l.subject.clone()).font(k.ty.ui).color(k.c.text_base).wrap())
+                .child(rune::text(l.author.clone()).font(k.ty.small).color(k.c.text_faint));
+            let open = (slug.to_owned(), l.sha.clone());
+            if s.open_commits.contains(&open) {
+                body = body.child(commit_map(s, k, &key, &open));
+            }
             list = list.child(
                 row()
                     .key(tf!("cmp-loose-{i}"))
@@ -454,20 +582,64 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
                     .py(6.0)
                     .gap(10.0)
                     .items_start()
+                    .radius(k.radius.md)
+                    .hover(k.c.hover)
+                    .role("button")
+                    .help(crate::i18n::t("Show the modules this commit touched"))
+                    .on_press(move |s: &mut State| s.toggle_commit(&open.0, &open.1))
                     .child(sha)
-                    .child(
-                        col()
-                            .grow(1.0)
-                            .shrink()
-                            .gap(2.0)
-                            .child(rune::text(l.subject.clone()).font(k.ty.ui).color(k.c.text_base).wrap())
-                            .child(rune::text(l.author.clone()).font(k.ty.small).color(k.c.text_faint)),
-                    ),
+                    .child(body),
             );
         }
         c = c.child(section(k, tf!("Commits without a PR ({n})", n = loose.len()), list));
     }
-    Some(side_pane(k, "cmp-pane", c))
+    c
+}
+
+/// Under an opened commit: its module map once its files are in, a spinner while they load,
+/// or why they couldn't (press to try again).
+fn commit_map(s: &State, k: &Kit, lane: &(String, Vec<u64>), open: &(String, String)) -> El {
+    let load = s.commit_files.get(open);
+    if let Some(e) = load.filter(|l| l.data.is_none() && !l.loading).and_then(|l| l.error.as_ref()) {
+        let retry = open.clone();
+        return row()
+            .key("cmp-commit-error")
+            .w_full()
+            .gap(6.0)
+            .center_y()
+            .role("button")
+            .help(e.clone())
+            .on_press(move |s: &mut State| {
+                s.open_commits.remove(&retry);
+                s.toggle_commit(&retry.0, &retry.1);
+            })
+            .child(muted(k, crate::i18n::t("Couldn't load this commit's files")).wrap().shrink())
+            .child(text("Retry").font(k.ty.small_medium).color(k.c.text_accent));
+    }
+    if load.is_none_or(|l| l.data.is_none()) {
+        return row().key("cmp-commit-loading").gap(6.0).center_y().child(Spinner::new().size(10.0).build(k)).child(muted(k, crate::i18n::t("Loading files…")));
+    }
+    let segs = s.commit_segments.get(lane).and_then(|m| m.get(&open.1));
+    match segs {
+        Some(v) if !v.is_empty() => item_bar(k, v).key("cmp-commit-map").mt(2.0),
+        _ => el(),
+    }
+}
+
+/// A segment's colour: the main bar's hue for its row, neutral for files outside the rows.
+fn tone(k: &Kit, color: usize) -> rune::Color {
+    if color == OTHER { k.c.border_base } else { hue(color) }
+}
+
+/// An item's module map: a 4 point bar split by module (main-bar colours), each slice naming its
+/// module and share on hover.
+pub fn item_bar(k: &Kit, segs: &[Segment]) -> El {
+    let mut bar = row().w_full().h(4.0).radius(2.0).clip_rounded(2.0).fill(k.c.surface_base);
+    for sg in segs.iter().filter(|x| x.share > 0.0) {
+        let pct = (sg.share * 100.0).round() as u32;
+        bar = bar.child(el().w_frac(sg.share).h_full().fill(tone(k, sg.color)).help(format!("{} · {pct}%", sg.label)));
+    }
+    bar
 }
 
 /// The picked folder among the lane's current folders; none (no filter) when it isn't there any more.
@@ -486,12 +658,12 @@ fn active_in_summary(sel: Option<&(String, bool)>, sm: &modules::Summary) -> Opt
     sm.shared.top.iter().take(modules::MAX_SHARED_ROWS).find(|x| &x.path == path && x.root == *root).cloned()
 }
 
-/// The lane's PRs that touched `active` (all of them with no folder picked).
-fn filter_prs(prs: &[WaitingPr], details: &[PrDetail], active: Option<&FolderShare>) -> Vec<WaitingPr> {
-    prs.iter()
-        .filter(|p| active.is_none_or(|f| details.iter().find(|d| d.number == p.number).is_some_and(|d| lane::touches(d, f))))
-        .cloned()
-        .collect()
+/// The lane's PRs that touched `active` (all of them with no folder picked): a lookup in the
+/// sets the model worked out for its rows.
+fn filter_prs<'a>(prs: &'a [WaitingPr], model: Option<&LaneModel>, active: Option<&FolderShare>) -> Vec<&'a WaitingPr> {
+    let Some(f) = active else { return prs.iter().collect() };
+    let touched = model.and_then(|m| m.touched.get(&(f.path.clone(), f.root)));
+    prs.iter().filter(|p| touched.is_some_and(|t| t.contains(&p.number))).collect()
 }
 
 /// Pick `fs` as the filter, or drop it when it's already picked.
@@ -733,7 +905,7 @@ fn avatar(s: &State, k: &Kit, p: &crate::compare::Person, size: f32) -> El {
         .key(tf!("cmp-avatar-{}", p.login))
 }
 
-fn author_heading(s: &State, k: &Kit, g: &lane::AuthorGroup) -> El {
+fn author_heading(s: &State, k: &Kit, g: &lane::AuthorGroup, map: Option<&Vec<Segment>>) -> El {
     let p = &g.person;
     let mut who = row().w_full().gap(6.0).center_y().flex_wrap();
     if p.name.is_empty() {
@@ -768,11 +940,11 @@ fn author_heading(s: &State, k: &Kit, g: &lane::AuthorGroup) -> El {
         .gap(10.0)
         .items_start()
         .child(avatar(s, k, p, 32.0))
-        .child(col().grow(1.0).shrink().gap(2.0).child(who).child(stats))
+        .child(col().grow(1.0).shrink().gap(2.0).child(who).child(stats).children(map.filter(|m| !m.is_empty()).map(|m| item_bar(k, m).key("cmp-author-map").mt(2.0))))
 }
 
 /// A merged PR waiting: number, title, labels, summary, then who/when and its size.
-fn pr_row(k: &Kit, slug: &str, p: &WaitingPr, d: Option<&PrDetail>, with_author: bool, now: i64) -> El {
+fn pr_row(k: &Kit, slug: &str, p: &WaitingPr, d: Option<&PrDetail>, with_author: bool, now: i64, map: Option<&Vec<Segment>>) -> El {
     let (sl, n) = (slug.to_owned(), p.number);
     let mut body = col().grow(1.0).shrink().gap(2.0).child(rune::text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).wrap());
     if let Some(d) = d {
@@ -801,7 +973,7 @@ fn pr_row(k: &Kit, slug: &str, p: &WaitingPr, d: Option<&PrDetail>, with_author:
         .role("button")
         .on_press(move |s: &mut State| s.open_pr(&sl, n))
         .child(rune::text(format!("#{}", p.number)).font(k.ty.mono).color(k.c.text_muted).w(44.0))
-        .child(body.child(meta))
+        .child(body.child(meta).children(map.filter(|m| !m.is_empty()).map(|m| item_bar(k, m).key("cmp-pr-map").mt(2.0))))
 }
 
 fn section(k: &Kit, title: String, body: El) -> El {
@@ -868,7 +1040,8 @@ mod tests {
     use crate::CompareScope;
     use crate::compare::{PrDetail, RepoCompare, WaitingPr};
     use crate::config::Group;
-    use crate::lane::{by_author, folders};
+    use crate::lane::by_author;
+    use crate::lane_model::build;
 
     fn repo(slug: &str) -> RepoCompare {
         RepoCompare { slug: slug.into(), cells: Vec::new(), error: None }
@@ -890,11 +1063,12 @@ mod tests {
             detail(2, "b", &["src/feature/report/service/a.ts"]),
             detail(3, "c", &["src/shared/component/Table.vue", "src/feature/agent/service/a.ts"]),
         ];
-        let sm = crate::modules::summarize(&layout, &details);
+        let m = build(&details, Some(&layout));
+        let sm = m.summary.clone().unwrap();
         let agent = super::active_in_summary(Some(&("src/feature/agent".to_string(), false)), &sm);
-        assert_eq!(filter_prs(&prs, &details, agent.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [1, 3]);
+        assert_eq!(filter_prs(&prs, Some(&m), agent.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [1, 3]);
         let shared = super::active_in_summary(Some(&("src/shared/component".to_string(), true)), &sm);
-        assert_eq!(filter_prs(&prs, &details, shared.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [3]);
+        assert_eq!(filter_prs(&prs, Some(&m), shared.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [3]);
         assert!(super::active_in_summary(Some(&("src/feature/gone".to_string(), false)), &sm).is_none());
     }
 
@@ -937,16 +1111,17 @@ mod tests {
     #[test]
     fn folder_filter_keeps_prs_that_touched_it() {
         let prs = [pr(1, "a"), pr(2, "b"), pr(3, "a")];
-        let details = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"]), detail(3, "a", &["src/report/z.ts", "src/agent/w.ts"])];
-        let f = folders(&details);
+        let list = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"]), detail(3, "a", &["src/report/z.ts", "src/agent/w.ts"])];
+        let m = build(&list, None);
+        let f = &m.folders;
         let sel = ("src/report".to_string(), false);
-        let active = active_folder(Some(&sel), &f);
+        let active = active_folder(Some(&sel), f);
         assert_eq!(active.map(|f| f.label.as_str()), Some("report"));
-        let shown: Vec<u64> = filter_prs(&prs, &details, active).iter().map(|p| p.number).collect();
+        let shown: Vec<u64> = filter_prs(&prs, Some(&m), active).iter().map(|p| p.number).collect();
         assert_eq!(shown, [2, 3]);
         // By contributor: groups come from the filtered PRs, so an author left with none is gone.
         let sel = ("src/agent".to_string(), false);
-        let g = by_author(&filter_prs(&prs, &details, active_folder(Some(&sel), &f)), &details);
+        let g = by_author(&filter_prs(&prs, Some(&m), active_folder(Some(&sel), f)), &m.details);
         assert_eq!(g.len(), 1);
         assert_eq!(g[0].person.login, "a");
         assert_eq!(g[0].prs, [3, 1]);
@@ -955,13 +1130,36 @@ mod tests {
     #[test]
     fn folder_filter_off_when_unset_or_gone() {
         let prs = [pr(1, "a"), pr(2, "b")];
-        let details = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"])];
-        let f = folders(&details);
-        assert_eq!(filter_prs(&prs, &details, active_folder(None, &f)).len(), 2);
+        let m = build(&[detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"])], None);
+        let f = &m.folders;
+        assert_eq!(filter_prs(&prs, Some(&m), active_folder(None, f)).len(), 2);
         let gone = ("lib/old".to_string(), false);
-        assert!(active_folder(Some(&gone), &f).is_none());
-        assert_eq!(filter_prs(&prs, &details, active_folder(Some(&gone), &f)).len(), 2);
+        assert!(active_folder(Some(&gone), f).is_none());
+        assert_eq!(filter_prs(&prs, Some(&m), active_folder(Some(&gone), f)).len(), 2);
         // Same path but not the root group: not a match.
-        assert!(active_folder(Some(&("src/agent".to_string(), true)), &f).is_none());
+        assert!(active_folder(Some(&("src/agent".to_string(), true)), f).is_none());
+    }
+}
+
+#[cfg(test)]
+mod bar_tests {
+    use super::{not_pushed, tone};
+    use crate::lane_model::OTHER;
+    use crate::model::Branch;
+    use crate::ui::hue;
+
+    #[test]
+    fn other_is_neutral_and_rows_keep_the_main_bar_hue() {
+        let k = rune_kit::Kit::neutral(true);
+        assert_eq!(tone(&k, OTHER), k.c.border_base);
+        assert_eq!(tone(&k, 2), hue(2));
+    }
+
+    #[test]
+    fn not_pushed_counts_the_local_branch_ahead() {
+        let b = |name: &str, remote: bool, ahead: u32| Branch { name: name.into(), remote, ahead, ..Branch::default() };
+        let list = [b("origin/feat", true, 0), b("feat", false, 4), b("dev", false, 1)];
+        assert_eq!(not_pushed(&list, "feat"), 4);
+        assert_eq!(not_pushed(&list, "gone"), 0);
     }
 }

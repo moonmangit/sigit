@@ -1129,3 +1129,12 @@ Shared code	โค้ดที่ใช้ร่วมกัน
 other ×{n}	อื่น ๆ ×{n}
 Show details	แสดงรายละเอียด
 Hide details	ซ่อนรายละเอียด
+Comparing…	กำลังเปรียบเทียบ…
+compared with	เทียบกับ
+Couldn't compare this branch: {error}	เปรียบเทียบสาขานี้ไม่ได้: {error}
+This branch isn't on GitHub yet	สาขานี้ยังไม่มีบน GitHub
+1 commit not pushed	ยังไม่ได้ push 1 คอมมิต
+{n} commits not pushed	ยังไม่ได้ push {n} คอมมิต
+Show the modules this commit touched	แสดงโมดูลที่คอมมิตนี้แก้ไข
+Couldn't load this commit's files	โหลดไฟล์ของคอมมิตนี้ไม่ได้
+Loading files…	กำลังโหลดไฟล์…

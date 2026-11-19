@@ -59,12 +59,12 @@ keep your local folder paths out of the binary. Official releases are built by
 |---|---|---|
 | **Dashboard → Activity** (default; formerly Inbox) | Your tracked repos over a range (this week by default; today, 7 or 30 days, this month, custom): open PRs and which are **ready for review (all checks passed)**, Actions health (exact pass rate, what's red on the default branch now), commits, lines, deployments, releases, contributors, and a section per repo | Scope to a group, manage what's tracked |
 | **Dashboard → Needs you** | Review queue (ready PRs first, oldest wait first), your open PRs, assigned issues, notifications | Done / Snooze, J/K/Enter/A/C |
-| **Dashboard → Comparisons** | Per tracked repo, commits and PRs waiting between your branch pairs (dev → staging…), one GitHub query | Edit per repo; click a cell for its PRs and commits |
+| **Dashboard → Comparisons** | Per tracked repo, commits and PRs waiting between your branch pairs (dev → staging…), one GitHub query | Edit per repo; click a cell for its PRs and commits, each with a thin bar of the modules it touched (click a commit without a PR to load its bar) |
 | **Pull requests** | Open / merged / closed with checks, review state, diff size; detail with description, reviews, files and diff, checks | Approve, request changes, comment, merge (squash / merge / rebase), close, check out |
 | **Actions** | Runs with duration and result, jobs and steps on one timeline, failing log lines | Re-run failed or all, cancel, watch |
 | **Environments** | What's deployed where, a deployment timeline | Open the deployed commit |
 | **Commits** (local clone) | Commit graph with lanes, branch and tag chips | Commit detail with diff |
-| **Branches** (local clone) | Local and remote, ahead/behind, stashes, clean-up of merged or gone branches | Checkout, fetch, fast-forward pull |
+| **Branches** (local clone) | Local and remote, ahead/behind, stashes, clean-up of merged or gone branches; select a branch for a side pane of what it brings to the default branch (or one you pick): PRs, contributors, modules | Checkout, fetch, fast-forward pull |
 | **Groups** | A dashboard for repos you group yourself, across owners | |
 
 The sidebar lists every repo you can reach, grouped by owner, with your **pins** and **groups**
@@ -169,8 +169,8 @@ cargo run -- --snap shot.png --scene prs --size 1400x860    # headless still of 
 ```
 
 Scenes (in `src/main.rs`): `inbox`, `activity`, `needs`, `prs`, `actions`, `envs`, `commits`,
-`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-by-contributor`, `comparisons-edit`, `guide`, `group`, `groups`, `orgs`; `light-*` for
-the light theme (`light-comparisons`, `light-comparisons-by-contributor`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
+`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-by-contributor`, `comparisons-edit`, `branches-detail`, `guide`, `group`, `groups`, `orgs`; `light-*` for
+the light theme (`light-comparisons`, `light-comparisons-by-contributor`, `light-branches-detail`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
 it); `setup`, `welcome`, `update-available`, and more. They use public repositories and sample
 data and never write anything. Add `SIGIT_LANG=th` to render in Thai.
 

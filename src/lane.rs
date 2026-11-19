@@ -137,15 +137,27 @@ pub fn folders(details: &[PrDetail]) -> Folders {
     }
 }
 
-/// Whether the PR changed a file in this folder.
+/// Whether the PR changed a file in this folder (the app looks this up in `LaneModel::touched`).
+#[cfg(test)]
 pub fn touches(d: &PrDetail, f: &FolderShare) -> bool {
-    d.files.iter().any(|(p, _, _)| {
-        if f.root {
-            parent_segments(p).join("/") == f.path
-        } else {
-            p.starts_with(&format!("{}/", f.path))
-        }
-    })
+    d.files.iter().any(|(p, _, _)| holds(f, p))
+}
+
+/// Whether the file at `path` is in this folder (directly in it, for a `root` folder).
+pub fn holds(f: &FolderShare, path: &str) -> bool {
+    in_folder(&f.path, f.root, path)
+}
+
+/// Whether the file at `path` is under the folder `p` (directly in it, for `root`), without
+/// allocating.
+pub fn in_folder(p: &str, root: bool, path: &str) -> bool {
+    // `path` is `p/` followed by something.
+    let under = path.len() > p.len() && path.starts_with(p) && path.as_bytes()[p.len()] == b'/';
+    if !root {
+        return under;
+    }
+    // Directly in `p`: nothing below it has another '/'; at the repo root, no '/' at all.
+    if p.is_empty() { !path.contains('/') } else { under && !path[p.len() + 1..].contains('/') }
 }
 
 /// One author's PRs in a lane.
@@ -158,28 +170,35 @@ pub struct AuthorGroup {
     pub removed: u64,
 }
 
-/// Group a lane's PRs by author: most PRs first, then most lines, then login.
-pub fn by_author(prs: &[WaitingPr], details: &[PrDetail]) -> Vec<AuthorGroup> {
-    let mut sorted: Vec<&WaitingPr> = prs.iter().collect();
+/// Group a lane's PRs by author (`details`: the lane's PR details by number): most PRs first,
+/// then most lines, then login.
+pub fn by_author(prs: &[&WaitingPr], details: &HashMap<u64, PrDetail>) -> Vec<AuthorGroup> {
+    let mut sorted: Vec<&WaitingPr> = prs.to_vec();
     sorted.sort_by(|a, b| b.merged_at.cmp(&a.merged_at));
     let mut groups: Vec<AuthorGroup> = Vec::new();
+    // Login → index into `groups`.
+    let mut at: HashMap<&str, usize> = HashMap::new();
     for pr in sorted {
-        let detail = details.iter().find(|d| d.number == pr.number);
-        let person = match detail {
+        let detail = details.get(&pr.number);
+        let login = detail.map_or(pr.author.as_str(), |d| d.author.login.as_str());
+        let (added, removed) = detail.map_or((0, 0), |d| (d.additions, d.deletions));
+        let person = || match detail {
             Some(d) => d.author.clone(),
             None => Person { login: pr.author.clone(), ..Person::default() },
         };
-        let (added, removed) = detail.map_or((0, 0), |d| (d.additions, d.deletions));
-        match groups.iter_mut().find(|g| g.person.login == person.login) {
+        match at.get(login).and_then(|&i| groups.get_mut(i)) {
             Some(g) => {
                 if g.person.name.is_empty() && g.person.company.is_empty() {
-                    g.person = person;
+                    g.person = person();
                 }
                 g.prs.push(pr.number);
                 g.added += added;
                 g.removed += removed;
             }
-            None => groups.push(AuthorGroup { person, prs: vec![pr.number], added, removed }),
+            None => {
+                at.insert(login, groups.len());
+                groups.push(AuthorGroup { person: person(), prs: vec![pr.number], added, removed });
+            }
         }
     }
     groups.sort_by(|a, b| {
@@ -350,7 +369,8 @@ mod tests {
     fn by_author_groups_and_orders() {
         let prs = [pr(1, "a", "2026-01-01"), pr(2, "b", "2026-01-02"), pr(3, "a", "2026-01-03")];
         let details = [authored(1, "a", 10, 1), authored(2, "b", 100, 100), authored(3, "a", 5, 2)];
-        let g = by_author(&prs, &details);
+        let details: HashMap<u64, PrDetail> = details.into_iter().map(|d| (d.number, d)).collect();
+        let g = by_author(&prs.iter().collect::<Vec<_>>(), &details);
         assert_eq!(g.len(), 2);
         assert_eq!(g[0].person.login, "a");
         assert_eq!(g[0].prs, [3, 1]);
@@ -361,7 +381,8 @@ mod tests {
 
     #[test]
     fn by_author_without_details_uses_pr_author() {
-        let g = by_author(&[pr(1, "zed", "2026-01-01"), pr(2, "amy", "2026-01-02")], &[]);
+        let prs = [pr(1, "zed", "2026-01-01"), pr(2, "amy", "2026-01-02")];
+        let g = by_author(&prs.iter().collect::<Vec<_>>(), &HashMap::new());
         assert_eq!(g.len(), 2);
         assert_eq!(g[0].person, Person { login: "amy".into(), ..Person::default() });
         assert_eq!((g[0].added, g[0].removed), (0, 0));

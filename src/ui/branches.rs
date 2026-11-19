@@ -40,8 +40,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .fit()
                 .on_pick(|s: &mut State, i, _| {
                     s.branch_view = i;
-                    s.branch_sel = None;
-                    s.branches_table.clear_selection();
+                    s.close_branch_lane();
                     if i >= 2 {
                         s.refresh_branch_tools();
                     }
@@ -75,7 +74,13 @@ pub fn view(s: &State, k: &Kit) -> El {
                 None if visible(s).is_empty() => empty(k, "No branches"),
                 None => table(s, k),
             };
-            col().key("b-list").w_full().grow(1.0).min_h(0.0).radius(k.radius.lg).border(1.0, k.c.border_weak).fill(k.c.layer_01).clip_rounded(k.radius.lg).child(list)
+            let list = col().key("b-list").w_full().h_full().min_h(0.0).radius(k.radius.lg).border(1.0, k.c.border_weak).fill(k.c.layer_01).clip_rounded(k.radius.lg).child(list);
+            // The picked branch's lane beside the table, sized like the Comparisons pane.
+            let mut panes = vec![super::split::pane(list, 0.64, 520.0)];
+            if let Some(pane) = super::compare::branch_pane(s, k) {
+                panes.push(super::split::pane(pane, 0.36, 320.0));
+            }
+            super::split::split(s, k, "branches", panes).key("b-body").w_full().grow(1.0).min_h(0.0)
         }
     };
     col().w_full().h_full().gap(12.0).child(toolbar).child(body)
@@ -117,7 +122,10 @@ fn table(s: &State, k: &Kit) -> El {
             _ => Cell::text(ago(b.time, now)).muted(),
         }
     })
-    .on_select(|s: &mut State, name, _| s.branch_sel = Some(name.to_owned()))
+    .on_select(|s: &mut State, name, _| {
+        s.branch_sel = Some(name.to_owned());
+        s.select_branch_lane(name);
+    })
     .on_open(|s: &mut State, name, _| {
         let remote = s.branch_view == 1;
         s.checkout_branch(name.to_owned(), remote);
@@ -256,6 +264,28 @@ fn cleanup(s: &State, k: &Kit) -> El {
     crate::ui::scroll("cleanup-scroll", c)
 }
 
+/// What the branch pane can compare with: the default branch first, then the repo's branches
+/// (remote ones without `origin/`) A–Z, each once, leaving out the one picked.
+pub(crate) fn base_options<'a>(default: &str, picked: &str, names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut rest: Vec<String> = names.map(|n| n.strip_prefix("origin/").unwrap_or(n).to_owned()).filter(|n| n != default && n != picked && n != "HEAD").collect();
+    // Case-insensitive A–Z, ties by exact name, so a name and its remote copy end up adjacent.
+    rest.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
+    rest.dedup();
+    std::iter::once(default.to_owned()).chain(rest).collect()
+}
+
+/// The open "compared with" list (its options worked out only while it's open).
+pub fn base_list(s: &State, k: &Kit, layer: &mut Vec<rune::El>) {
+    if !s.branch_base_open || s.page != crate::Page::Branches || s.branch_view > 1 {
+        return;
+    }
+    let Some((slug, picked)) = s.branch_lane_sel.as_ref().filter(|(sl, _)| s.cur.as_ref() == Some(sl)) else { return };
+    let Some(default) = s.data.get(slug).and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone()).filter(|b| !b.is_empty()) else { return };
+    let names = s.rd().and_then(|d| d.branches.data.as_deref()).unwrap_or(&[]);
+    let options = base_options(&default, picked, names.iter().map(|b| b.name.as_str()));
+    super::compare::base_list(s, k, &options, layer);
+}
+
 /// A branch name short enough for a button: long ones keep their start and end.
 fn short_name(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
@@ -263,4 +293,20 @@ fn short_name(name: &str) -> String {
         return name.to_owned();
     }
     tf!("{}…{}", chars[..20].iter().collect::<String>(), chars[chars.len() - 10..].iter().collect::<String>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base_options;
+
+    #[test]
+    fn base_options_default_first_then_a_to_z() {
+        let names = ["origin/feat", "feat", "zeta", "origin/main", "main", "origin/alpha"];
+        assert_eq!(base_options("main", "zeta", names.into_iter()), ["main", "alpha", "feat"]);
+        // The default even when it's the branch picked.
+        assert_eq!(base_options("main", "main", ["dev", "main"].into_iter()), ["main", "dev"]);
+        // Case variants (Feat, feat) don't split a name from its remote copy.
+        let names = ["feat", "Feat", "origin/feat", "origin/Feat"];
+        assert_eq!(base_options("main", "x", names.into_iter()), ["main", "Feat", "feat"]);
+    }
 }
