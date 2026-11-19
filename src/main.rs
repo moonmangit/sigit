@@ -1000,6 +1000,9 @@ impl State {
     /// Fetch the open lane's PR details unless they're loaded or on the way (or `retry`).
     pub fn load_lane_details(&mut self, retry: bool) {
         let Some(key) = self.lane_key() else { return };
+        if key.1.is_empty() {
+            return; // only loose commits: nothing to fetch
+        }
         if !retry && self.lane_details.get(&key).is_some_and(|l| l.data.is_some() || l.loading) {
             return;
         }
@@ -1048,6 +1051,8 @@ impl State {
                 return;
             }
             s.compare.finish(Ok(out));
+            // The open lane's PR set may have changed with the fresh data, and with it its key.
+            s.load_lane_details(false);
             s.save_cache();
         });
     }
@@ -2067,7 +2072,7 @@ fn compare_fixture(s: &mut State) {
     s.compare.finish(Ok(rows));
     s.compare_key = s.compare_key_now();
     // Details for acme/api "To staging" (the lane the scenes open): two authors, three folders.
-    let person = |login: &str, name: &str, company: &str| compare::Person { login: login.into(), name: name.into(), company: company.into() };
+    let person = |login: &str, name: &str, company: &str| compare::Person { login: login.into(), name: name.into(), company: company.into(), bot: false };
     let ploy = person("ploy", "Ploy Srisuk", "Acme Labs");
     let nok = person("nok", "Nok Chai", "");
     let detail = |number: u64, labels: &[&str], summary: &str, author: &compare::Person, files: &[(&str, u64, u64)]| compare::PrDetail {
@@ -2733,6 +2738,44 @@ mod cache_tests {
         assert!(s.lane_view.by_contributor);
         s.select_lane("a/b", 1);
         assert_eq!(s.compare_sel, None);
+    }
+
+    #[test]
+    fn lane_key_follows_the_pr_set_after_a_refresh() {
+        let mut s = lane_state();
+        s.compare_sel = Some(("a/b".into(), 0));
+        let old = s.lane_key().unwrap();
+        s.lane_details.insert(old.clone(), Load { data: Some(vec![]), ..Default::default() });
+        let waiting = |nums: &[u64]| compare::Cell::Waiting {
+            commits: 2,
+            prs: nums.iter().map(|&n| compare::WaitingPr { number: n, title: "t".into(), author: "a".into(), merged_at: "2026-01-01T00:00:00Z".into() }).collect(),
+            loose: vec![],
+            checked: 2,
+        };
+        s.compare = Load { data: Some(vec![compare::RepoCompare { slug: "a/b".into(), cells: vec![waiting(&[7, 8]), waiting(&[9])], error: None }]), ..Default::default() };
+        let new = s.lane_key().unwrap();
+        assert_ne!(old, new);
+        assert_eq!(new, ("a/b".to_string(), vec![7, 8]));
+        // Pre-seed the new key as loading so the reload is a no-op instead of a network call.
+        s.lane_details.insert(new.clone(), Load::start());
+        s.load_lane_details(false);
+        assert!(s.lane_details[&new].loading);
+    }
+
+    #[test]
+    fn lane_without_prs_loads_nothing() {
+        let mut s = lane_state();
+        s.compare = Load {
+            data: Some(vec![compare::RepoCompare {
+                slug: "a/b".into(),
+                cells: vec![compare::Cell::Waiting { commits: 1, prs: vec![], loose: vec![], checked: 1 }],
+                error: None,
+            }]),
+            ..Default::default()
+        };
+        s.compare_sel = Some(("a/b".into(), 0));
+        s.load_lane_details(false);
+        assert!(s.lane_details.is_empty());
     }
 
     #[test]

@@ -183,7 +183,7 @@ mod tests {
             number,
             additions: add,
             deletions: del,
-            author: Person { login: login.into(), name: format!("{login} name"), company: String::new() },
+            author: Person { login: login.into(), name: format!("{login} name"), company: String::new(), bot: false },
             ..PrDetail::default()
         }
     }

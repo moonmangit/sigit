@@ -340,21 +340,23 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
     // then the rows show what the comparison already knows.
     let load = s.lane_key().and_then(|key| s.lane_details.get(&key));
     let details: &[PrDetail] = load.and_then(|l| l.data.as_deref()).unwrap_or(&[]);
-    // Shrinks (labels end in "…") rather than spill past a squeezed pane.
-    let mut switch = row().w_full().gap(8.0).center_y().child(
-        SegmentedControl::new(&crate::i18n::all(&["By PR", "By contributor"]), Some(usize::from(s.lane_view.by_contributor)))
-            .label(crate::i18n::t("Group PRs"))
-            .fit()
-            .on_pick(|s: &mut State, i, _| s.lane_view.by_contributor = i == 1)
-            .build(k)
-            .key("cmp-view")
-            .shrink()
-            .min_w(0.0),
-    );
-    if load.is_some_and(|l| l.loading) {
-        switch = switch.child(Spinner::new().size(12.0).build(k));
+    if !prs.is_empty() {
+        // Shrinks (labels end in "…") rather than spill past a squeezed pane.
+        let mut switch = row().w_full().gap(8.0).center_y().child(
+            SegmentedControl::new(&crate::i18n::all(&["By PR", "By contributor"]), Some(usize::from(s.lane_view.by_contributor)))
+                .label(crate::i18n::t("Group PRs"))
+                .fit()
+                .on_pick(|s: &mut State, i, _| s.lane_view.by_contributor = i == 1)
+                .build(k)
+                .key("cmp-view")
+                .shrink()
+                .min_w(0.0),
+        );
+        if load.is_some_and(|l| l.loading) {
+            switch = switch.child(Spinner::new().size(12.0).build(k));
+        }
+        c = c.child(switch);
     }
-    c = c.child(switch);
     if let Some(e) = load.and_then(|l| l.error.as_ref()) {
         c = c.child(
             row()
@@ -522,7 +524,7 @@ fn author_heading(k: &Kit, g: &lane::AuthorGroup) -> El {
     let (n, a, d) = (g.prs.len(), g.added, g.removed);
     let totals = if n == 1 { tf!("1 PR · +{a} −{d}") } else { tf!("{n} PRs · +{a} −{d}") };
     let mut stats = row().w_full().gap(8.0).center_y().child(muted(k, totals).grow(1.0).shrink());
-    if !p.login.is_empty() && p.login != "ghost" {
+    if !p.login.is_empty() && p.login != "ghost" && !p.bot {
         let url = format!("https://github.com/{}", p.login);
         stats = stats.child(
             text("Profile")

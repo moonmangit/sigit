@@ -374,6 +374,9 @@ pub struct Person {
     pub login: String,
     pub name: String,
     pub company: String,
+    /// A bot account (no profile page to link to).
+    #[serde(default)]
+    pub bot: bool,
 }
 
 /// What a lane's pane shows about one PR: labels, a one-line summary, size, author, changed files.
@@ -397,7 +400,7 @@ pub fn details_query(slug: &str, numbers: &[u64]) -> String {
     let mut q = format!("query {{ {} {{", head(slug));
     for (i, n) in numbers.iter().enumerate() {
         q += &format!(
-            " p{i}: pullRequest(number: {n}) {{ labels(first: 10) {{ nodes {{ name }} }} bodyText additions deletions              author {{ login ... on User {{ name company }} }} files(first: 100) {{ nodes {{ path additions deletions }} }} }}"
+            " p{i}: pullRequest(number: {n}) {{ labels(first: 10) {{ nodes {{ name }} }} bodyText additions deletions              author {{ __typename login ... on User {{ name company }} }} files(first: 100) {{ nodes {{ path additions deletions }} }} }}"
         );
     }
     q + " } }"
@@ -431,6 +434,7 @@ pub fn parse_details(numbers: &[u64], json: &serde_json::Value) -> Vec<PrDetail>
                     login: if login.is_empty() { "ghost".into() } else { login },
                     name: text(&author["name"]),
                     company: text(&author["company"]),
+                    bot: author["__typename"].as_str().is_some_and(|t| t.eq_ignore_ascii_case("bot")),
                 },
                 files: p["files"]["nodes"]
                     .as_array()
@@ -739,7 +743,7 @@ More",
                 summary: "Adds the win-loss page.".into(),
                 additions: 421,
                 deletions: 3,
-                author: Person { login: "pluem".into(), name: "Pluem".into(), company: "Thread".into() },
+                author: Person { login: "pluem".into(), name: "Pluem".into(), company: "Thread".into(), bot: false },
                 files: vec![("src/a.ts".into(), 400, 3), ("src/b.ts".into(), 21, 0)],
             }]
         );
@@ -759,8 +763,19 @@ More",
             "p1": { "author": null }
         }));
         let d = parse_details(&[1, 2], &json);
-        assert_eq!(d[0].author, Person { login: "x".into(), name: String::new(), company: String::new() });
+        assert_eq!(d[0].author, Person { login: "x".into(), ..Person::default() });
         assert_eq!(d[1].author.login, "ghost");
+    }
+
+    #[test]
+    fn parse_details_marks_bot_authors() {
+        let json = details_json(serde_json::json!({
+            "p0": { "author": { "__typename": "Bot", "login": "dependabot" } },
+            "p1": { "author": { "__typename": "User", "login": "ann" } }
+        }));
+        let d = parse_details(&[1, 2], &json);
+        assert!(d[0].author.bot);
+        assert!(!d[1].author.bot);
     }
 
     #[test]
