@@ -169,8 +169,8 @@ cargo run -- --snap shot.png --scene prs --size 1400x860    # headless still of 
 ```
 
 Scenes (in `src/main.rs`): `inbox`, `activity`, `needs`, `prs`, `actions`, `envs`, `commits`,
-`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-edit`, `guide`, `group`, `groups`, `orgs`; `light-*` for
-the light theme (`light-comparisons`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
+`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-by-contributor`, `comparisons-edit`, `guide`, `group`, `groups`, `orgs`; `light-*` for
+the light theme (`light-comparisons`, `light-comparisons-by-contributor`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
 it); `setup`, `welcome`, `update-available`, and more. They use public repositories and sample
 data and never write anything. Add `SIGIT_LANG=th` to render in Thai.
 

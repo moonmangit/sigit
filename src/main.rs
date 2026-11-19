@@ -2066,6 +2066,25 @@ fn compare_fixture(s: &mut State) {
     s.compare = Load::default();
     s.compare.finish(Ok(rows));
     s.compare_key = s.compare_key_now();
+    // Details for acme/api "To staging" (the lane the scenes open): two authors, three folders.
+    let person = |login: &str, name: &str, company: &str| compare::Person { login: login.into(), name: name.into(), company: company.into() };
+    let ploy = person("ploy", "Ploy Srisuk", "Acme Labs");
+    let nok = person("nok", "Nok Chai", "");
+    let detail = |number: u64, labels: &[&str], summary: &str, author: &compare::Person, files: &[(&str, u64, u64)]| compare::PrDetail {
+        number,
+        labels: labels.iter().map(|l| l.to_string()).collect(),
+        summary: summary.into(),
+        additions: files.iter().map(|f| f.1).sum(),
+        deletions: files.iter().map(|f| f.2).sum(),
+        author: author.clone(),
+        files: files.iter().map(|(p, a, r)| (p.to_string(), *a, *r)).collect(),
+    };
+    let details = vec![
+        detail(141, &["feature"], "Sample summary: limit agent requests to 60 a minute.", &ploy, &[("src/feature/agent/limit.ts", 120, 14), ("docs/limits.md", 18, 0)]),
+        detail(139, &["feature", "report"], "Sample summary: show each bet's history on the report page.", &nok, &[("src/feature/report/history.vue", 210, 40), ("src/feature/report/api.ts", 35, 6)]),
+        detail(137, &["bug"], "", &ploy, &[("src/feature/agent/payout.ts", 12, 9)]),
+    ];
+    s.lane_details.insert(("acme/api".into(), vec![137, 139, 141]), Load { data: Some(details), ..Default::default() });
 }
 
 
@@ -2162,6 +2181,12 @@ fn main() {
                 s.show(Page::Inbox);
                 compare_fixture(s);
                 s.compare_sel = Some(("acme/api".into(), 0));
+            }),
+            ("comparisons-by-contributor", |s: &mut State| {
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = Some(("acme/api".into(), 0));
+                s.lane_view.by_contributor = true;
             }),
             ("comparisons-edit", |s: &mut State| {
                 s.show(Page::Inbox);
@@ -2426,6 +2451,14 @@ fn main() {
                 s.show(Page::Inbox);
                 compare_fixture(s);
                 s.compare_sel = Some(("acme/admin".into(), 0));
+            }),
+            ("light-comparisons-by-contributor", |s: &mut State| {
+                // The open lane in By contributor with the docs folder picked as a filter.
+                s.prefs.theme = config::Theme::Light;
+                s.show(Page::Inbox);
+                compare_fixture(s);
+                s.compare_sel = Some(("acme/api".into(), 0));
+                s.lane_view = LaneView { by_contributor: true, folder: Some(("docs".into(), false)) };
             }),
             ("light-activity", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;

@@ -3,10 +3,11 @@
 //! per-repo dialog that retargets or turns comparisons off.
 
 use rune::{El, TextEdit, TextStyle, col, el, row, spacer};
-use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, Switch, TextInput, glyphs};
+use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, SegmentedControl, Spinner, Switch, TextInput, glyphs};
 
-use super::{I_GEAR, click_to_copy, hue, muted, pending, ref_chip, scroll, side_pane};
-use crate::compare::{Cell, Comparison, LooseCommit, RepoCompare, WaitingPr, effective, is_changed};
+use super::{I_GEAR, chip, click_to_copy, hue, muted, pending, ref_chip, scroll, side_pane};
+use crate::compare::{Cell, Comparison, LooseCommit, PrDetail, RepoCompare, WaitingPr, effective, is_changed};
+use crate::lane::{self, FolderShare, Folders};
 use crate::i18n::text;
 use crate::model::{ago_str, now};
 use crate::State;
@@ -335,31 +336,58 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
         c = c.child(muted(k, tf!("PRs counted from the first {checked} commits")));
     }
 
-    let mut list = col().w_full().gap(2.0);
-    for (i, p) in prs.iter().enumerate() {
-        let (sl, n) = (slug.clone(), p.number);
-        list = list.child(
+    // Details (labels, summary, size, author profile, files) arrive after the lane opens; until
+    // then the rows show what the comparison already knows.
+    let load = s.lane_key().and_then(|key| s.lane_details.get(&key));
+    let details: &[PrDetail] = load.and_then(|l| l.data.as_deref()).unwrap_or(&[]);
+    // Shrinks (labels end in "…") rather than spill past a squeezed pane.
+    let mut switch = row().w_full().gap(8.0).center_y().child(
+        SegmentedControl::new(&crate::i18n::all(&["By PR", "By contributor"]), Some(usize::from(s.lane_view.by_contributor)))
+            .label(crate::i18n::t("Group PRs"))
+            .fit()
+            .on_pick(|s: &mut State, i, _| s.lane_view.by_contributor = i == 1)
+            .build(k)
+            .key("cmp-view")
+            .shrink()
+            .min_w(0.0),
+    );
+    if load.is_some_and(|l| l.loading) {
+        switch = switch.child(Spinner::new().size(12.0).build(k));
+    }
+    c = c.child(switch);
+    if let Some(e) = load.and_then(|l| l.error.as_ref()) {
+        c = c.child(
             row()
-                .key(tf!("cmp-pr-{i}"))
+                .key("cmp-details-error")
                 .w_full()
-                .px(8.0)
-                .py(6.0)
-                .gap(10.0)
-                .items_start()
-                .radius(k.radius.md)
-                .hover(k.c.hover)
-                .role("button")
-                .on_press(move |s: &mut State| s.open_pr(&sl, n))
-                .child(rune::text(format!("#{}", p.number)).font(k.ty.mono).color(k.c.text_muted).w(44.0))
-                .child(
-                    col()
-                        .grow(1.0)
-                        .shrink()
-                        .gap(2.0)
-                        .child(rune::text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).wrap())
-                        .child(rune::text(format!("{} · {}", p.author, ago_str(&p.merged_at, now))).font(k.ty.small).color(k.c.text_faint)),
-                ),
+                .gap(8.0)
+                .center_y()
+                .child(muted(k, tf!("Couldn't load PR details: {error}", error = e)).wrap().grow(1.0).shrink())
+                .child(Button::new(crate::i18n::t("Retry")).variant(ButtonVariant::GhostMuted).on_press(|s: &mut State| s.load_lane_details(true)).build(k).key("cmp-details-retry")),
         );
+    }
+
+    let f = lane::folders(details);
+    let active = active_folder(s.lane_view.folder.as_ref(), &f);
+    if load.is_some_and(|l| l.data.is_some()) && !f.top.is_empty() {
+        c = c.child(changed_code(k, &f, active));
+    }
+
+    let shown = filter_prs(prs, details, active);
+    let detail_of = |n: u64| details.iter().find(|d| d.number == n);
+    let mut list = col().w_full().gap(2.0);
+    if s.lane_view.by_contributor {
+        for (gi, g) in lane::by_author(&shown, details).iter().enumerate() {
+            let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(k, g));
+            for p in g.prs.iter().filter_map(|n| shown.iter().find(|p| p.number == *n)) {
+                group = group.child(pr_row(k, slug, p, detail_of(p.number), false, now));
+            }
+            list = list.child(group);
+        }
+    } else {
+        for p in &shown {
+            list = list.child(pr_row(k, slug, p, detail_of(p.number), true, now));
+        }
     }
     c = c.child(section(k, tf!("Merged PRs waiting ({n})", n = prs.len()), list));
 
@@ -389,6 +417,158 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
         c = c.child(section(k, tf!("Commits without a PR ({n})", n = loose.len()), list));
     }
     Some(side_pane(k, "cmp-pane", c))
+}
+
+/// The picked folder among the lane's current folders; none (no filter) when it isn't there any more.
+fn active_folder<'a>(sel: Option<&(String, bool)>, f: &'a Folders) -> Option<&'a FolderShare> {
+    let (path, root) = sel?;
+    f.top.iter().find(|x| &x.path == path && x.root == *root)
+}
+
+/// The lane's PRs that touched `active` (all of them with no folder picked).
+fn filter_prs(prs: &[WaitingPr], details: &[PrDetail], active: Option<&FolderShare>) -> Vec<WaitingPr> {
+    prs.iter()
+        .filter(|p| active.is_none_or(|f| details.iter().find(|d| d.number == p.number).is_some_and(|d| lane::touches(d, f))))
+        .cloned()
+        .collect()
+}
+
+/// Pick `fs` as the filter, or drop it when it's already picked.
+fn toggle_folder(fs: &FolderShare) -> impl Fn(&mut State) + 'static {
+    let pick = (fs.path.clone(), fs.root);
+    move |s: &mut State| {
+        s.lane_view.folder = if s.lane_view.folder.as_ref() == Some(&pick) { None } else { Some(pick.clone()) };
+    }
+}
+
+fn folder_label(fs: &FolderShare) -> String {
+    if fs.root { crate::i18n::t("(root)") } else { fs.label.clone() }
+}
+
+/// "Changed code": one bar split by folder (width = share of lines changed) and a legend;
+/// clicking a segment or row filters the PRs to that folder.
+fn changed_code(k: &Kit, f: &Folders, active: Option<&FolderShare>) -> El {
+    let lines: u64 = f.top.iter().map(|x| x.added + x.removed).sum::<u64>() + f.others_lines;
+    let mut bar = row().key("cmp-fold-bar").w_full().h(10.0).radius(4.0).clip_rounded(4.0).fill(k.c.surface_base);
+    let mut legend = col().w_full().gap(1.0);
+    for (i, fs) in f.top.iter().enumerate() {
+        let on = active == Some(fs);
+        let tone = if active.is_none() || on { hue(i) } else { rune::Color { a: 0.35, ..hue(i) } };
+        bar = bar.child(el().w_frac(fs.share).h_full().fill(tone).role("button").help(fs.path.clone()).on_press(toggle_folder(fs)));
+        let pct = (fs.share * 100.0).round() as u32;
+        legend = legend.child(
+            row()
+                .key(tf!("cmp-fold-{i}"))
+                .w_full()
+                .px(6.0)
+                .py(3.0)
+                .gap(8.0)
+                .center_y()
+                .radius(k.radius.md)
+                .border(1.0, if on { k.c.border_focus } else { rune::Color::TRANSPARENT })
+                .hover(k.c.hover)
+                .role("button")
+                .help(fs.path.clone())
+                .on_press(toggle_folder(fs))
+                .child(el().size(8.0, 8.0).radius(2.0).fill(hue(i)))
+                .child(rune::text(folder_label(fs)).font(k.ty.small).color(k.c.text_base).grow(1.0).shrink().truncate())
+                .child(muted(k, format!("{pct}% · +{} −{}", fs.added, fs.removed))),
+        );
+    }
+    if f.others > 0 {
+        let share = if lines == 0 { 0.0 } else { f.others_lines as f32 / lines as f32 };
+        bar = bar.child(el().w_frac(share).h_full().fill(k.c.border_base));
+        legend = legend.child(
+            row()
+                .key("cmp-fold-other")
+                .w_full()
+                .px(6.0)
+                .py(3.0)
+                .gap(8.0)
+                .center_y()
+                .child(el().size(8.0, 8.0).radius(2.0).fill(k.c.border_base))
+                .child(muted(k, tf!("other {n} folders", n = f.others)).grow(1.0).shrink().truncate())
+                .child(muted(k, format!("{}%", (share * 100.0).round() as u32))),
+        );
+    }
+    let mut body = col().w_full().gap(6.0).child(bar).child(legend);
+    if let Some(fs) = active {
+        let folder = if fs.path.is_empty() { crate::i18n::t("(root)") } else { fs.path.clone() };
+        body = body.child(
+            row()
+                .key("cmp-fold-filter")
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(muted(k, tf!("Showing PRs that touched {folder}")).wrap().grow(1.0).shrink())
+                .child(Button::new(crate::i18n::t("Clear")).variant(ButtonVariant::GhostMuted).on_press(|s: &mut State| s.lane_view.folder = None).build(k).key("cmp-fold-clear")),
+        );
+    }
+    section(k, crate::i18n::t("Changed code"), body).key("cmp-changed")
+}
+
+/// One author's heading in By contributor: who, where they work, what they brought, their profile.
+fn author_heading(k: &Kit, g: &lane::AuthorGroup) -> El {
+    let p = &g.person;
+    let mut who = row().w_full().gap(6.0).center_y().flex_wrap();
+    if p.name.is_empty() {
+        who = who.child(rune::text(p.login.clone()).font(k.ty.ui_medium).color(k.c.text_base));
+    } else {
+        who = who.child(rune::text(p.name.clone()).font(k.ty.ui_medium).color(k.c.text_base)).child(muted(k, format!("@{}", p.login)));
+    }
+    if !p.company.is_empty() {
+        who = who.child(muted(k, format!("· {}", p.company)));
+    }
+    let (n, a, d) = (g.prs.len(), g.added, g.removed);
+    let totals = if n == 1 { tf!("1 PR · +{a} −{d}") } else { tf!("{n} PRs · +{a} −{d}") };
+    let mut stats = row().w_full().gap(8.0).center_y().child(muted(k, totals).grow(1.0).shrink());
+    if !p.login.is_empty() && p.login != "ghost" {
+        let url = format!("https://github.com/{}", p.login);
+        stats = stats.child(
+            text("Profile")
+                .font(k.ty.small_medium)
+                .color(k.c.text_accent)
+                .hover(k.c.hover)
+                .role("button")
+                .help(url.clone())
+                .on_press_tx(move |_: &mut State, tx| crate::open_url(tx, &url))
+                .key(tf!("cmp-profile-{}", p.login)),
+        );
+    }
+    col().w_full().px(8.0).pt(10.0).pb(4.0).gap(2.0).child(who).child(stats)
+}
+
+/// A merged PR waiting: number, title, labels, summary, then who/when and its size.
+fn pr_row(k: &Kit, slug: &str, p: &WaitingPr, d: Option<&PrDetail>, with_author: bool, now: i64) -> El {
+    let (sl, n) = (slug.to_owned(), p.number);
+    let mut body = col().grow(1.0).shrink().gap(2.0).child(rune::text(p.title.clone()).font(k.ty.ui).color(k.c.text_base).wrap());
+    if let Some(d) = d {
+        if !d.labels.is_empty() {
+            body = body.child(d.labels.iter().fold(row().w_full().gap(4.0).flex_wrap(), |r, l| r.child(chip(k, l.clone(), None))));
+        }
+        if !d.summary.is_empty() {
+            body = body.child(muted(k, d.summary.clone()).wrap());
+        }
+    }
+    let when = ago_str(&p.merged_at, now);
+    let who_when = if with_author { format!("{} · {when}", p.author) } else { when };
+    let mut meta = row().w_full().gap(8.0).center_y().flex_wrap().child(rune::text(who_when).font(k.ty.small).color(k.c.text_faint));
+    if let Some(d) = d {
+        meta = meta.child(muted(k, format!("+{} −{}", d.additions, d.deletions)));
+    }
+    row()
+        .key(tf!("cmp-pr-{n}"))
+        .w_full()
+        .px(8.0)
+        .py(6.0)
+        .gap(10.0)
+        .items_start()
+        .radius(k.radius.md)
+        .hover(k.c.hover)
+        .role("button")
+        .on_press(move |s: &mut State| s.open_pr(&sl, n))
+        .child(rune::text(format!("#{}", p.number)).font(k.ty.mono).color(k.c.text_muted).w(44.0))
+        .child(body.child(meta))
 }
 
 fn section(k: &Kit, title: String, body: El) -> El {
@@ -447,4 +627,51 @@ pub fn repo_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             .child(Button::new(crate::i18n::t("Save")).variant(ButtonVariant::Submit).on_press(|s: &mut State| s.save_compare_edit()).build(k).key("cmp-save")),
     );
     Dialog::new("compare-edit", tf!("Comparisons for {slug}", slug = edit.slug)).open(true).fit().width(620.0).on_close(|s: &mut State| s.compare_edit = None).child(body).build(k, layer);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{active_folder, filter_prs};
+    use crate::compare::{PrDetail, WaitingPr};
+    use crate::lane::{by_author, folders};
+
+    fn pr(number: u64, author: &str) -> WaitingPr {
+        WaitingPr { number, title: String::new(), author: author.into(), merged_at: format!("2026-11-{number:02}") }
+    }
+    fn detail(number: u64, login: &str, files: &[&str]) -> PrDetail {
+        let mut d = PrDetail { number, files: files.iter().map(|p| (p.to_string(), 1, 0)).collect(), ..PrDetail::default() };
+        d.author.login = login.into();
+        d
+    }
+
+    #[test]
+    fn folder_filter_keeps_prs_that_touched_it() {
+        let prs = [pr(1, "a"), pr(2, "b"), pr(3, "a")];
+        let details = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"]), detail(3, "a", &["src/report/z.ts", "src/agent/w.ts"])];
+        let f = folders(&details);
+        let sel = ("src/report".to_string(), false);
+        let active = active_folder(Some(&sel), &f);
+        assert_eq!(active.map(|f| f.label.as_str()), Some("report"));
+        let shown: Vec<u64> = filter_prs(&prs, &details, active).iter().map(|p| p.number).collect();
+        assert_eq!(shown, [2, 3]);
+        // By contributor: groups come from the filtered PRs, so an author left with none is gone.
+        let sel = ("src/agent".to_string(), false);
+        let g = by_author(&filter_prs(&prs, &details, active_folder(Some(&sel), &f)), &details);
+        assert_eq!(g.len(), 1);
+        assert_eq!(g[0].person.login, "a");
+        assert_eq!(g[0].prs, [3, 1]);
+    }
+
+    #[test]
+    fn folder_filter_off_when_unset_or_gone() {
+        let prs = [pr(1, "a"), pr(2, "b")];
+        let details = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"])];
+        let f = folders(&details);
+        assert_eq!(filter_prs(&prs, &details, active_folder(None, &f)).len(), 2);
+        let gone = ("lib/old".to_string(), false);
+        assert!(active_folder(Some(&gone), &f).is_none());
+        assert_eq!(filter_prs(&prs, &details, active_folder(Some(&gone), &f)).len(), 2);
+        // Same path but not the root group: not a match.
+        assert!(active_folder(Some(&("src/agent".to_string(), true)), &f).is_none());
+    }
 }
