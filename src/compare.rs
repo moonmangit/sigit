@@ -492,9 +492,36 @@ pub fn fetch_details(slug: &str, numbers: Vec<u64>) -> Result<Vec<PrDetail>, Str
     Ok(results.into_iter().flatten().flatten().collect())
 }
 
+/// The files one commit changed, as (path, additions, deletions). GitHub lists up to 300.
+pub fn fetch_commit_files(slug: &str, sha: &str) -> Result<Vec<(String, u64, u64)>, String> {
+    let out = crate::gh::run(
+        "gh",
+        &["api", &format!("repos/{slug}/commits/{sha}"), "--jq", ".files[] | [.filename, .additions, .deletions] | @tsv"],
+        None,
+    )?;
+    Ok(parse_commit_files(&out))
+}
+
+/// Parse `path<TAB>additions<TAB>deletions` lines; blank or garbled lines are skipped.
+pub fn parse_commit_files(tsv: &str) -> Vec<(String, u64, u64)> {
+    tsv.lines()
+        .filter_map(|l| {
+            let mut f = l.split('\u{9}');
+            let (path, a, d) = (f.next()?, f.next()?.parse().ok()?, f.next()?.parse().ok()?);
+            (!path.is_empty()).then(|| (path.to_owned(), a, d))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_commit_files_tsv() {
+        let got = parse_commit_files("src/a.ts\t10\t2\n\nREADME.md\t1\t0\ngarbled\nx\ty\tz\n");
+        assert_eq!(got, vec![("src/a.ts".to_owned(), 10, 2), ("README.md".to_owned(), 1, 0)]);
+    }
 
     fn overrides() -> Vec<Override> {
         vec![

@@ -474,6 +474,10 @@ pub struct State {
     pub branch_base: Option<String>,
     /// PR details of opened lanes, by (repo, sorted PR numbers); this session only.
     pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
+    /// Files changed by commits that were clicked open, by (repo, sha); this session only.
+    pub commit_files: HashMap<(String, String), Load<Vec<(String, u64, u64)>>>,
+    /// Commits (by sha) whose files are shown.
+    pub open_commits: HashSet<String>,
     /// What the pane shows for each lane in `lane_details`, built once when its details or
     /// layout arrive; the view only reads it.
     pub lane_models: HashMap<(String, Vec<u64>), lane_model::LaneModel>,
@@ -622,6 +626,8 @@ impl State {
             branch_lane_sel: None,
             branch_base: None,
             lane_details: HashMap::new(),
+            commit_files: HashMap::new(),
+            open_commits: HashSet::new(),
             lane_models: HashMap::new(),
             lane_branches: HashMap::new(),
             images: None,
@@ -1201,6 +1207,30 @@ impl State {
         entry.error = None;
         let (slug, nums) = key.clone();
         jobs::spawn(self, move || compare::fetch_details(&slug, nums), move |s, out| s.details_arrived(&key, out));
+    }
+
+    /// A commit's files are worth fetching: never asked for, or the last try failed and
+    /// nothing is in flight.
+    pub fn wants_commit_fetch(entry: Option<&Load<Vec<(String, u64, u64)>>>) -> bool {
+        entry.is_none_or(|l| !l.loading && l.data.is_none() && l.error.is_some())
+    }
+
+    /// Open or close a commit's file list; opening fetches its files once per session
+    /// (again after an error).
+    pub fn toggle_commit(&mut self, slug: &str, sha: &str) {
+        if !self.open_commits.remove(sha) {
+            self.open_commits.insert(sha.to_owned());
+            let key = (slug.to_owned(), sha.to_owned());
+            if Self::wants_commit_fetch(self.commit_files.get(&key)) {
+                self.commit_files.insert(key.clone(), Load::start());
+                let (slug, sha) = key.clone();
+                jobs::spawn(self, move || compare::fetch_commit_files(&slug, &sha), move |s, out| {
+                    if let Some(l) = s.commit_files.get_mut(&key) {
+                        l.finish(out);
+                    }
+                });
+            }
+        }
     }
 
     /// Load the open lane's details when its PR set has none yet (a refresh that landed while
@@ -2836,6 +2866,31 @@ fn main() {
 #[cfg(test)]
 mod cache_tests {
     use super::*;
+
+    #[test]
+    fn commit_files_retry_after_error() {
+        let mut errored: Load<Vec<(String, u64, u64)>> = Load::start();
+        errored.finish(Err("offline".into()));
+        let mut loaded: Load<Vec<(String, u64, u64)>> = Load::start();
+        loaded.finish(Ok(vec![]));
+        assert!(State::wants_commit_fetch(None));
+        assert!(State::wants_commit_fetch(Some(&errored)));
+        assert!(!State::wants_commit_fetch(Some(&Load::start())));
+        assert!(!State::wants_commit_fetch(Some(&loaded)));
+    }
+
+    #[test]
+    fn toggle_commit_closes_without_fetch() {
+        let mut s = State::new(config::Prefs::default());
+        let key = ("o/r".to_owned(), "abc".to_owned());
+        let mut l: Load<Vec<(String, u64, u64)>> = Load::start();
+        l.finish(Ok(vec![("a".into(), 1, 0)]));
+        s.commit_files.insert(key.clone(), l);
+        s.open_commits.insert("abc".into());
+        s.toggle_commit("o/r", "abc");
+        assert!(!s.open_commits.contains("abc"));
+        assert_eq!(s.commit_files[&key].data.as_deref(), Some(&[("a".to_owned(), 1, 0)][..]));
+    }
 
     #[test]
     fn stale_rules() {
