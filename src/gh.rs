@@ -117,12 +117,20 @@ pub fn fix_path() {
     unsafe { std::env::set_var("PATH", dirs.join(":")) };
 }
 
-pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
-    RECORD.with(|r| {
-        if let Some(v) = r.borrow_mut().as_mut() {
-            v.push(line(program, args));
-        }
-    });
+/// A GitHub profile picture's bytes, fetched with `gh api` (no other HTTP client in the app).
+/// Only GitHub's avatar host is allowed, so nothing else is ever fetched this way.
+pub fn avatar_bytes(url: &str) -> Result<Vec<u8>, String> {
+    if !url.starts_with(AVATAR_HOST) {
+        return Err(format!("not a GitHub avatar: {url}"));
+    }
+    let out = command("gh", &["api", url], None).output().map_err(|e| format!("couldn't start `gh`: {e}"))?;
+    if out.status.success() && !out.stdout.is_empty() { Ok(out.stdout) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()) }
+}
+
+pub const AVATAR_HOST: &str = "https://avatars.githubusercontent.com/";
+
+/// `program args` in `cwd`, without a console window flashing up on Windows.
+fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
     if let Some(dir) = cwd {
@@ -134,7 +142,16 @@ pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, S
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let out = cmd.output().map_err(|e| format!("couldn't start `{program}`: {e}"))?;
+    cmd
+}
+
+pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
+    RECORD.with(|r| {
+        if let Some(v) = r.borrow_mut().as_mut() {
+            v.push(line(program, args));
+        }
+    });
+    let out = command(program, args, cwd).output().map_err(|e| format!("couldn't start `{program}`: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {

@@ -454,6 +454,12 @@ pub struct State {
     pub compare_sel: Option<(String, usize)>,
     /// PR details of opened lanes, by (repo, sorted PR numbers); this session only.
     pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
+    /// Decodes downloaded images (set up once the window exists).
+    pub images: Option<rune::ImageCache>,
+    /// Contributors' profile pictures by URL; a URL in `avatars_asked` without an entry here is
+    /// loading, or failed (the initial shows). Kept for the session.
+    pub avatars: HashMap<String, rune::Image>,
+    pub avatars_asked: std::collections::HashSet<String>,
     /// How the open lane's changed code is shown.
     pub lane_view: LaneView,
     /// The Comparisons tab's group filter (None: all groups). Kept for the session.
@@ -586,6 +592,9 @@ impl State {
             compare_key: String::new(),
             compare_sel: None,
             lane_details: HashMap::new(),
+            images: None,
+            avatars: HashMap::new(),
+            avatars_asked: Default::default(),
             lane_view: LaneView::default(),
             compare_scope: None,
             compare_edit: None,
@@ -1025,7 +1034,34 @@ impl State {
             if let Some(l) = s.lane_details.get_mut(&key) {
                 l.finish(out);
             }
+            s.load_avatars(&key);
         });
+    }
+
+    /// Fetch the profile pictures of a lane's authors that aren't loaded or asked for yet, each
+    /// once per session, in the background.
+    pub fn load_avatars(&mut self, key: &(String, Vec<u64>)) {
+        if self.images.is_none() {
+            return; // headless runs and tests: initials only
+        }
+        let urls: Vec<String> = self
+            .lane_details
+            .get(key)
+            .and_then(|l| l.data.as_ref())
+            .map(|d| d.iter().map(|p| p.author.avatar_url.clone()).filter(|u| u.starts_with(gh::AVATAR_HOST)).collect())
+            .unwrap_or_default();
+        for url in urls {
+            if !self.avatars_asked.insert(url.clone()) {
+                continue;
+            }
+            let fetch = url.clone();
+            jobs::spawn(self, move || gh::avatar_bytes(&fetch), move |s, out| {
+                if let (Ok(bytes), Some(cache)) = (out, s.images.as_ref()) {
+                    let image = cache.load(bytes);
+                    s.avatars.insert(url, image);
+                }
+            });
+        }
     }
 
     /// Load the Comparisons tab: each tracked repo (A-Z) against the comparisons that apply to it.
@@ -2083,8 +2119,16 @@ fn compare_fixture(s: &mut State) {
     s.compare.finish(Ok(rows));
     s.compare_key = s.compare_key_now();
     // Details for acme/api "To staging" (the lane the scenes open): two authors, three folders.
-    let person = |login: &str, name: &str, company: &str| compare::Person { login: login.into(), name: name.into(), company: company.into(), bot: false };
-    let ploy = person("ploy", "Ploy Srisuk", "Acme Labs");
+    let person = |login: &str, name: &str, company: &str| compare::Person { login: login.into(), name: name.into(), company: company.into(), ..Default::default() };
+    let mut ploy = person("ploy", "Ploy Srisuk", "Acme Labs");
+    // One author with a picture (the app icon stands in, so scenes need no network), one without.
+    ploy.avatar_url = format!("{}u/1?s=64", gh::AVATAR_HOST);
+    // Snapshot runs have no window waker; a cache of their own still decodes.
+    let cache = s.images.get_or_insert_with(|| rune::ImageCache::new(std::sync::Arc::new(|| {})));
+    {
+        let icon: &[u8] = include_bytes!("../assets/icon-256.png");
+        s.avatars.insert(ploy.avatar_url.clone(), cache.load(icon.to_vec()));
+    }
     let nok = person("nok", "Nok Chai", "");
     let detail = |number: u64, labels: &[&str], summary: &str, author: &compare::Person, files: &[(&str, u64, u64)]| compare::PrDetail {
         number,
@@ -2531,6 +2575,7 @@ fn main() {
         fonts: FONTS,
         families: FAMILIES,
         poll: Some(poll),
+        setup: Some(|s: &mut State, waker| s.images = Some(rune::ImageCache::new(waker))),
         on_key: Some(on_key),
         ..AppSpec::new("sigit", (1440.0, 900.0), init, view)
     };

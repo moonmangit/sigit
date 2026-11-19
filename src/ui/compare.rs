@@ -418,7 +418,7 @@ fn detail(s: &State, k: &Kit, rows: &[RepoCompare]) -> Option<El> {
     let mut list = col().w_full().gap(2.0);
     if s.lane_view.by_contributor {
         for (gi, g) in lane::by_author(&shown, details).iter().enumerate() {
-            let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(k, g));
+            let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(s, k, g));
             for p in g.prs.iter().filter_map(|n| shown.iter().find(|p| p.number == *n)) {
                 group = group.child(pr_row(k, slug, p, detail_of(p.number), false, now));
             }
@@ -548,7 +548,23 @@ fn changed_code(k: &Kit, f: &Folders, active: Option<&FolderShare>) -> El {
 }
 
 /// One author's heading in By contributor: who, where they work, what they brought, their profile.
-fn author_heading(k: &Kit, g: &lane::AuthorGroup) -> El {
+/// The author's GitHub picture once it has loaded; until then (or without one) their initial on
+/// a colour picked from their login.
+fn avatar(s: &State, k: &Kit, p: &crate::compare::Person, size: f32) -> El {
+    if let Some(img) = s.avatars.get(&p.avatar_url).filter(|i| i.size().is_some() && i.error().is_none()) {
+        return el().size(size, size).radius(size / 2.0).clip_rounded(size / 2.0).pixels(img.pixels()).key(tf!("cmp-avatar-{}", p.login));
+    }
+    let initial = p.name.chars().chain(p.login.chars()).next().map_or("?".to_owned(), |c| c.to_uppercase().to_string());
+    row()
+        .size(size, size)
+        .radius(size / 2.0)
+        .center()
+        .fill(hue(p.login.bytes().map(usize::from).sum()))
+        .child(rune::text(initial).font(TextStyle { size: size * 0.45, ..k.ty.ui_medium }).color(rune::Color::WHITE))
+        .key(tf!("cmp-avatar-{}", p.login))
+}
+
+fn author_heading(s: &State, k: &Kit, g: &lane::AuthorGroup) -> El {
     let p = &g.person;
     let mut who = row().w_full().gap(6.0).center_y().flex_wrap();
     if p.name.is_empty() {
@@ -575,7 +591,15 @@ fn author_heading(k: &Kit, g: &lane::AuthorGroup) -> El {
                 .key(tf!("cmp-profile-{}", p.login)),
         );
     }
-    col().w_full().px(8.0).pt(10.0).pb(4.0).gap(2.0).child(who).child(stats)
+    row()
+        .w_full()
+        .px(8.0)
+        .pt(10.0)
+        .pb(4.0)
+        .gap(10.0)
+        .items_start()
+        .child(avatar(s, k, p, 32.0))
+        .child(col().grow(1.0).shrink().gap(2.0).child(who).child(stats))
 }
 
 /// A merged PR waiting: number, title, labels, summary, then who/when and its size.

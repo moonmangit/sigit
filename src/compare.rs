@@ -377,6 +377,9 @@ pub struct Person {
     /// A bot account (no profile page to link to).
     #[serde(default)]
     pub bot: bool,
+    /// Their GitHub profile picture (64 px), empty when GitHub gave none.
+    #[serde(default)]
+    pub avatar_url: String,
 }
 
 /// What a lane's pane shows about one PR: labels, a one-line summary, size, author, changed files.
@@ -400,7 +403,7 @@ pub fn details_query(slug: &str, numbers: &[u64]) -> String {
     let mut q = format!("query {{ {} {{", head(slug));
     for (i, n) in numbers.iter().enumerate() {
         q += &format!(
-            " p{i}: pullRequest(number: {n}) {{ labels(first: 10) {{ nodes {{ name }} }} bodyText additions deletions              author {{ __typename login ... on User {{ name company }} }} files(first: 100) {{ nodes {{ path additions deletions }} }} }}"
+            " p{i}: pullRequest(number: {n}) {{ labels(first: 10) {{ nodes {{ name }} }} bodyText additions deletions              author {{ __typename login avatarUrl(size: 64) ... on User {{ name company }} }} files(first: 100) {{ nodes {{ path additions deletions }} }} }}"
         );
     }
     q + " } }"
@@ -435,6 +438,7 @@ pub fn parse_details(numbers: &[u64], json: &serde_json::Value) -> Vec<PrDetail>
                     name: text(&author["name"]),
                     company: text(&author["company"]),
                     bot: author["__typename"].as_str().is_some_and(|t| t.eq_ignore_ascii_case("bot")),
+                    avatar_url: text(&author["avatarUrl"]),
                 },
                 files: p["files"]["nodes"]
                     .as_array()
@@ -729,7 +733,7 @@ mod tests {
   Adds the win-loss page.
 More",
             "additions": 421, "deletions": 3,
-            "author": { "login": "pluem", "name": "Pluem", "company": "Thread" },
+            "author": { "login": "pluem", "name": "Pluem", "company": "Thread", "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=64" },
             "files": { "nodes": [
                 { "path": "src/a.ts", "additions": 400, "deletions": 3 },
                 { "path": "src/b.ts", "additions": 21, "deletions": 0 }
@@ -743,7 +747,7 @@ More",
                 summary: "Adds the win-loss page.".into(),
                 additions: 421,
                 deletions: 3,
-                author: Person { login: "pluem".into(), name: "Pluem".into(), company: "Thread".into(), bot: false },
+                author: Person { login: "pluem".into(), name: "Pluem".into(), company: "Thread".into(), bot: false, avatar_url: "https://avatars.githubusercontent.com/u/1?s=64".into() },
                 files: vec![("src/a.ts".into(), 400, 3), ("src/b.ts".into(), 21, 0)],
             }]
         );
