@@ -1,5 +1,5 @@
-//! The Dashboard's Comparisons tab: one row per tracked repo, one column per shared branch
-//! comparison ("N commits · M PRs" waiting), a pane listing what a cell counts, and the
+//! The Dashboard's Comparisons tab: each tracked repo as a branch flow, one lane per shared
+//! comparison (from → to, a bar as long as what is waiting), a pane listing what a lane counts, and the
 //! per-repo dialog that retargets or turns comparisons off.
 
 use rune::{El, TextEdit, TextStyle, col, el, row, spacer};
@@ -11,9 +11,11 @@ use crate::i18n::text;
 use crate::model::{ago_str, now};
 use crate::State;
 
-/// Shares of the table's width: the repo name, then each comparison.
-const NAME_GROW: f32 = 1.0;
-const MENU_W: f32 = 32.0;
+/// Lane layout: the two branch chips, the track between them, and the label after.
+const CHIP_W: f32 = 120.0;
+const LABEL_W: f32 = 210.0;
+/// Bar colour by commits waiting: amber up to this many, red beyond.
+const AMBER_UP_TO: u32 = 20;
 
 pub fn view(s: &State, k: &Kit) -> El {
     let body = if s.tracked().is_empty() {
@@ -26,7 +28,7 @@ pub fn view(s: &State, k: &Kit) -> El {
         p
     } else {
         let rows = s.compare.data.as_deref().unwrap_or(&[]);
-        let mut panes = vec![super::split::pane(scroll("cmp-scroll", table(s, k, rows)), 0.64, 520.0)];
+        let mut panes = vec![super::split::pane(scroll("cmp-scroll", flows(s, k, rows)), 0.64, 520.0)];
         if let Some(pane) = detail(s, k, rows) {
             panes.push(super::split::pane(pane, 0.36, 320.0));
         }
@@ -39,64 +41,193 @@ fn notice(k: &Kit, msg: &str) -> El {
     col().key("cmp-empty").w_full().py(56.0).items_center().gap(12.0).child(text(msg.to_owned()).font(k.ty.ui).color(k.c.text_muted))
 }
 
-fn table(s: &State, k: &Kit, rows: &[RepoCompare]) -> El {
+fn waiting(c: &Cell) -> u32 {
+    match c {
+        Cell::Waiting { commits, .. } => *commits,
+        _ => 0,
+    }
+}
+
+/// Every tracked repo as a card of branch lanes, the ones with the most waiting first; repos
+/// with nothing waiting (and no error) fold into one quiet list at the end.
+fn flows(s: &State, k: &Kit, rows: &[RepoCompare]) -> El {
     let cmps = &s.prefs.comparisons;
-    let mut head = row().key("cmp-head").w_full().px(14.0).py(10.0).gap(12.0).child(el().w(0.0).grow(NAME_GROW));
-    for (j, c) in cmps.iter().enumerate() {
-        head = head.child(
-            col()
-                .key(tf!("cmp-h-{j}"))
-                .w(0.0)
-                .grow(1.0)
-                .gap(2.0)
-                .child(rune::text(c.name.clone()).font(k.ty.small_medium).color(k.c.text_base).truncate())
-                .child(rune::text(arrow(c)).font(TextStyle { size: 11.0, ..k.ty.mono }).color(k.c.text_faint).truncate()),
+    // Bars share one scale across all repos, on a log curve so 1,000 commits doesn't hide 5.
+    let most = rows.iter().flat_map(|r| r.cells.iter().map(waiting)).max().unwrap_or(0);
+    let mut busy: Vec<&RepoCompare> = rows.iter().filter(|r| r.error.is_some() || r.cells.iter().any(|c| waiting(c) > 0)).collect();
+    busy.sort_by_key(|r| std::cmp::Reverse(r.cells.iter().map(waiting).max().unwrap_or(0)));
+    let calm: Vec<&RepoCompare> = rows.iter().filter(|r| r.error.is_none() && r.cells.iter().all(|c| waiting(c) == 0)).collect();
+    let mut c = col().key("cmp-flows").w_full().gap(12.0);
+    for rc in &busy {
+        c = c.child(repo_card(s, k, rc, cmps, most));
+    }
+    if !calm.is_empty() {
+        let mut list = col().key("cmp-calm").w_full().px(14.0).py(10.0).gap(6.0).radius(k.radius.lg).fill(k.c.layer_01).border(1.0, k.c.border_weak).child(
+            row()
+                .gap(8.0)
+                .center_y()
+                .child(el().size(8.0, 8.0).radius(4.0).fill(k.c.success.icon))
+                .child(text(tf!("Nothing waiting ({n})", n = calm.len())).font(k.ty.small_medium).color(k.c.text_muted)),
         );
-    }
-    let mut t = col().w_full().radius(k.radius.lg).fill(k.c.layer_01).border(1.0, k.c.border_weak).clip_rounded(k.radius.lg).child(head.child(el().w(MENU_W)));
-    for (i, rc) in rows.iter().enumerate() {
-        t = t.child(rule(k)).child(repo_row(s, k, i, rc, cmps));
-    }
-    t
-}
-
-fn rule(k: &Kit) -> El {
-    el().w_full().h(1.0).fill(k.c.border_weak)
-}
-
-fn arrow(c: &Comparison) -> String {
-    format!("{} → {}", c.from, c.to)
-}
-
-fn repo_row(s: &State, k: &Kit, i: usize, rc: &RepoCompare, cmps: &[Comparison]) -> El {
-    let error = rc.error.as_ref().map(|e| rune::text(e.clone()).font(k.ty.small).color(k.c.danger.fg).wrap().w_full());
-    let has_data = rc.cells.iter().any(|c| !matches!(c, Cell::Off));
-    let mut name = col().w(0.0).grow(NAME_GROW).gap(3.0).child(rune::text(rc.slug.clone()).font(k.ty.ui).color(k.c.text_base).truncate());
-    let mut r = row().key(tf!("cmp-r-{i}")).w_full().px(14.0).py(8.0).gap(12.0).center_y();
-    if let (Some(e), false) = (error.clone(), has_data) {
-        // Nothing came back for this repo: its error takes the cells' place.
-        r = r.child(name).child(row().w(0.0).grow(cmps.len().max(1) as f32).child(e));
-    } else {
-        if let Some(e) = error {
-            name = name.child(e);
+        for rc in &calm {
+            list = list.child(
+                row()
+                    .key(tf!("cmp-calm-{}", rc.slug))
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(rune::text(rc.slug.clone()).font(k.ty.small).color(k.c.text_faint).grow(1.0).shrink().truncate())
+                    .child(muted(k, calm_note(&rc.cells)))
+                    .child(edit_button(k, &rc.slug)),
+            );
         }
-        r = r.child(name);
-        let eff = effective(cmps, &s.prefs.comparison_overrides, &rc.slug);
-        for (j, c) in cmps.iter().enumerate() {
-            let cell = rc.cells.get(j).unwrap_or(&Cell::Off);
-            let changed = is_changed(&s.prefs.comparison_overrides, &rc.slug, &c.name).then(|| eff.get(j).cloned().flatten());
-            r = r.child(cell_view(s, k, &rc.slug, j, cell, changed).key(tf!("cmp-c-{i}-{j}")));
-        }
+        c = c.child(list);
     }
-    let slug = rc.slug.clone();
-    let menu = IconButton::new(&I_GEAR)
+    c
+}
+
+/// Why a calm repo has nothing waiting: up to date, or only missing branches / turned off.
+fn calm_note(cells: &[Cell]) -> String {
+    if cells.iter().any(|c| matches!(c, Cell::Waiting { .. })) {
+        return crate::i18n::t("up to date");
+    }
+    match cells.iter().find_map(|c| if let Cell::Missing(b) = c { b.first() } else { None }) {
+        Some(b) => tf!("no {b} branch"),
+        None => crate::i18n::t("off"),
+    }
+}
+
+fn edit_button(k: &Kit, slug: &str) -> El {
+    let target = slug.to_owned();
+    IconButton::new(&I_GEAR)
         .variant(IconButtonVariant::GhostMuted)
         .label(crate::i18n::t("Edit comparisons for this repo…"))
         .help(crate::i18n::t("Edit comparisons for this repo…"))
-        .on_press(move |s: &mut State| s.open_compare_edit(&slug))
+        .on_press(move |s: &mut State| s.open_compare_edit(&target))
         .build(k)
-        .key(tf!("cmp-edit-{i}"));
-    r.child(row().w(MENU_W).child(menu))
+        .key(tf!("cmp-edit-{slug}"))
+}
+
+fn repo_card(s: &State, k: &Kit, rc: &RepoCompare, cmps: &[Comparison], most: u32) -> El {
+    let has_data = rc.cells.iter().any(|c| !matches!(c, Cell::Off));
+    let mut card = col().key(tf!("cmp-r-{}", rc.slug)).w_full().px(16.0).py(12.0).gap(8.0).radius(k.radius.lg).fill(k.c.layer_01).border(1.0, k.c.border_weak).child(
+        row()
+            .w_full()
+            .gap(8.0)
+            .center_y()
+            .child(rune::text(rc.slug.clone()).font(k.ty.ui_medium).color(k.c.text_base).grow(1.0).shrink().truncate())
+            .child(edit_button(k, &rc.slug)),
+    );
+    if let Some(e) = &rc.error {
+        card = card.child(rune::text(e.clone()).font(k.ty.small).color(k.c.danger.fg).wrap().w_full());
+    }
+    if !has_data {
+        return card;
+    }
+    let eff = effective(cmps, &s.prefs.comparison_overrides, &rc.slug);
+    for (j, c) in cmps.iter().enumerate() {
+        let cell = rc.cells.get(j).unwrap_or(&Cell::Off);
+        let (from, to) = match eff.get(j).cloned().flatten() {
+            Some(e) => (e.from, e.to),
+            None => (c.from.clone(), c.to.clone()),
+        };
+        let changed = is_changed(&s.prefs.comparison_overrides, &rc.slug, &c.name);
+        let l = Lane { slug: &rc.slug, j, name: &c.name, from: &from, to: &to, cell, most, changed };
+        card = card.child(lane(s, k, &l).key(tf!("cmp-c-{}-{j}", rc.slug)));
+    }
+    card
+}
+
+struct Lane<'a> {
+    slug: &'a str,
+    j: usize,
+    name: &'a str,
+    from: &'a str,
+    to: &'a str,
+    cell: &'a Cell,
+    /// The most commits waiting in any lane, for the shared bar scale.
+    most: u32,
+    changed: bool,
+}
+
+/// One comparison as an arrow from `from` to `to`: a bar whose length is how much is waiting.
+fn lane(s: &State, k: &Kit, l: &Lane) -> El {
+    // The From chip sits against the track's start, the To chip against its end.
+    let chip = |b: &str, h: usize, right: bool| {
+        let r = row().w(CHIP_W);
+        if right { r.child(spacer()).child(super::ref_chip_fit(k, b, hue(h))) } else { r.child(super::ref_chip_fit(k, b, hue(h))) }
+    };
+    let quiet = |label: String| text(label).font(k.ty.small).color(k.c.text_faint).truncate();
+    let mut title = row().gap(6.0).center_y().child(rune::text(l.name.to_owned()).font(k.ty.small_medium).color(k.c.text_muted).truncate());
+    if l.changed {
+        title = title.child(el().size(6.0, 6.0).radius(3.0).fill(hue(2)).help(crate::i18n::t("Changed for this repo")));
+    }
+    let mut label = col().w(LABEL_W).gap(1.0).child(title);
+    let track = match l.cell {
+        Cell::Off => {
+            label = label.child(quiet(crate::i18n::t("off")));
+            dashed(k)
+        }
+        Cell::Missing(b) => {
+            label = label.child(quiet(missing_label(b)));
+            dashed(k)
+        }
+        Cell::Waiting { commits: 0, .. } => {
+            label = label.child(text("up to date").font(k.ty.small).color(k.c.success.fg));
+            bar(k, 1.0, k.c.success.icon, 2.0)
+        }
+        Cell::Waiting { commits, prs, checked, .. } => {
+            let tone = if *commits <= AMBER_UP_TO { k.c.warning.icon } else { k.c.danger.icon };
+            let share = ((*commits as f32 + 1.0).ln() / (l.most as f32 + 1.0).ln()).clamp(0.06, 1.0);
+            let mut counts = rune::text(format!("{} · {}", commits_label(*commits), prs_label(prs.len()))).font(k.ty.small).color(k.c.text_base).truncate();
+            if checked < commits {
+                counts = counts.help(tf!("PRs counted from the first {checked} commits"));
+            }
+            label = label.child(counts);
+            bar(k, share, tone, 8.0)
+        }
+    };
+    let mut r = row()
+        .w_full()
+        .gap(10.0)
+        .center_y()
+        .px(6.0)
+        .py(4.0)
+        .radius(k.radius.md)
+        .child(chip(l.from, 1, true))
+        .child(row().w(0.0).grow(1.0).center_y().child(track))
+        .child(chip(l.to, 0, false))
+        .child(label);
+    if waiting(l.cell) > 0 {
+        let selected = s.compare_sel.as_ref().is_some_and(|(sl, i)| sl == l.slug && *i == l.j);
+        if selected {
+            r = r.fill(k.c.surface_hover);
+        }
+        let pick = (l.slug.to_owned(), l.j);
+        r = r.hover(k.c.hover).role("button").on_press(move |s: &mut State| {
+            s.compare_sel = if s.compare_sel.as_ref() == Some(&pick) { None } else { Some(pick.clone()) };
+        });
+    }
+    r
+}
+
+/// A filled share of the track with an arrowhead, over a faint full-length line.
+fn bar(k: &Kit, share: f32, color: rune::Color, h: f32) -> El {
+    row()
+        .w_full()
+        .center_y()
+        .child(el().w_frac(share).h(h).radius(h / 2.0).fill(color))
+        .child(el().w(0.0).grow(1.0).h(1.0).fill(k.c.border_weak))
+        .child(text("▶").font(TextStyle { size: 10.0, ..k.ty.small }).color(k.c.text_faint))
+}
+
+/// No data for this lane: a faint dotted track.
+fn dashed(k: &Kit) -> El {
+    let mut r = row().w_full().gap(4.0).center_y();
+    for _ in 0..12 {
+        r = r.child(el().w(6.0).h(1.0).fill(k.c.border_weak));
+    }
+    r
 }
 
 fn commits_label(n: u32) -> String {
@@ -113,43 +244,6 @@ fn missing_label(b: &[String]) -> String {
         [branch] => tf!("— no {branch}"),
         [] => "—".to_owned(),
     }
-}
-
-/// One cell. `changed`: Some when this repo changed it, holding its own branches (None inside
-/// when it's turned off).
-fn cell_view(s: &State, k: &Kit, slug: &str, j: usize, cell: &Cell, changed: Option<Option<Comparison>>) -> El {
-    let quiet = |label: String| text(label).font(k.ty.small).color(k.c.text_faint).wrap().shrink();
-    let mut main = row().gap(6.0).center_y();
-    let mut c = col().w(0.0).grow(1.0).px(8.0).py(5.0).gap(2.0).radius(k.radius.md);
-    match cell {
-        Cell::Off => main = main.child(quiet(crate::i18n::t("off"))),
-        Cell::Missing(b) => main = main.child(quiet(missing_label(b))),
-        Cell::Waiting { commits: 0, .. } => main = main.child(quiet(crate::i18n::t("up to date"))),
-        Cell::Waiting { commits, prs, checked, .. } => {
-            let label = format!("{} · {}", commits_label(*commits), prs_label(prs.len()));
-            main = main.child(rune::text(label).font(k.ty.small_medium).color(k.c.text_base).wrap().shrink());
-            if checked < commits {
-                c = c.help(tf!("PRs counted from the first {checked} commits"));
-            }
-            let sel = s.compare_sel.as_ref().is_some_and(|(sl, i)| sl == slug && *i == j);
-            if sel {
-                c = c.fill(k.c.surface_hover);
-            }
-            let slug = slug.to_owned();
-            c = c.hover(k.c.hover).role("button").on_press(move |s: &mut State| {
-                let pick = (slug.clone(), j);
-                s.compare_sel = if s.compare_sel.as_ref() == Some(&pick) { None } else { Some(pick) };
-            });
-        }
-    }
-    if changed.is_some() {
-        main = main.child(el().size(6.0, 6.0).radius(3.0).fill(hue(2)).help(crate::i18n::t("Changed for this repo")));
-    }
-    c = c.child(main);
-    if let Some(Some(e)) = changed {
-        c = c.child(rune::text(arrow(&e)).font(TextStyle { size: 11.0, ..k.ty.mono }).color(k.c.text_faint).truncate());
-    }
-    c
 }
 
 /// The pane for the picked cell: its merged PRs waiting, then the commits that came from no PR.

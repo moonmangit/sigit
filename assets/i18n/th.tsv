@@ -1094,3 +1094,5 @@ Found {total} clones · {new} new · {known} already known · {skipped} skipped	
 Added {new} new clones from your folders	เพิ่ม clone ใหม่ {new} รายการจากโฟลเดอร์ของคุณ
 Choose a folder that holds your git clones	เลือกโฟลเดอร์ที่เก็บ git clone ของคุณ
 Loading this repo's comparisons stopped unexpectedly	การโหลดการเปรียบเทียบของ repo นี้หยุดกะทันหัน
+Nothing waiting ({n})	ไม่มีอะไรรอ ({n})
+no {b} branch	ไม่มี branch {b}
