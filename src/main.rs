@@ -31,6 +31,7 @@ mod git;
 mod guard;
 mod jobs;
 mod lane;
+mod lane_model;
 mod modules;
 mod model;
 mod pulse;
@@ -473,6 +474,11 @@ pub struct State {
     pub branch_base: Option<String>,
     /// PR details of opened lanes, by (repo, sorted PR numbers); this session only.
     pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
+    /// What the pane shows for each lane in `lane_details`, built once when its details or
+    /// layout arrive; the view only reads it.
+    pub lane_models: HashMap<(String, Vec<u64>), lane_model::LaneModel>,
+    /// The From branch each lane in `lane_details` was opened with: whose layout its model uses.
+    pub lane_branches: HashMap<(String, Vec<u64>), String>,
     /// Decodes downloaded images (set up once the window exists).
     pub images: Option<rune::ImageCache>,
     /// Contributors' profile pictures by URL; a URL in `avatars_asked` without an entry here is
@@ -616,6 +622,8 @@ impl State {
             branch_lane_sel: None,
             branch_base: None,
             lane_details: HashMap::new(),
+            lane_models: HashMap::new(),
+            lane_branches: HashMap::new(),
             images: None,
             avatars: HashMap::new(),
             avatars_asked: Default::default(),
@@ -1128,11 +1136,39 @@ impl State {
         entry.loading = true;
         entry.error = None;
         let (slug, branch) = key.clone();
-        jobs::spawn(self, move || modules::fetch_tree(&slug, &branch).map(|files| modules::learn(&files)), move |s, out| {
-            if let Some(l) = s.layouts.get_mut(&key) {
-                l.finish(out);
-            }
-        });
+        jobs::spawn(self, move || modules::fetch_tree(&slug, &branch).map(|files| modules::learn(&files)), move |s, out| s.layout_arrived(&key, out));
+    }
+
+    /// A repo branch's layout arrived: store it and rebuild the models of lanes that use it.
+    fn layout_arrived(&mut self, key: &(String, String), out: Result<modules::Layout, String>) {
+        if let Some(l) = self.layouts.get_mut(key) {
+            l.finish(out);
+        }
+        let lanes: Vec<(String, Vec<u64>)> = self.lane_branches.iter().filter(|(k, b)| k.0 == key.0 && **b == key.1).map(|(k, _)| k.clone()).collect();
+        for k in lanes {
+            self.rebuild_lane_model(&k);
+        }
+    }
+
+    /// A lane's PR details arrived: store them, rebuild its model, fetch its authors' pictures.
+    fn details_arrived(&mut self, key: &(String, Vec<u64>), out: Result<Vec<compare::PrDetail>, String>) {
+        if let Some(l) = self.lane_details.get_mut(key) {
+            l.finish(out);
+        }
+        self.rebuild_lane_model(key);
+        self.load_avatars(key);
+    }
+
+    /// Work out what the pane shows for lane `key` from its details and its branch's layout
+    /// (none while its details aren't loaded).
+    pub fn rebuild_lane_model(&mut self, key: &(String, Vec<u64>)) {
+        let Some(details) = self.lane_details.get(key).and_then(|l| l.data.as_deref()) else {
+            self.lane_models.remove(key);
+            return;
+        };
+        let layout = self.lane_branches.get(key).and_then(|b| self.layouts.get(&(key.0.clone(), b.clone()))).and_then(|l| l.data.as_ref());
+        let model = lane_model::build(details, layout);
+        self.lane_models.insert(key.clone(), model);
     }
 
     /// Open the lane (repo, comparison `j`), or close it when it's already open.
@@ -1149,6 +1185,13 @@ impl State {
         if key.1.is_empty() {
             return; // only loose commits: nothing to fetch
         }
+        // The same PRs reached from another branch use that branch's layout from now on.
+        if let Some((_, branch)) = self.lane_branch()
+            && self.lane_branches.get(&key) != Some(&branch)
+        {
+            self.lane_branches.insert(key.clone(), branch);
+            self.rebuild_lane_model(&key);
+        }
         self.load_layout(retry);
         if !retry && self.lane_details.get(&key).is_some_and(|l| l.data.is_some() || l.loading) {
             return;
@@ -1157,12 +1200,7 @@ impl State {
         entry.loading = true;
         entry.error = None;
         let (slug, nums) = key.clone();
-        jobs::spawn(self, move || compare::fetch_details(&slug, nums), move |s, out| {
-            if let Some(l) = s.lane_details.get_mut(&key) {
-                l.finish(out);
-            }
-            s.load_avatars(&key);
-        });
+        jobs::spawn(self, move || compare::fetch_details(&slug, nums), move |s, out| s.details_arrived(&key, out));
     }
 
     /// Load the open lane's details when its PR set has none yet (a refresh that landed while
@@ -2298,6 +2336,9 @@ fn compare_fixture(s: &mut State) {
     }
     tree.extend(["src/shared/component/Table.vue".to_owned(), "docs/limits.md".to_owned()]);
     s.layouts.insert(("acme/api".into(), "dev".into()), Load { data: Some(modules::learn(&tree)), ..Default::default() });
+    let key = ("acme/api".to_string(), vec![137, 139, 141]);
+    s.lane_branches.insert(key.clone(), "dev".into());
+    s.rebuild_lane_model(&key);
 }
 
 
@@ -2918,6 +2959,36 @@ mod cache_tests {
         s.open_compare_edit("a/b");
         s.refresh_compare();
         assert!(s.compare_sel.is_none() && s.compare_edit.is_none());
+    }
+
+    #[test]
+    fn model_rebuilds_on_each_input_once() {
+        let mut s = lane_state();
+        s.compare_sel = Some(("a/b".into(), 0));
+        let key = s.lane_key().unwrap();
+        let branch = s.lane_branch().unwrap();
+        // Both already on the way, so opening the lane fetches nothing; it notes the lane's branch.
+        s.lane_details.insert(key.clone(), Load::start());
+        s.layouts.insert(branch.clone(), Load::start());
+        s.load_lane_details(false);
+        assert!(!s.lane_models.contains_key(&key));
+        let d = compare::PrDetail { number: 7, files: vec![("src/feature/agent/view/a.vue".into(), 5, 1), ("docs/x.md".into(), 2, 0)], ..Default::default() };
+        s.details_arrived(&key, Ok(vec![d]));
+        assert!(s.lane_models[&key].summary.is_none(), "no layout yet: folders only");
+        assert_eq!(s.lane_models[&key].details.len(), 1);
+        let mut tree = Vec::new();
+        for m in ["agent", "report", "auth"] {
+            tree.extend([format!("src/feature/{m}/view/a.vue"), format!("src/feature/{m}/service/a.ts")]);
+        }
+        s.layout_arrived(&branch, Ok(modules::learn(&tree)));
+        let built = s.lane_models[&key].clone();
+        assert!(built.summary.is_some());
+        assert_eq!(built.colors.get("src/feature/agent"), Some(&0));
+        s.rebuild_lane_model(&key);
+        assert_eq!(s.lane_models[&key], built, "same inputs, same model");
+        // A layout for another branch of the repo leaves this lane's model alone.
+        s.layout_arrived(&("a/b".to_string(), "elsewhere".to_string()), Ok(modules::Layout::default()));
+        assert_eq!(s.lane_models[&key], built);
     }
 
     fn lane_state() -> State {

@@ -2,6 +2,8 @@
 //! comparison (from → to, a bar as long as what is waiting), a pane listing what a lane counts, and the
 //! per-repo dialog that retargets or turns comparisons off.
 
+use std::collections::HashMap;
+
 use rune::{El, TextEdit, TextStyle, col, el, row, spacer};
 use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, SegmentedControl, Spinner, Switch, TextInput, glyphs};
 
@@ -375,8 +377,11 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
 
     // Details (labels, summary, size, author profile, files) arrive after the lane opens; until
     // then the rows show what the comparison already knows.
-    let load = s.lane_key().and_then(|key| s.lane_details.get(&key));
+    let key = s.lane_key();
+    let load = key.as_ref().and_then(|key| s.lane_details.get(key));
     let details: &[PrDetail] = load.and_then(|l| l.data.as_deref()).unwrap_or(&[]);
+    // Summaries, colours and the details by number, worked out when the details or layout came in.
+    let model = key.as_ref().and_then(|key| s.lane_models.get(key));
     if !prs.is_empty() {
         // Shrinks (labels end in "…") rather than spill past a squeezed pane.
         let mut switch = row().w_full().gap(8.0).center_y().child(
@@ -406,24 +411,24 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
         );
     }
 
-    let f = lane::folders(details);
     // Modules learned from this repo's tree, when it has any; the folder diagram otherwise
     // (and while the tree loads, or if it couldn't be read).
-    let layout = s.lane_branch().and_then(|key| s.layouts.get(&key)).and_then(|l| l.data.as_ref()).filter(|l| !l.containers.is_empty());
-    let summary = layout.map(|l| modules::summarize(l, details));
-    let active = match &summary {
-        Some(sm) => active_in_summary(s.lane_view.folder.as_ref(), sm),
-        None => active_folder(s.lane_view.folder.as_ref(), &f).cloned(),
-    };
-    if load.is_some_and(|l| l.data.is_some()) && !f.top.is_empty() {
-        c = c.child(match &summary {
+    let sel = s.lane_view.folder.as_ref();
+    let active = model.and_then(|m| match &m.summary {
+        Some(sm) => active_in_summary(sel, sm),
+        None => active_folder(sel, &m.folders).cloned(),
+    });
+    if let Some(m) = model.filter(|m| !m.folders.top.is_empty()) {
+        c = c.child(match &m.summary {
             Some(sm) => modules_view(k, sm, active.as_ref(), s.lane_view.modules_open),
-            None => changed_code(k, &f, active.as_ref()),
+            None => changed_code(k, &m.folders, active.as_ref()),
         });
     }
 
-    let shown = filter_prs(prs, details, active.as_ref());
-    let detail_of = |n: u64| details.iter().find(|d| d.number == n);
+    let no_details = HashMap::new();
+    let by_number = model.map_or(&no_details, |m| &m.details);
+    let shown = filter_prs(prs, by_number, active.as_ref());
+    let detail_of = |n: u64| by_number.get(&n);
     let mut list = col().w_full().gap(2.0);
     if s.lane_view.by_contributor {
         for (gi, g) in lane::by_author(&shown, details).iter().enumerate() {
@@ -485,9 +490,9 @@ fn active_in_summary(sel: Option<&(String, bool)>, sm: &modules::Summary) -> Opt
 }
 
 /// The lane's PRs that touched `active` (all of them with no folder picked).
-fn filter_prs(prs: &[WaitingPr], details: &[PrDetail], active: Option<&FolderShare>) -> Vec<WaitingPr> {
+fn filter_prs(prs: &[WaitingPr], details: &HashMap<u64, PrDetail>, active: Option<&FolderShare>) -> Vec<WaitingPr> {
     prs.iter()
-        .filter(|p| active.is_none_or(|f| details.iter().find(|d| d.number == p.number).is_some_and(|d| lane::touches(d, f))))
+        .filter(|p| active.is_none_or(|f| details.get(&p.number).is_some_and(|d| lane::touches(d, f))))
         .cloned()
         .collect()
 }
@@ -866,7 +871,8 @@ mod tests {
     use crate::CompareScope;
     use crate::compare::{PrDetail, RepoCompare, WaitingPr};
     use crate::config::Group;
-    use crate::lane::{by_author, folders};
+    use crate::lane::by_author;
+    use crate::lane_model::build;
 
     fn repo(slug: &str) -> RepoCompare {
         RepoCompare { slug: slug.into(), cells: Vec::new(), error: None }
@@ -888,7 +894,8 @@ mod tests {
             detail(2, "b", &["src/feature/report/service/a.ts"]),
             detail(3, "c", &["src/shared/component/Table.vue", "src/feature/agent/service/a.ts"]),
         ];
-        let sm = crate::modules::summarize(&layout, &details);
+        let m = build(&details, Some(&layout));
+        let (sm, details) = (m.summary.unwrap(), m.details);
         let agent = super::active_in_summary(Some(&("src/feature/agent".to_string(), false)), &sm);
         assert_eq!(filter_prs(&prs, &details, agent.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [1, 3]);
         let shared = super::active_in_summary(Some(&("src/shared/component".to_string(), true)), &sm);
@@ -935,16 +942,17 @@ mod tests {
     #[test]
     fn folder_filter_keeps_prs_that_touched_it() {
         let prs = [pr(1, "a"), pr(2, "b"), pr(3, "a")];
-        let details = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"]), detail(3, "a", &["src/report/z.ts", "src/agent/w.ts"])];
-        let f = folders(&details);
+        let list = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"]), detail(3, "a", &["src/report/z.ts", "src/agent/w.ts"])];
+        let m = build(&list, None);
+        let (f, details) = (&m.folders, &m.details);
         let sel = ("src/report".to_string(), false);
-        let active = active_folder(Some(&sel), &f);
+        let active = active_folder(Some(&sel), f);
         assert_eq!(active.map(|f| f.label.as_str()), Some("report"));
-        let shown: Vec<u64> = filter_prs(&prs, &details, active).iter().map(|p| p.number).collect();
+        let shown: Vec<u64> = filter_prs(&prs, details, active).iter().map(|p| p.number).collect();
         assert_eq!(shown, [2, 3]);
         // By contributor: groups come from the filtered PRs, so an author left with none is gone.
         let sel = ("src/agent".to_string(), false);
-        let g = by_author(&filter_prs(&prs, &details, active_folder(Some(&sel), &f)), &details);
+        let g = by_author(&filter_prs(&prs, details, active_folder(Some(&sel), f)), &list);
         assert_eq!(g.len(), 1);
         assert_eq!(g[0].person.login, "a");
         assert_eq!(g[0].prs, [3, 1]);
@@ -953,13 +961,13 @@ mod tests {
     #[test]
     fn folder_filter_off_when_unset_or_gone() {
         let prs = [pr(1, "a"), pr(2, "b")];
-        let details = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"])];
-        let f = folders(&details);
-        assert_eq!(filter_prs(&prs, &details, active_folder(None, &f)).len(), 2);
+        let m = build(&[detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"])], None);
+        let (f, details) = (&m.folders, &m.details);
+        assert_eq!(filter_prs(&prs, details, active_folder(None, f)).len(), 2);
         let gone = ("lib/old".to_string(), false);
-        assert!(active_folder(Some(&gone), &f).is_none());
-        assert_eq!(filter_prs(&prs, &details, active_folder(Some(&gone), &f)).len(), 2);
+        assert!(active_folder(Some(&gone), f).is_none());
+        assert_eq!(filter_prs(&prs, details, active_folder(Some(&gone), f)).len(), 2);
         // Same path but not the root group: not a match.
-        assert!(active_folder(Some(&("src/agent".to_string(), true)), &f).is_none());
+        assert!(active_folder(Some(&("src/agent".to_string(), true)), f).is_none());
     }
 }

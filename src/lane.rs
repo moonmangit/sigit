@@ -139,13 +139,16 @@ pub fn folders(details: &[PrDetail]) -> Folders {
 
 /// Whether the PR changed a file in this folder.
 pub fn touches(d: &PrDetail, f: &FolderShare) -> bool {
-    d.files.iter().any(|(p, _, _)| {
-        if f.root {
-            parent_segments(p).join("/") == f.path
-        } else {
-            p.starts_with(&format!("{}/", f.path))
-        }
-    })
+    d.files.iter().any(|(p, _, _)| holds(f, p))
+}
+
+/// Whether the file at `path` is in this folder (directly in it, for a `root` folder).
+pub fn holds(f: &FolderShare, path: &str) -> bool {
+    if f.root {
+        parent_segments(path).join("/") == f.path
+    } else {
+        path.starts_with(&format!("{}/", f.path))
+    }
 }
 
 /// One author's PRs in a lane.
