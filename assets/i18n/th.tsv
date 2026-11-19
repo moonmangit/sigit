@@ -1096,3 +1096,4 @@ Choose a folder that holds your git clones	เลือกโฟลเดอร�
 Loading this repo's comparisons stopped unexpectedly	การโหลดการเปรียบเทียบของ repo นี้หยุดกะทันหัน
 Nothing waiting ({n})	ไม่มีอะไรรอ ({n})
 no {b} branch	ไม่มี branch {b}
+{hidden} older not drawn	อีก {hidden} รายการที่เก่ากว่าไม่ได้แสดง

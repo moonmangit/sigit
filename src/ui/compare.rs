@@ -6,7 +6,7 @@ use rune::{El, TextEdit, TextStyle, col, el, row, spacer};
 use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, Switch, TextInput, glyphs};
 
 use super::{I_GEAR, click_to_copy, hue, muted, pending, ref_chip, scroll, side_pane};
-use crate::compare::{Cell, Comparison, RepoCompare, effective, is_changed};
+use crate::compare::{Cell, Comparison, LooseCommit, RepoCompare, WaitingPr, effective, is_changed};
 use crate::i18n::text;
 use crate::model::{ago_str, now};
 use crate::State;
@@ -16,6 +16,11 @@ const CHIP_W: f32 = 120.0;
 const LABEL_W: f32 = 210.0;
 /// Bar colour by commits waiting: amber up to this many, red beyond.
 const AMBER_UP_TO: u32 = 20;
+/// Dots drawn per lane before older ones collapse into "+N".
+const MAX_DOTS: usize = 10;
+/// The track never gets narrower than this many dots and links need, so a chain can't spill
+/// over the To branch.
+const TRACK_MIN_W: f32 = 150.0;
 
 pub fn view(s: &State, k: &Kit) -> El {
     let body = if s.tracked().is_empty() {
@@ -52,14 +57,12 @@ fn waiting(c: &Cell) -> u32 {
 /// with nothing waiting (and no error) fold into one quiet list at the end.
 fn flows(s: &State, k: &Kit, rows: &[RepoCompare]) -> El {
     let cmps = &s.prefs.comparisons;
-    // Bars share one scale across all repos, on a log curve so 1,000 commits doesn't hide 5.
-    let most = rows.iter().flat_map(|r| r.cells.iter().map(waiting)).max().unwrap_or(0);
     let mut busy: Vec<&RepoCompare> = rows.iter().filter(|r| r.error.is_some() || r.cells.iter().any(|c| waiting(c) > 0)).collect();
     busy.sort_by_key(|r| std::cmp::Reverse(r.cells.iter().map(waiting).max().unwrap_or(0)));
     let calm: Vec<&RepoCompare> = rows.iter().filter(|r| r.error.is_none() && r.cells.iter().all(|c| waiting(c) == 0)).collect();
     let mut c = col().key("cmp-flows").w_full().gap(12.0);
     for rc in &busy {
-        c = c.child(repo_card(s, k, rc, cmps, most));
+        c = c.child(repo_card(s, k, rc, cmps));
     }
     if !calm.is_empty() {
         let mut list = col().key("cmp-calm").w_full().px(14.0).py(10.0).gap(6.0).radius(k.radius.lg).fill(k.c.layer_01).border(1.0, k.c.border_weak).child(
@@ -108,7 +111,7 @@ fn edit_button(k: &Kit, slug: &str) -> El {
         .key(tf!("cmp-edit-{slug}"))
 }
 
-fn repo_card(s: &State, k: &Kit, rc: &RepoCompare, cmps: &[Comparison], most: u32) -> El {
+fn repo_card(s: &State, k: &Kit, rc: &RepoCompare, cmps: &[Comparison]) -> El {
     let has_data = rc.cells.iter().any(|c| !matches!(c, Cell::Off));
     let mut card = col().key(tf!("cmp-r-{}", rc.slug)).w_full().px(16.0).py(12.0).gap(8.0).radius(k.radius.lg).fill(k.c.layer_01).border(1.0, k.c.border_weak).child(
         row()
@@ -132,7 +135,7 @@ fn repo_card(s: &State, k: &Kit, rc: &RepoCompare, cmps: &[Comparison], most: u3
             None => (c.from.clone(), c.to.clone()),
         };
         let changed = is_changed(&s.prefs.comparison_overrides, &rc.slug, &c.name);
-        let l = Lane { slug: &rc.slug, j, name: &c.name, from: &from, to: &to, cell, most, changed };
+        let l = Lane { slug: &rc.slug, j, name: &c.name, from: &from, to: &to, cell, changed };
         card = card.child(lane(s, k, &l).key(tf!("cmp-c-{}-{j}", rc.slug)));
     }
     card
@@ -145,12 +148,10 @@ struct Lane<'a> {
     from: &'a str,
     to: &'a str,
     cell: &'a Cell,
-    /// The most commits waiting in any lane, for the shared bar scale.
-    most: u32,
     changed: bool,
 }
 
-/// One comparison as an arrow from `from` to `to`: a bar whose length is how much is waiting.
+/// One comparison as an arrow from `from` to `to`, with what's waiting drawn as a chain of dots.
 fn lane(s: &State, k: &Kit, l: &Lane) -> El {
     // The From chip sits against the track's start, the To chip against its end.
     let chip = |b: &str, h: usize, right: bool| {
@@ -174,17 +175,16 @@ fn lane(s: &State, k: &Kit, l: &Lane) -> El {
         }
         Cell::Waiting { commits: 0, .. } => {
             label = label.child(text("up to date").font(k.ty.small).color(k.c.success.fg));
-            bar(k, 1.0, k.c.success.icon, 2.0)
+            row().w_full().center_y().child(el().w(0.0).grow(1.0).h(2.0).fill(k.c.success.icon)).child(text("▶").font(TextStyle { size: 10.0, ..k.ty.small }).color(k.c.success.icon))
         }
-        Cell::Waiting { commits, prs, checked, .. } => {
+        Cell::Waiting { commits, prs, loose, checked } => {
             let tone = if *commits <= AMBER_UP_TO { k.c.warning.icon } else { k.c.danger.icon };
-            let share = ((*commits as f32 + 1.0).ln() / (l.most as f32 + 1.0).ln()).clamp(0.06, 1.0);
             let mut counts = rune::text(format!("{} · {}", commits_label(*commits), prs_label(prs.len()))).font(k.ty.small).color(k.c.text_base).truncate();
             if checked < commits {
                 counts = counts.help(tf!("PRs counted from the first {checked} commits"));
             }
             label = label.child(counts);
-            bar(k, share, tone, 8.0)
+            chain(k, prs, loose, tone)
         }
     };
     let mut r = row()
@@ -195,7 +195,7 @@ fn lane(s: &State, k: &Kit, l: &Lane) -> El {
         .py(4.0)
         .radius(k.radius.md)
         .child(chip(l.from, 1, true))
-        .child(row().w(0.0).grow(1.0).center_y().child(track))
+        .child(row().w(0.0).grow(1.0).min_w(TRACK_MIN_W).center_y().clip_rounded(0.0).child(track))
         .child(chip(l.to, 0, false))
         .child(label);
     if waiting(l.cell) > 0 {
@@ -211,14 +211,28 @@ fn lane(s: &State, k: &Kit, l: &Lane) -> El {
     r
 }
 
-/// A filled share of the track with an arrowhead, over a faint full-length line.
-fn bar(k: &Kit, share: f32, color: rune::Color, h: f32) -> El {
-    row()
-        .w_full()
-        .center_y()
-        .child(el().w_frac(share).h(h).radius(h / 2.0).fill(color))
-        .child(el().w(0.0).grow(1.0).h(1.0).fill(k.c.border_weak))
-        .child(text("▶").font(TextStyle { size: 10.0, ..k.ty.small }).color(k.c.text_faint))
+/// What's waiting as a git-style chain from From to To: a filled dot per merged PR (oldest
+/// merge first), a hollow dot per commit that came from no PR. Long chains keep the newest
+/// `MAX_DOTS` and say how many more came before them.
+fn chain(k: &Kit, prs: &[WaitingPr], loose: &[LooseCommit], tone: rune::Color) -> El {
+    let link = || el().w(0.0).grow(1.0).min_w(3.0).h(2.0).fill(tone);
+    let mut items: Vec<(bool, String)> = Vec::with_capacity(prs.len() + loose.len());
+    let mut by_merge: Vec<&WaitingPr> = prs.iter().collect();
+    by_merge.sort_by(|a, b| a.merged_at.cmp(&b.merged_at));
+    items.extend(by_merge.iter().map(|p| (true, format!("#{} {} · {}", p.number, p.title, p.author))));
+    items.extend(loose.iter().map(|c| (false, format!("{} {} · {}", c.sha.get(..7).unwrap_or(&c.sha), c.subject, c.author))));
+    let hidden = items.len().saturating_sub(MAX_DOTS);
+    let mut r = row().w_full().center_y();
+    if hidden > 0 {
+        r = r.child(text(tf!("+{hidden}")).font(TextStyle { size: 10.0, ..k.ty.small }).color(k.c.text_faint).help(tf!("{hidden} older not drawn")));
+    }
+    r = r.child(link());
+    for (pr, tip) in items.into_iter().skip(hidden) {
+        let dot = el().size(9.0, 9.0).radius(4.5);
+        let dot = if pr { dot.fill(tone) } else { dot.fill(k.c.layer_01).border(2.0, tone) };
+        r = r.child(dot.help(tip)).child(link());
+    }
+    r.child(text("▶").font(TextStyle { size: 10.0, ..k.ty.small }).color(tone))
 }
 
 /// No data for this lane: a faint dotted track.
