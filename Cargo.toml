@@ -1,6 +1,6 @@
 [package]
 name = "sigit"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2024"
 license = "MIT"
 description = "A fast desktop UI for everyday git and GitHub work (PRs, Actions, environments, commit graph) on the Rune GPU UI framework."
