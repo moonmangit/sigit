@@ -130,7 +130,7 @@ pub fn avatar_bytes(url: &str) -> Result<Vec<u8>, String> {
 pub const AVATAR_HOST: &str = "https://avatars.githubusercontent.com/";
 
 /// `program args` in `cwd`, without a console window flashing up on Windows.
-fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
+pub(crate) fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
     if let Some(dir) = cwd {
@@ -141,8 +141,78 @@ fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
         // CREATE_NO_WINDOW: no console window flashes up for each call from a GUI app.
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
+        // The PATH as it is now, not as it was when sigit started: Windows only hands an updated
+        // PATH to programs started after an installer changes it, so a `gh` installed while the
+        // setup screen is open would never be found. Rust looks the program up in the child's
+        // PATH when it's set here.
+        cmd.env("PATH", fresh_path());
     }
     cmd
+}
+
+/// The PATH sigit started with, then the system and user PATH as Windows has them now (where
+/// installers write), then the folders gh and git install into by default; each folder once.
+#[cfg(windows)]
+fn fresh_path() -> std::ffi::OsString {
+    let env = |k: &str| std::env::var(k).unwrap_or_default();
+    let defaults = [
+        format!(r"{}\GitHub CLI", env("ProgramFiles")),
+        format!(r"{}\Git\cmd", env("ProgramFiles")),
+        format!(r"{}\Microsoft\WinGet\Links", env("LOCALAPPDATA")),
+        format!(r"{}\scoop\shims", env("USERPROFILE")),
+    ];
+    let current = std::env::var_os("PATH").map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let machine = registry_path(true).unwrap_or_default();
+    let user = registry_path(false).unwrap_or_default();
+    merge_path(&[&current, &machine, &user, &defaults.join(";")]).into()
+}
+
+/// Folders from each `;`-separated list in order, each once (Windows paths: case and a
+/// trailing `\` don't matter); empty entries dropped.
+pub(crate) fn merge_path(lists: &[&str]) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<&str> = Vec::new();
+    for dir in lists.iter().flat_map(|l| l.split(';')).map(str::trim).filter(|d| !d.is_empty()) {
+        if seen.insert(dir.trim_end_matches('\\').to_lowercase()) {
+            out.push(dir);
+        }
+    }
+    out.join(";")
+}
+
+/// `Path` from the registry, with `%VARIABLES%` expanded: the machine one (`HKLM\...\Session
+/// Manager\Environment`) or the user one (`HKCU\Environment`).
+#[cfg(windows)]
+fn registry_path(machine: bool) -> Option<String> {
+    use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ, RegGetValueW};
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (root, key) = if machine {
+        (HKEY_LOCAL_MACHINE, wide(r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"))
+    } else {
+        (HKEY_CURRENT_USER, wide("Environment"))
+    };
+    let name = wide("Path");
+    let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND;
+    let mut bytes: u32 = 0;
+    // SAFETY: plain registry reads into a buffer of the size Windows reports.
+    unsafe {
+        if RegGetValueW(root, key.as_ptr(), name.as_ptr(), flags, std::ptr::null_mut(), std::ptr::null_mut(), &mut bytes) != 0 || bytes == 0 {
+            return None;
+        }
+        let mut raw = vec![0u16; bytes as usize / 2 + 1];
+        if RegGetValueW(root, key.as_ptr(), name.as_ptr(), flags, std::ptr::null_mut(), raw.as_mut_ptr().cast(), &mut bytes) != 0 {
+            return None;
+        }
+        let len = ExpandEnvironmentStringsW(raw.as_ptr(), std::ptr::null_mut(), 0);
+        if len == 0 {
+            return None;
+        }
+        let mut out = vec![0u16; len as usize];
+        ExpandEnvironmentStringsW(raw.as_ptr(), out.as_mut_ptr(), len);
+        let end = out.iter().position(|&c| c == 0).unwrap_or(out.len());
+        Some(String::from_utf16_lossy(&out[..end]))
+    }
 }
 
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
@@ -641,6 +711,24 @@ mod account_tests {
 mod command_tests {
     use super::*;
     use crate::guard::Action;
+
+    #[test]
+    fn merge_path_keeps_order_and_drops_repeats() {
+        let merged = merge_path(&[r"C:\a;C:\B\;", r"c:\b;C:\Program Files\GitHub CLI\", r";C:\a\;D:\x"]);
+        assert_eq!(merged, r"C:\a;C:\B\;C:\Program Files\GitHub CLI\;D:\x");
+        assert_eq!(merge_path(&["", ";;"]), "");
+    }
+
+    /// The registry PATH is read as Windows has it now: a folder only there (not in this
+    /// process's PATH) still ends up in what child processes get.
+    #[cfg(windows)]
+    #[test]
+    fn fresh_path_includes_the_registry_path() {
+        let machine = registry_path(true).expect("the machine PATH is readable");
+        let first = machine.split(';').find(|d| !d.trim().is_empty()).expect("a folder").trim().trim_end_matches('\\').to_lowercase();
+        let fresh = fresh_path().to_string_lossy().to_lowercase();
+        assert!(fresh.split(';').any(|d| d.trim_end_matches('\\') == first), "{first} missing from {fresh}");
+    }
 
     /// Changes this process's PATH, so it's ignored by default. Run it with the bare PATH a
     /// Finder launch gets:

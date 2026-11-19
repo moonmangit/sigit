@@ -297,14 +297,8 @@ pub fn apply_page(cell: &mut Cell, c: &Comparison, json: &serde_json::Value) -> 
 /// Runs `gh api graphql`. Unlike `gh::run`, keeps stdout when gh exits non-zero: GitHub answers
 /// with `errors` next to a partly filled `data`, and the other repos' rows are still good.
 fn graphql(q: &str) -> Result<serde_json::Value, String> {
-    let mut cmd = std::process::Command::new("gh");
-    cmd.args(["api", "graphql", "-f", &format!("query={q}")]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let out = cmd.output().map_err(|e| crate::tf!("couldn't start `gh`: {e}"))?;
+    let query = format!("query={q}");
+    let out = crate::gh::command("gh", &["api", "graphql", "-f", &query], None).output().map_err(|e| crate::tf!("couldn't start `gh`: {e}"))?;
     match serde_json::from_slice::<serde_json::Value>(&out.stdout) {
         Ok(v) if v["data"].is_object() => Ok(v),
         _ => {
