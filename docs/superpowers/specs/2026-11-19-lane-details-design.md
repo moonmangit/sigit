@@ -84,9 +84,9 @@ pane does today stays.
 
 ### Folder diagram
 
-- Group every PR file by folder: drop the folder prefix shared by all files, then take the next
-  path segment. If that gives a single group, go one level deeper (up to 4 levels). Files at the
-  top level group as "(root)".
+- Group every PR file by folder: drop the folder prefix shared by all files (segment by segment),
+  then take the next path segment. Files directly in that shared folder group as "(root)". (A
+  single group can only happen when every file sits in one folder, so no deeper step is needed.)
 - Show the 8 biggest groups by lines changed, the rest as "other N folders".
 - Drawn as one horizontal stacked bar (each folder a segment, width = its share of lines
   changed) with a legend below: colour swatch, folder path, share %, +added −removed. Clicking a
