@@ -2,7 +2,7 @@
 //! module layout arrive (never per frame): the Modules summary or folder groups, one colour per
 //! main-bar row, and per-PR / per-author module maps in those colours.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::compare::PrDetail;
 use crate::lane::{self, FolderShare, Folders};
@@ -38,6 +38,8 @@ pub struct LaneModel {
     pub per_pr: HashMap<u64, Vec<Segment>>,
     /// By author login: everything their PRs in the lane changed.
     pub per_author: HashMap<String, Vec<Segment>>,
+    /// Main-bar row (path, root) → the PRs that changed a file in it (what picking it filters to).
+    pub touched: HashMap<(String, bool), HashSet<u64>>,
 }
 
 /// Work out everything the pane shows for a lane. `layout` with no modules counts as none.
@@ -50,13 +52,15 @@ pub fn build(details: &[PrDetail], layout: Option<&Layout>) -> LaneModel {
         summary,
         ..LaneModel::default()
     };
-    // The main bar's order: modules then shared rows, or the folder rows.
-    let keys: Vec<String> = match &model.summary {
-        Some(sm) => sm.modules.iter().map(|m| m.path.clone()).chain(shared_rows(sm).iter().map(|f| f.path.clone())).collect(),
-        None => model.folders.top.iter().map(|f| f.path.clone()).collect(),
+    // The main bar's rows in order: modules then shared rows, or the folder rows, as (path, root).
+    let rows: Vec<(String, bool)> = match &model.summary {
+        Some(sm) => sm.modules.iter().map(|m| (m.path.clone(), false)).chain(shared_rows(sm).iter().map(|f| (f.path.clone(), f.root))).collect(),
+        None => model.folders.top.iter().map(|f| (f.path.clone(), f.root)).collect(),
     };
-    for (i, k) in keys.into_iter().enumerate() {
-        model.colors.entry(k).or_insert(i);
+    for (i, row) in rows.into_iter().enumerate() {
+        let prs = details.iter().filter(|d| d.files.iter().any(|(p, _, _)| lane::in_folder(&row.0, row.1, p))).map(|d| d.number).collect();
+        model.colors.entry(row.0.clone()).or_insert(i);
+        model.touched.entry(row).or_insert(prs);
     }
     let mut by_author: HashMap<String, Vec<(String, u64, u64)>> = HashMap::new();
     for d in details {
@@ -119,6 +123,7 @@ pub fn segments(model: &LaneModel, layout: Option<&Layout>, files: &[(String, u6
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     fn layout() -> Layout {
         let mut t = Vec::new();
@@ -202,6 +207,36 @@ mod tests {
             assert_eq!(s.share, 0.0);
         }
         assert!(segments(&m, None, &[]).is_empty());
+    }
+
+    /// Every main-bar row's PR set, against `lane::touches` on the same details.
+    fn assert_touched_matches(m: &LaneModel, details: &[PrDetail], rows: &[FolderShare]) {
+        assert!(!rows.is_empty());
+        assert_eq!(m.touched.len(), rows.len(), "{:?}", m.touched.keys().collect::<Vec<_>>());
+        for f in rows {
+            let want: HashSet<u64> = details.iter().filter(|d| lane::touches(d, f)).map(|d| d.number).collect();
+            assert_eq!(m.touched.get(&(f.path.clone(), f.root)), Some(&want), "{}/{}", f.path, f.root);
+        }
+    }
+
+    #[test]
+    fn touched_sets_match_touches() {
+        // Modules, a shared folder (docs), a shared folder's own files (src/) and the repo root.
+        let mut details = lane();
+        details.push(pr(150, "nok", &[("README.md", 3, 0), ("src/main.ts", 4, 1), ("docs/more.md", 1, 0)]));
+        let m = build(&details, Some(&layout()));
+        let sm = m.summary.clone().unwrap();
+        let rows: Vec<FolderShare> = sm
+            .modules
+            .iter()
+            .map(|x| FolderShare { label: x.name.clone(), path: x.path.clone(), root: false, added: 0, removed: 0, share: 0.0 })
+            .chain(shared_rows(&sm).iter().cloned())
+            .collect();
+        assert!(rows.iter().any(|f| f.root && f.path.is_empty()), "{rows:?}");
+        assert_touched_matches(&m, &details, &rows);
+        // Without modules: the folder rows.
+        let m = build(&details, None);
+        assert_touched_matches(&m, &details, &m.folders.top.clone());
     }
 
     #[test]

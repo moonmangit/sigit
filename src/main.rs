@@ -482,7 +482,7 @@ pub struct State {
     pub open_commits: HashSet<(String, String)>,
     /// Module maps of loaded commits in each lane's colours, by (repo, lane PR numbers, sha):
     /// worked out when a commit's files or the lane's model arrive, never per frame.
-    pub commit_segments: HashMap<(String, Vec<u64>, String), Vec<lane_model::Segment>>,
+    pub commit_segments: HashMap<(String, Vec<u64>), HashMap<String, Vec<lane_model::Segment>>>,
     /// What the pane shows for each lane in `lane_details`, built once when its details or
     /// layout arrive; the view only reads it.
     pub lane_models: HashMap<(String, Vec<u64>), lane_model::LaneModel>,
@@ -832,6 +832,9 @@ impl State {
     /// Switch page: what's cached shows at once, and is checked again (`revalidate_page`).
     pub fn show(&mut self, page: Page) {
         self.remember(&Place::new(page, self.cur.clone(), self.group_cur.clone()));
+        if self.page != page {
+            self.branch_base_open = false;
+        }
         self.page = page;
         self.revalidate_page();
     }
@@ -981,6 +984,11 @@ impl State {
             Page::Branches => {
                 self.refresh_branches();
                 self.refresh_branch_tools();
+                // The open branch's comparison too (it may be on GitHub now).
+                if self.forget_branch_lane() {
+                    self.load_branch_lane();
+                    self.load_lane_details(false);
+                }
             }
             Page::Group => self.load_group(false),
         }
@@ -1136,6 +1144,15 @@ impl State {
         self.load_lane_details(false);
     }
 
+    /// Drop the open branch lane's comparison so the next load asks again; false when no branch
+    /// lane is open (or its base isn't known yet).
+    fn forget_branch_lane(&mut self) -> bool {
+        let Some((slug, branch)) = self.branch_lane_sel.clone() else { return false };
+        let Some(base) = self.branch_base_for(&slug) else { return false };
+        self.branch_lanes.remove(&(slug, branch, base));
+        true
+    }
+
     /// Fetch the open branch lane against its base, unless it's loaded or on the way.
     fn load_branch_lane(&mut self) {
         let Some((slug, branch)) = self.branch_lane_sel.clone() else { return };
@@ -1207,8 +1224,8 @@ impl State {
             .filter(|((slug, _), _)| *slug == key.0)
             .filter_map(|((_, sha), l)| l.data.as_ref().map(|files| (sha.clone(), lane_model::segments(&model, layout, files))))
             .collect();
-        for (sha, segs) in commits {
-            self.commit_segments.insert((key.0.clone(), key.1.clone(), sha), segs);
+        if !commits.is_empty() {
+            self.commit_segments.entry(key.clone()).or_default().extend(commits);
         }
         self.lane_models.insert(key.clone(), model);
     }
@@ -1227,7 +1244,7 @@ impl State {
         for lane in lanes {
             let layout = self.lane_branches.get(&lane).and_then(|b| self.layouts.get(&(lane.0.clone(), b.clone()))).and_then(|l| l.data.as_ref());
             let segs = lane_model::segments(self.lane_models.get(&lane).unwrap_or(&empty), layout, &files);
-            self.commit_segments.insert((lane.0, lane.1, key.1.clone()), segs);
+            self.commit_segments.entry(lane).or_default().insert(key.1.clone(), segs);
         }
     }
 
@@ -1537,7 +1554,14 @@ impl State {
         let Some(slug) = self.cur.clone() else { return };
         self.rd_mut(&slug).meta.loading = true;
         let key = slug.clone();
-        jobs::spawn(self, move || gh::repo_meta(&key), move |s, r| s.rd_mut(&slug).meta.finish(r));
+        jobs::spawn(self, move || gh::repo_meta(&key), move |s, r| {
+            s.rd_mut(&slug).meta.finish(r);
+            // A branch picked before the default branch was known compares with it now.
+            if s.page == Page::Branches {
+                s.load_branch_lane();
+                s.load_lane_details(false);
+            }
+        });
     }
 
     /// Is `name` (local or `origin/…`) protected or the default branch?
@@ -3404,6 +3428,50 @@ mod cache_tests {
         assert!(s.branch_lane_sel.is_none() && s.branch_sel.is_none() && !s.branch_base_open);
     }
 
+    #[test]
+    fn refresh_forgets_only_the_open_branch_lane() {
+        let mut s = branch_state();
+        assert!(!s.forget_branch_lane(), "no branch open: nothing to refresh");
+        let main = ("a/b".to_string(), "feat".to_string(), "main".to_string());
+        let dev = ("a/b".to_string(), "feat".to_string(), "dev".to_string());
+        s.branch_lanes.insert(main.clone(), branch_lane(compare::Cell::Missing(vec!["feat".into()])));
+        s.branch_lanes.insert(dev.clone(), branch_lane(branch_cell(3, 42)));
+        s.branch_lane_sel = Some(("a/b".into(), "feat".into()));
+        assert!(s.forget_branch_lane());
+        assert!(!s.branch_lanes.contains_key(&main), "the next load asks GitHub again");
+        assert!(s.branch_lanes.contains_key(&dev), "other bases stay");
+        // No default branch known yet: nothing to forget.
+        s.rd_mut("a/b").meta = Load::default();
+        assert!(!s.forget_branch_lane());
+    }
+
+    /// Nothing on "c/d"'s Environments page is stale, so opening it fetches nothing.
+    fn quiet_repo(s: &mut State, slug: &str) {
+        let d = s.rd_mut(slug);
+        d.meta = Load::start();
+        d.envs = Load::start();
+    }
+
+    #[test]
+    fn switching_repo_drops_the_picked_base() {
+        let mut s = branch_state();
+        s.branch_base = Some("dev".into());
+        s.branch_lane_sel = Some(("a/b".into(), "feat".into()));
+        quiet_repo(&mut s, "c/d");
+        s.select_repo("c/d", Page::Envs);
+        assert_eq!(s.branch_base, None);
+        assert!(s.branch_lane_sel.is_none());
+    }
+
+    #[test]
+    fn leaving_the_page_closes_the_base_list() {
+        let mut s = branch_state();
+        quiet_repo(&mut s, "a/b");
+        s.branch_base_open = true;
+        s.show(Page::Envs);
+        assert!(!s.branch_base_open);
+    }
+
     /// Lane "a/b" [42] with a model, and a commit in a/b whose files touch two of its folders.
     fn commit_state() -> (State, (String, Vec<u64>)) {
         let mut s = branch_state();
@@ -3421,7 +3489,7 @@ mod cache_tests {
         let files = vec![("docs/z.md".to_string(), 2, 0), ("lib/q.rs".to_string(), 2, 0)];
         s.commit_files.insert(("a/b".into(), "abc".into()), Load::start());
         s.commit_files_arrived(&("a/b".into(), "abc".into()), Ok(files.clone()));
-        let segs = &s.commit_segments[&("a/b".to_string(), vec![42], "abc".to_string())];
+        let segs = &s.commit_segments[&("a/b".to_string(), vec![42])]["abc"];
         let docs = segs.iter().find(|x| x.key == "docs").unwrap();
         assert_eq!(Some(&docs.color), s.lane_models[&key].colors.get("docs"), "same colour as the lane's main bar");
         assert!(segs.iter().any(|x| x.color == lane_model::OTHER));
@@ -3429,7 +3497,7 @@ mod cache_tests {
         let (mut s, key) = commit_state();
         s.commit_files.insert(("a/b".into(), "abc".into()), Load { data: Some(files), ..Default::default() });
         s.rebuild_lane_model(&key);
-        assert!(s.commit_segments.contains_key(&("a/b".to_string(), vec![42], "abc".to_string())));
+        assert!(s.commit_segments.get(&("a/b".to_string(), vec![42])).is_some_and(|m| m.contains_key("abc")));
     }
 
     #[test]

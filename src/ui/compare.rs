@@ -10,7 +10,7 @@ use rune_kit::{Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit
 use super::{I_GEAR, chip, click_to_copy, hue, muted, pending, ref_chip, scroll, side_pane};
 use crate::compare::{Cell, Comparison, LooseCommit, PrDetail, RepoCompare, WaitingPr, effective, is_changed};
 use crate::lane::{self, FolderShare, Folders};
-use crate::lane_model::{OTHER, Segment};
+use crate::lane_model::{LaneModel, OTHER, Segment};
 use crate::i18n::text;
 use crate::model::{Branch, Outcome, ago_str, now};
 use crate::modules;
@@ -372,8 +372,14 @@ pub fn branch_pane(s: &State, k: &Kit) -> Option<El> {
     let (slug, branch) = s.branch_lane_sel.as_ref().filter(|(sl, _)| s.cur.as_ref() == Some(sl))?;
     let mut c = col().w_full().gap(14.0).child(pane_head(k, branch.clone(), slug, "b-pane-close", |s: &mut State| s.close_branch_lane()));
     let Some(base) = s.branch_base_for(slug) else {
-        // The repo's default branch isn't known yet; the lane loads once it is.
-        return Some(side_pane(k, "b-pane", c.child(loading_line(k, crate::i18n::t("Comparing…")))));
+        // The repo's default branch isn't known yet; the lane loads once it is (or says why it
+        // can't, when the repo's details failed to load).
+        let failed = s.data.get(slug).map(|d| &d.meta).filter(|m| !m.loading).and_then(|m| m.error.clone());
+        let body = match failed {
+            Some(e) => muted(k, tf!("Couldn't compare this branch: {error}", error = e)).wrap(),
+            None => loading_line(k, crate::i18n::t("Comparing…")),
+        };
+        return Some(side_pane(k, "b-pane", c.child(body)));
     };
     c = c.child(
         row().key("b-base-row").w_full().gap(6.0).center_y().child(muted(k, crate::i18n::t("compared with"))).child(
@@ -482,12 +488,13 @@ fn lane_content(s: &State, k: &Kit, lane: &crate::OpenLane, mut c: El) -> El {
     }
 
     // Details (labels, summary, size, author profile, files) arrive after the lane opens; until
-    // then the rows show what the comparison already knows.
-    let key = s.lane_key();
-    let load = key.as_ref().and_then(|key| s.lane_details.get(key));
-    let details: &[PrDetail] = load.and_then(|l| l.data.as_deref()).unwrap_or(&[]);
+    // then the rows show what the comparison already knows. Keyed as `State::lane_key`.
+    let mut nums: Vec<u64> = prs.iter().map(|p| p.number).collect();
+    nums.sort_unstable();
+    let key = (slug.to_owned(), nums);
+    let load = s.lane_details.get(&key);
     // Summaries, colours and the details by number, worked out when the details or layout came in.
-    let model = key.as_ref().and_then(|key| s.lane_models.get(key));
+    let model = s.lane_models.get(&key);
     if !prs.is_empty() {
         // Shrinks (labels end in "…") rather than spill past a squeezed pane.
         let mut switch = row().w_full().gap(8.0).center_y().child(
@@ -533,20 +540,21 @@ fn lane_content(s: &State, k: &Kit, lane: &crate::OpenLane, mut c: El) -> El {
 
     let no_details = HashMap::new();
     let by_number = model.map_or(&no_details, |m| &m.details);
-    let shown = filter_prs(prs, by_number, active.as_ref());
+    let shown = filter_prs(prs, model, active.as_ref());
     let detail_of = |n: u64| by_number.get(&n);
     let pr_map = |n: u64| model.and_then(|m| m.per_pr.get(&n));
     let mut list = col().w_full().gap(2.0);
     if s.lane_view.by_contributor {
-        for (gi, g) in lane::by_author(&shown, details).iter().enumerate() {
+        let shown_by_number: HashMap<u64, &WaitingPr> = shown.iter().map(|p| (p.number, *p)).collect();
+        for (gi, g) in lane::by_author(&shown, by_number).iter().enumerate() {
             let mut group = col().key(tf!("cmp-author-{gi}")).w_full().gap(2.0).child(author_heading(s, k, g, model.and_then(|m| m.per_author.get(&g.person.login))));
-            for p in g.prs.iter().filter_map(|n| shown.iter().find(|p| p.number == *n)) {
+            for p in g.prs.iter().filter_map(|n| shown_by_number.get(n)) {
                 group = group.child(pr_row(k, slug, p, detail_of(p.number), false, now, pr_map(p.number)));
             }
             list = list.child(group);
         }
     } else {
-        for p in &shown {
+        for p in shown {
             list = list.child(pr_row(k, slug, p, detail_of(p.number), true, now, pr_map(p.number)));
         }
     }
@@ -564,7 +572,7 @@ fn lane_content(s: &State, k: &Kit, lane: &crate::OpenLane, mut c: El) -> El {
                 .child(rune::text(l.author.clone()).font(k.ty.small).color(k.c.text_faint));
             let open = (slug.to_owned(), l.sha.clone());
             if s.open_commits.contains(&open) {
-                body = body.child(commit_map(s, k, key.as_ref(), &open));
+                body = body.child(commit_map(s, k, &key, &open));
             }
             list = list.child(
                 row()
@@ -590,7 +598,7 @@ fn lane_content(s: &State, k: &Kit, lane: &crate::OpenLane, mut c: El) -> El {
 
 /// Under an opened commit: its module map once its files are in, a spinner while they load,
 /// or why they couldn't (press to try again).
-fn commit_map(s: &State, k: &Kit, lane: Option<&(String, Vec<u64>)>, open: &(String, String)) -> El {
+fn commit_map(s: &State, k: &Kit, lane: &(String, Vec<u64>), open: &(String, String)) -> El {
     let load = s.commit_files.get(open);
     if let Some(e) = load.filter(|l| l.data.is_none() && !l.loading).and_then(|l| l.error.as_ref()) {
         let retry = open.clone();
@@ -611,7 +619,7 @@ fn commit_map(s: &State, k: &Kit, lane: Option<&(String, Vec<u64>)>, open: &(Str
     if load.is_none_or(|l| l.data.is_none()) {
         return row().key("cmp-commit-loading").gap(6.0).center_y().child(Spinner::new().size(10.0).build(k)).child(muted(k, crate::i18n::t("Loading files…")));
     }
-    let segs = lane.and_then(|(sl, nums)| s.commit_segments.get(&(sl.clone(), nums.clone(), open.1.clone())));
+    let segs = s.commit_segments.get(lane).and_then(|m| m.get(&open.1));
     match segs {
         Some(v) if !v.is_empty() => item_bar(k, v).key("cmp-commit-map").mt(2.0),
         _ => el(),
@@ -650,12 +658,12 @@ fn active_in_summary(sel: Option<&(String, bool)>, sm: &modules::Summary) -> Opt
     sm.shared.top.iter().take(modules::MAX_SHARED_ROWS).find(|x| &x.path == path && x.root == *root).cloned()
 }
 
-/// The lane's PRs that touched `active` (all of them with no folder picked).
-fn filter_prs(prs: &[WaitingPr], details: &HashMap<u64, PrDetail>, active: Option<&FolderShare>) -> Vec<WaitingPr> {
-    prs.iter()
-        .filter(|p| active.is_none_or(|f| details.get(&p.number).is_some_and(|d| lane::touches(d, f))))
-        .cloned()
-        .collect()
+/// The lane's PRs that touched `active` (all of them with no folder picked): a lookup in the
+/// sets the model worked out for its rows.
+fn filter_prs<'a>(prs: &'a [WaitingPr], model: Option<&LaneModel>, active: Option<&FolderShare>) -> Vec<&'a WaitingPr> {
+    let Some(f) = active else { return prs.iter().collect() };
+    let touched = model.and_then(|m| m.touched.get(&(f.path.clone(), f.root)));
+    prs.iter().filter(|p| touched.is_some_and(|t| t.contains(&p.number))).collect()
 }
 
 /// Pick `fs` as the filter, or drop it when it's already picked.
@@ -1056,11 +1064,11 @@ mod tests {
             detail(3, "c", &["src/shared/component/Table.vue", "src/feature/agent/service/a.ts"]),
         ];
         let m = build(&details, Some(&layout));
-        let (sm, details) = (m.summary.unwrap(), m.details);
+        let sm = m.summary.clone().unwrap();
         let agent = super::active_in_summary(Some(&("src/feature/agent".to_string(), false)), &sm);
-        assert_eq!(filter_prs(&prs, &details, agent.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [1, 3]);
+        assert_eq!(filter_prs(&prs, Some(&m), agent.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [1, 3]);
         let shared = super::active_in_summary(Some(&("src/shared/component".to_string(), true)), &sm);
-        assert_eq!(filter_prs(&prs, &details, shared.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [3]);
+        assert_eq!(filter_prs(&prs, Some(&m), shared.as_ref()).iter().map(|p| p.number).collect::<Vec<_>>(), [3]);
         assert!(super::active_in_summary(Some(&("src/feature/gone".to_string(), false)), &sm).is_none());
     }
 
@@ -1105,15 +1113,15 @@ mod tests {
         let prs = [pr(1, "a"), pr(2, "b"), pr(3, "a")];
         let list = [detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"]), detail(3, "a", &["src/report/z.ts", "src/agent/w.ts"])];
         let m = build(&list, None);
-        let (f, details) = (&m.folders, &m.details);
+        let f = &m.folders;
         let sel = ("src/report".to_string(), false);
         let active = active_folder(Some(&sel), f);
         assert_eq!(active.map(|f| f.label.as_str()), Some("report"));
-        let shown: Vec<u64> = filter_prs(&prs, details, active).iter().map(|p| p.number).collect();
+        let shown: Vec<u64> = filter_prs(&prs, Some(&m), active).iter().map(|p| p.number).collect();
         assert_eq!(shown, [2, 3]);
         // By contributor: groups come from the filtered PRs, so an author left with none is gone.
         let sel = ("src/agent".to_string(), false);
-        let g = by_author(&filter_prs(&prs, details, active_folder(Some(&sel), f)), &list);
+        let g = by_author(&filter_prs(&prs, Some(&m), active_folder(Some(&sel), f)), &m.details);
         assert_eq!(g.len(), 1);
         assert_eq!(g[0].person.login, "a");
         assert_eq!(g[0].prs, [3, 1]);
@@ -1123,11 +1131,11 @@ mod tests {
     fn folder_filter_off_when_unset_or_gone() {
         let prs = [pr(1, "a"), pr(2, "b")];
         let m = build(&[detail(1, "a", &["src/agent/x.ts"]), detail(2, "b", &["src/report/y.ts"])], None);
-        let (f, details) = (&m.folders, &m.details);
-        assert_eq!(filter_prs(&prs, details, active_folder(None, f)).len(), 2);
+        let f = &m.folders;
+        assert_eq!(filter_prs(&prs, Some(&m), active_folder(None, f)).len(), 2);
         let gone = ("lib/old".to_string(), false);
         assert!(active_folder(Some(&gone), f).is_none());
-        assert_eq!(filter_prs(&prs, details, active_folder(Some(&gone), f)).len(), 2);
+        assert_eq!(filter_prs(&prs, Some(&m), active_folder(Some(&gone), f)).len(), 2);
         // Same path but not the root group: not a match.
         assert!(active_folder(Some(&("src/agent".to_string(), true)), f).is_none());
     }

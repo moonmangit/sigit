@@ -268,7 +268,8 @@ fn cleanup(s: &State, k: &Kit) -> El {
 /// (remote ones without `origin/`) A–Z, each once, leaving out the one picked.
 pub(crate) fn base_options<'a>(default: &str, picked: &str, names: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut rest: Vec<String> = names.map(|n| n.strip_prefix("origin/").unwrap_or(n).to_owned()).filter(|n| n != default && n != picked && n != "HEAD").collect();
-    rest.sort_by_key(|n| n.to_lowercase());
+    // Case-insensitive A–Z, ties by exact name, so a name and its remote copy end up adjacent.
+    rest.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
     rest.dedup();
     std::iter::once(default.to_owned()).chain(rest).collect()
 }
@@ -304,5 +305,8 @@ mod tests {
         assert_eq!(base_options("main", "zeta", names.into_iter()), ["main", "alpha", "feat"]);
         // The default even when it's the branch picked.
         assert_eq!(base_options("main", "main", ["dev", "main"].into_iter()), ["main", "dev"]);
+        // Case variants (Feat, feat) don't split a name from its remote copy.
+        let names = ["feat", "Feat", "origin/feat", "origin/Feat"];
+        assert_eq!(base_options("main", "x", names.into_iter()), ["main", "Feat", "feat"]);
     }
 }

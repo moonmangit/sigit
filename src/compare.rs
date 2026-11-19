@@ -496,7 +496,7 @@ pub fn fetch_details(slug: &str, numbers: Vec<u64>) -> Result<Vec<PrDetail>, Str
 pub fn fetch_commit_files(slug: &str, sha: &str) -> Result<Vec<(String, u64, u64)>, String> {
     let out = crate::gh::run(
         "gh",
-        &["api", &format!("repos/{slug}/commits/{sha}"), "--jq", ".files[] | [.filename, .additions, .deletions] | @tsv"],
+        &["api", &format!("repos/{slug}/commits/{sha}"), "--jq", ".files[]? | [.filename, .additions, .deletions] | @tsv"],
         None,
     )?;
     Ok(parse_commit_files(&out))
