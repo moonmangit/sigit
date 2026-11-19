@@ -1097,3 +1097,5 @@ Loading this repo's comparisons stopped unexpectedly	การโหลดกา
 Nothing waiting ({n})	ไม่มีอะไรรอ ({n})
 no {b} branch	ไม่มี branch {b}
 {hidden} older not drawn	อีก {hidden} รายการที่เก่ากว่าไม่ได้แสดง
+Other	อื่น ๆ
+{waiting_here} of {n} with work waiting	มีงานรอ {waiting_here} จาก {n}

@@ -1982,6 +1982,11 @@ fn compare_fixture(s: &mut State) {
     use compare::{Cell, LooseCommit, Override, RepoCompare, WaitingPr};
     s.prefs.tracked = ["acme/web", "acme/api", "acme/docs", "acme/admin", "acme/gone"].map(String::from).to_vec();
     s.prefs.comparisons = compare::defaults();
+    // Comparisons are grouped like the sidebar; acme/docs and acme/gone land in "Other".
+    s.prefs.groups = vec![
+        config::Group { name: "Storefront".into(), repos: vec!["acme/web".into(), "acme/api".into()] },
+        config::Group { name: "Back office".into(), repos: vec!["acme/admin".into(), "acme/api".into()] },
+    ];
     s.prefs.comparison_overrides = vec![
         Override { slug: "acme/web".into(), name: "To production".into(), to: Some("master".into()), ..Default::default() },
         Override { slug: "acme/admin".into(), name: "Back-merge".into(), off: true, ..Default::default() },

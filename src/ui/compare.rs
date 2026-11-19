@@ -55,12 +55,41 @@ fn waiting(c: &Cell) -> u32 {
 
 /// Every tracked repo as a card of branch lanes, the ones with the most waiting first; repos
 /// with nothing waiting (and no error) fold into one quiet list at the end.
+/// Repos sorted into your sidebar groups, in the sidebar's order (a repo in two groups shows in
+/// both, as there), then "Other" for tracked repos in no group. No groups: one plain list.
 fn flows(s: &State, k: &Kit, rows: &[RepoCompare]) -> El {
+    let groups = &s.prefs.groups;
+    if groups.is_empty() {
+        return group_block(s, k, rows.iter().collect()).key("cmp-flows");
+    }
+    let mut out = col().key("cmp-flows").w_full().gap(20.0);
+    let mut sections: Vec<(String, Vec<&RepoCompare>)> =
+        groups.iter().map(|g| (g.name.clone(), rows.iter().filter(|r| g.repos.contains(&r.slug)).collect())).collect();
+    sections.push((crate::i18n::t("Other"), rows.iter().filter(|r| !groups.iter().any(|g| g.repos.contains(&r.slug))).collect()));
+    for (i, (name, repos)) in sections.into_iter().enumerate() {
+        if repos.is_empty() {
+            continue;
+        }
+        let waiting_here = repos.iter().filter(|r| r.cells.iter().any(|c| waiting(c) > 0)).count();
+        let head = row()
+            .gap(8.0)
+            .center_y()
+            .child(rune::icon(&super::I_DASH, 14.0).color(k.c.icon_faint))
+            .child(rune::text(name).font(k.ty.ui_medium).color(k.c.text_base))
+            .child(muted(k, tf!("{waiting_here} of {n} with work waiting", n = repos.len())));
+        out = out.child(col().key(tf!("cmp-g-{i}")).w_full().gap(10.0).child(head).child(group_block(s, k, repos)));
+    }
+    out
+}
+
+/// One group's repos: cards for those with something waiting (most first), then the calm ones
+/// folded into one quiet list.
+fn group_block(s: &State, k: &Kit, rows: Vec<&RepoCompare>) -> El {
     let cmps = &s.prefs.comparisons;
-    let mut busy: Vec<&RepoCompare> = rows.iter().filter(|r| r.error.is_some() || r.cells.iter().any(|c| waiting(c) > 0)).collect();
+    let mut busy: Vec<&RepoCompare> = rows.iter().copied().filter(|r| r.error.is_some() || r.cells.iter().any(|c| waiting(c) > 0)).collect();
     busy.sort_by_key(|r| std::cmp::Reverse(r.cells.iter().map(waiting).max().unwrap_or(0)));
-    let calm: Vec<&RepoCompare> = rows.iter().filter(|r| r.error.is_none() && r.cells.iter().all(|c| waiting(c) == 0)).collect();
-    let mut c = col().key("cmp-flows").w_full().gap(12.0);
+    let calm: Vec<&RepoCompare> = rows.iter().copied().filter(|r| r.error.is_none() && r.cells.iter().all(|c| waiting(c) == 0)).collect();
+    let mut c = col().w_full().gap(12.0);
     for rc in &busy {
         c = c.child(repo_card(s, k, rc, cmps));
     }
