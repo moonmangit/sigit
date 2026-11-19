@@ -857,6 +857,9 @@ impl State {
                 if self.inbox_tab == COMPARE_TAB && (self.compare.stale(ttl::GH.min(cap)) || (!self.compare.loading && self.compare_key != self.compare_key_now())) {
                     self.refresh_compare();
                 }
+                // A refresh that landed while another tab showed may have changed the open
+                // lane's PRs: load what it lacks.
+                self.load_new_lane_details();
                 return;
             }
             Page::Group => return self.load_group(true),
@@ -910,6 +913,10 @@ impl State {
                 }
                 if tools {
                     self.refresh_branch_tools();
+                }
+                if self.branch_view <= 1 && self.branch_lane_sel.as_ref().is_some_and(|(slug, _)| self.cur.as_ref() == Some(slug)) {
+                    self.load_branch_lane();
+                    self.load_new_lane_details();
                 }
             }
             _ => {}
@@ -1156,6 +1163,19 @@ impl State {
             }
             s.load_avatars(&key);
         });
+    }
+
+    /// Load the open lane's details when its PR set has none yet (a refresh that landed while
+    /// the lane wasn't shown). One that failed waits for Retry rather than retrying each tick.
+    fn load_new_lane_details(&mut self) {
+        if self.lane_needs_details() {
+            self.load_lane_details(false);
+        }
+    }
+
+    /// The open lane has PRs whose details were never asked for.
+    fn lane_needs_details(&self) -> bool {
+        self.lane_key().is_some_and(|k| !k.1.is_empty() && !self.lane_details.contains_key(&k))
     }
 
     /// Fetch the profile pictures of a lane's authors that aren't loaded or asked for yet, each
@@ -2991,6 +3011,39 @@ mod cache_tests {
         s.load_lane_details(false);
         let l = &s.lane_details[&key];
         assert!(!l.loading && l.data.is_some());
+    }
+
+    #[test]
+    fn lane_refreshed_off_tab_loads_on_return() {
+        let mut s = lane_state();
+        s.compare_sel = Some(("a/b".into(), 0));
+        let old = s.lane_key().unwrap();
+        s.lane_details.insert(old, Load { data: Some(vec![]), ..Default::default() });
+        assert!(!s.lane_needs_details());
+        // Off the tab, a refresh lands with another PR set; its completion can't load the lane.
+        s.inbox_tab = 0;
+        let mut fresh = s.compare.data.clone().unwrap();
+        fresh[0].cells[0] = branch_cell(2, 8);
+        s.compare = Load { data: Some(fresh), ..Default::default() };
+        s.load_lane_details(false);
+        assert!(!s.lane_details.contains_key(&("a/b".to_string(), vec![8])));
+        assert!(!s.lane_needs_details());
+        // Back on Comparisons the revalidate pass sees the new PR set as missing.
+        s.inbox_tab = COMPARE_TAB;
+        assert!(s.lane_needs_details());
+        s.lane_details.insert(("a/b".into(), vec![8]), Load::start());
+        assert!(!s.lane_needs_details());
+    }
+
+    #[test]
+    fn branch_lane_refreshed_off_page_loads_on_return() {
+        let mut s = branch_state();
+        s.branch_lanes.insert(("a/b".into(), "feat".into(), "main".into()), branch_lane(branch_cell(3, 42)));
+        s.branch_lane_sel = Some(("a/b".into(), "feat".into()));
+        s.page = Page::Inbox;
+        assert!(!s.lane_needs_details());
+        s.page = Page::Branches;
+        assert!(s.lane_needs_details());
     }
 
     fn branch_cell(commits: u32, pr: u64) -> compare::Cell {
