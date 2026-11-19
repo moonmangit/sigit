@@ -54,6 +54,14 @@ use model::{Branch, Cleanup, Commit, CommitDetail, Envs, Inbox, LocalStatus, Not
 // State
 // ---------------------------------------------------------------------------------------------
 
+/// How the open comparison lane is read: grouped by contributor, and the folder picked as
+/// a filter (path, whether it's a root).
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct LaneView {
+    pub by_contributor: bool,
+    pub folder: Option<(String, bool)>,
+}
+
 /// Something fetched in the background: the last good answer stays on screen while a new one
 /// loads, so the UI never blanks.
 pub struct Load<T> {
@@ -436,6 +444,10 @@ pub struct State {
     pub compare_key: String,
     /// The cell whose detail pane is open: (repo, comparison index).
     pub compare_sel: Option<(String, usize)>,
+    /// PR details of opened lanes, by (repo, sorted PR numbers); this session only.
+    pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
+    /// How the open lane's changed code is shown.
+    pub lane_view: LaneView,
     pub compare_edit: Option<CompareEdit>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
     /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
@@ -563,6 +575,8 @@ impl State {
             compare: Load::default(),
             compare_key: String::new(),
             compare_sel: None,
+            lane_details: HashMap::new(),
+            lane_view: LaneView::default(),
             compare_edit: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
@@ -963,6 +977,41 @@ impl State {
     /// What the Comparisons tab asks for now: tracked repos, comparisons and overrides.
     pub fn compare_key_now(&self) -> String {
         serde_json::to_string(&(self.tracked(), &self.prefs.comparisons, &self.prefs.comparison_overrides)).unwrap_or_default()
+    }
+
+    /// The open lane's repo and sorted PR numbers: what `lane_details` is keyed by.
+    pub fn lane_key(&self) -> Option<(String, Vec<u64>)> {
+        let (slug, j) = self.compare_sel.as_ref()?;
+        let rc = self.compare.data.as_ref()?.iter().find(|r| &r.slug == slug)?;
+        let compare::Cell::Waiting { prs, .. } = rc.cells.get(*j)? else { return None };
+        let mut nums: Vec<u64> = prs.iter().map(|p| p.number).collect();
+        nums.sort_unstable();
+        Some((slug.clone(), nums))
+    }
+
+    /// Open the lane (repo, comparison `j`), or close it when it's already open.
+    pub fn select_lane(&mut self, slug: &str, j: usize) {
+        let pick = (slug.to_owned(), j);
+        self.compare_sel = if self.compare_sel.as_ref() == Some(&pick) { None } else { Some(pick) };
+        self.lane_view.folder = None;
+        self.load_lane_details(false);
+    }
+
+    /// Fetch the open lane's PR details unless they're loaded or on the way (or `retry`).
+    pub fn load_lane_details(&mut self, retry: bool) {
+        let Some(key) = self.lane_key() else { return };
+        if !retry && self.lane_details.get(&key).is_some_and(|l| l.data.is_some() || l.loading) {
+            return;
+        }
+        let entry = self.lane_details.entry(key.clone()).or_default();
+        entry.loading = true;
+        entry.error = None;
+        let (slug, nums) = key.clone();
+        jobs::spawn(self, move || compare::fetch_details(&slug, nums), move |s, out| {
+            if let Some(l) = s.lane_details.get_mut(&key) {
+                l.finish(out);
+            }
+        });
     }
 
     /// Load the Comparisons tab: each tracked repo (A-Z) against the comparisons that apply to it.
@@ -2608,6 +2657,60 @@ mod cache_tests {
         s.open_compare_edit("a/b");
         s.refresh_compare();
         assert!(s.compare_sel.is_none() && s.compare_edit.is_none());
+    }
+
+    fn lane_state() -> State {
+        let waiting = |n: u64| compare::Cell::Waiting {
+            commits: 1,
+            prs: vec![compare::WaitingPr { number: n, title: "t".into(), author: "a".into(), merged_at: "2026-01-01T00:00:00Z".into() }],
+            loose: vec![],
+            checked: 1,
+        };
+        let mut s = State::new(config::Prefs::default());
+        s.compare = Load { data: Some(vec![compare::RepoCompare { slug: "a/b".into(), cells: vec![waiting(7), waiting(9)], error: None }]), ..Default::default() };
+        s
+    }
+
+    #[test]
+    fn lane_details_are_keyed_by_lane() {
+        let mut s = lane_state();
+        s.compare_sel = Some(("a/b".into(), 0));
+        let k0 = s.lane_key().unwrap();
+        s.compare_sel = Some(("a/b".into(), 1));
+        let k1 = s.lane_key().unwrap();
+        assert_ne!(k0, k1);
+        assert_eq!(k0, ("a/b".to_string(), vec![7]));
+        s.lane_details.insert(k0.clone(), Load::start());
+        assert!(!s.lane_details.contains_key(&k1));
+    }
+
+    #[test]
+    fn switching_lane_clears_folder_filter() {
+        let mut s = lane_state();
+        s.lane_view.by_contributor = true;
+        for j in 0..2 {
+            let key = ("a/b".to_string(), vec![if j == 0 { 7 } else { 9 }]);
+            s.lane_details.insert(key, Load::start());
+        }
+        s.select_lane("a/b", 0);
+        s.lane_view.folder = Some(("src".into(), false));
+        s.select_lane("a/b", 1);
+        assert_eq!(s.compare_sel, Some(("a/b".into(), 1)));
+        assert_eq!(s.lane_view.folder, None);
+        assert!(s.lane_view.by_contributor);
+        s.select_lane("a/b", 1);
+        assert_eq!(s.compare_sel, None);
+    }
+
+    #[test]
+    fn loaded_lane_is_not_refetched() {
+        let mut s = lane_state();
+        s.compare_sel = Some(("a/b".into(), 0));
+        let key = s.lane_key().unwrap();
+        s.lane_details.insert(key.clone(), Load { data: Some(vec![]), ..Default::default() });
+        s.load_lane_details(false);
+        let l = &s.lane_details[&key];
+        assert!(!l.loading && l.data.is_some());
     }
 
     fn cmp_rows(s: &mut State, rows: &[(&str, &str, &str)]) {

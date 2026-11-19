@@ -232,10 +232,8 @@ fn lane(s: &State, k: &Kit, l: &Lane) -> El {
         if selected {
             r = r.fill(k.c.surface_hover);
         }
-        let pick = (l.slug.to_owned(), l.j);
-        r = r.hover(k.c.hover).role("button").on_press(move |s: &mut State| {
-            s.compare_sel = if s.compare_sel.as_ref() == Some(&pick) { None } else { Some(pick.clone()) };
-        });
+        let (slug, j) = (l.slug.to_owned(), l.j);
+        r = r.hover(k.c.hover).role("button").on_press(move |s: &mut State| s.select_lane(&slug, j));
     }
     r
 }
