@@ -536,7 +536,40 @@ fn inbox_page(s: &State, k: &Kit) -> El {
         crate::COMPARE_TAB => compare::view(s, k),
         _ => inbox::view(s, k),
     };
-    col().key("inbox-page").w_full().h_full().child(row().w_full().px(24.0).pt(14.0).child(tabs)).child(col().w_full().grow(1.0).min_h(0.0).child(body))
+    let bar = row().w_full().px(24.0).pt(14.0).gap(10.0).center_y().flex_wrap().child(tabs).child(spacer()).children(scope_picker(s, k));
+    col().key("inbox-page").w_full().h_full().child(bar).child(col().w_full().grow(1.0).min_h(0.0).child(body))
+}
+
+/// Which repos every Dashboard tab shows: all, one of your groups, or the tracked repos in no
+/// group. Hidden until you have a group.
+fn scope_picker(s: &State, k: &Kit) -> Option<El> {
+    use crate::RepoScope;
+    let groups = &s.prefs.groups;
+    if groups.is_empty() {
+        return None;
+    }
+    let tracked = s.tracked();
+    let ungrouped = tracked.iter().filter(|r| !groups.iter().any(|g| g.repos.contains(r))).count();
+    let mut labels = vec![tf!("All ({n})", n = tracked.len())];
+    let mut scopes: Vec<Option<RepoScope>> = vec![None];
+    for g in groups {
+        labels.push(format!("{} ({})", g.name, g.repos.len()));
+        scopes.push(Some(RepoScope::Group(g.name.clone())));
+    }
+    if ungrouped > 0 {
+        labels.push(tf!("Other ({n})", n = ungrouped));
+        scopes.push(Some(RepoScope::Other));
+    }
+    let picked = scopes.iter().position(|x| x.as_ref() == s.scope_now()).unwrap_or(0);
+    Some(
+        SegmentedControl::new(&labels, Some(picked))
+            .label(crate::i18n::t("Which repos"))
+            .fit()
+            .on_pick(move |s: &mut State, i, _| s.set_repo_scope(scopes.get(i).cloned().flatten()))
+            .build(k)
+            .key("repo-scope")
+            .help(crate::i18n::t("Which repos the Dashboard shows, on every tab: all of them, one of your groups, or the tracked repos in no group")),
+    )
 }
 
 /// How fresh what the page shows is: the oldest of its parts, and whether any is loading.

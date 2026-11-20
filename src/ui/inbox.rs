@@ -47,7 +47,12 @@ pub fn view(s: &State, k: &Kit) -> El {
     }
     let Some(inbox) = s.inbox.data.as_ref() else { return empty(k, "") };
     let t = now();
-    let failing = inbox.runs.iter().filter(|(_, r)| r.outcome() == Outcome::Failure).count();
+    // Everything here follows the Dashboard's group picker (positions stay from the full lists,
+    // so row keys don't shift when the scope changes).
+    let my_prs: Vec<(usize, &_)> = inbox.my_prs.iter().enumerate().filter(|(_, h)| s.in_scope(&h.repository.name_with_owner)).collect();
+    let issues: Vec<(usize, &_)> = inbox.issues.iter().enumerate().filter(|(_, h)| s.in_scope(&h.repository.name_with_owner)).collect();
+    let runs: Vec<&(String, _)> = inbox.runs.iter().filter(|(slug, _)| s.in_scope(slug)).collect();
+    let failing = runs.iter().filter(|(_, r)| r.outcome() == Outcome::Failure).count();
     let notifs = s.visible_notifs();
     let queue = s.review_queue();
 
@@ -76,8 +81,8 @@ pub fn view(s: &State, k: &Kit) -> El {
         .flex_wrap()
         .child(tile("t-review", "Waiting for your review", queue.len(), Some(Outcome::Running), "PRs where someone asked for your review"))
         .child(tile("t-notif", "Unread notifications", notifs.len(), Some(Outcome::Running), "GitHub notifications: mentions, comments, CI, review requests"))
-        .child(tile("t-mine", "Your open pull requests", inbox.my_prs.len(), None, "PRs you opened that are still open"))
-        .child(tile("t-issues", "Issues assigned to you", inbox.issues.len(), None, "Open issues assigned to you, in any repo"))
+        .child(tile("t-mine", "Your open pull requests", my_prs.len(), None, "PRs you opened that are still open"))
+        .child(tile("t-issues", "Issues assigned to you", issues.len(), None, "Open issues assigned to you, in any repo"))
         .child(tile("t-failing", "Failing runs (recent)", failing, Some(Outcome::Failure), "Failed workflow runs in your most active repos"));
 
     // B2: the review queue.
@@ -125,10 +130,10 @@ pub fn view(s: &State, k: &Kit) -> El {
 
     // Your PRs and who you're waiting on.
     let mut mine = col().w_full().gap(2.0);
-    if inbox.my_prs.is_empty() {
+    if my_prs.is_empty() {
         mine = mine.child(empty(k, "No open pull requests"));
     }
-    for (i, h) in inbox.my_prs.iter().enumerate() {
+    for &(i, h) in &my_prs {
         let info = s.queue.get(&(h.repository.name_with_owner.clone(), h.number));
         let mut r = hit_row(k, h, true, t, 1000 + i, false);
         if let Some(info) = info {
@@ -185,10 +190,10 @@ pub fn view(s: &State, k: &Kit) -> El {
         );
     }
 
-    let runs_body = if inbox.runs.is_empty() {
+    let runs_body = if runs.is_empty() {
         empty(k, "No recent runs in your active repos")
     } else {
-        inbox.runs.iter().take(12).enumerate().fold(col().w_full().gap(2.0), |c, (i, (slug, r))| {
+        runs.iter().take(12).enumerate().fold(col().w_full().gap(2.0), |c, (i, (slug, r))| {
             let (slug2, id) = (slug.clone(), r.database_id);
             c.child(
                 row()
@@ -216,10 +221,10 @@ pub fn view(s: &State, k: &Kit) -> El {
             )
         })
     };
-    let issues = if inbox.issues.is_empty() {
+    let issues = if issues.is_empty() {
         empty(k, "No issues assigned to you")
     } else {
-        inbox.issues.iter().enumerate().fold(col().w_full().gap(2.0), |c, (i, h)| c.child(hit_row(k, h, false, t, 2000 + i, false)))
+        issues.iter().fold(col().w_full().gap(2.0), |c, &(i, h)| c.child(hit_row(k, h, false, t, 2000 + i, false)))
     };
 
     let left = col()

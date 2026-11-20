@@ -50,7 +50,7 @@ All	ทั้งหมด
 All branches	ทุก branch
 All caught up	ไม่มีอะไรค้างแล้ว
 All tracked ({})	ที่ติดตามทั้งหมด ({})
-All your tracked repos, or just one of your groups	repo ที่ติดตามทั้งหมด หรือเฉพาะกลุ่มใดกลุ่มหนึ่ง
+Which repos the Dashboard shows, on every tab: all of them, one of your groups, or the tracked repos in no group	repo ที่แดชบอร์ดแสดงในทุกแท็บ: ทั้งหมด เฉพาะกลุ่มใดกลุ่มหนึ่ง หรือ repo ที่ติดตามแต่ไม่อยู่ในกลุ่มใด
 Also in this range	ในช่วงนี้ยังมี
 Alt+← / Alt+→	Alt+← / Alt+→
 Appearance	การแสดงผล
@@ -1138,3 +1138,24 @@ This branch isn't on GitHub yet	สาขานี้ยังไม่มีบ
 Show the modules this commit touched	แสดงโมดูลที่คอมมิตนี้แก้ไข
 Couldn't load this commit's files	โหลดไฟล์ของคอมมิตนี้ไม่ได้
 Loading files…	กำลังโหลดไฟล์…
++{n} more ready for review	+อีก {n} รายการพร้อมรีวิว
++{n} more workflows failing	+อีก {n} workflow ที่ล้มเหลว
+A check failed on the latest commit	มี check ล้มเหลวใน commit ล่าสุด
+Actions runs	การรัน Actions
+Also {label}	อื่น ๆ {label}
+Failing on the default branch right now: open this failed run	กำลังล้มเหลวบน branch หลักตอนนี้: เปิดการรันที่ล้มเหลวนี้
+Finished workflow runs in the range, passed and failed	การรัน workflow ที่เสร็จแล้วในช่วงนี้ ทั้งผ่านและล้มเหลว
+Hide breakdowns	ซ่อนรายละเอียด
+Needs attention	ต้องดูแล
+No PR waiting for review has all its checks passed	ไม่มี PR ที่รอรีวิวซึ่งผ่าน check ทั้งหมด
+Nothing needs you: every workflow passed, no PR waiting	ไม่มีอะไรต้องทำ: ทุก workflow ผ่าน ไม่มี PR รออยู่
+PRs open right now in these repos, whatever the range	PR ที่เปิดอยู่ตอนนี้ใน repo เหล่านี้ ไม่ว่าช่วงเวลาใด
+Pass rate of finished workflow runs in the range	อัตราผ่านของการรัน workflow ที่เสร็จแล้วในช่วงนี้
+Show breakdowns (PR states, runs and commits per day, contributors)	แสดงรายละเอียด (สถานะ PR, การรันและ commit ต่อวัน, ผู้ร่วมพัฒนา)
+Where open PRs stand	สถานะของ PR ที่เปิดอยู่
+approved, mergeable	อนุมัติแล้ว พร้อม merge
+checks failing	check ล้มเหลว
+open PRs	PR ที่เปิดอยู่
+runs passed	การรันที่ผ่าน
+{} failed · {running} running now	ล้มเหลว {} · กำลังรัน {running}
+{} opened · {} merged {label}	เปิด {} · merge {} {label}

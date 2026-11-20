@@ -29,7 +29,7 @@ impl State {
             .data
             .iter()
             .flatten()
-            .filter(|n| n.unread && !self.prefs.snoozed.iter().any(|(id, until)| *id == n.id && *until > t))
+            .filter(|n| n.unread && self.in_scope(&n.repo) && !self.prefs.snoozed.iter().any(|(id, until)| *id == n.id && *until > t))
             .collect()
     }
 
@@ -74,7 +74,8 @@ impl State {
         });
     }
 
-    /// The review queue, oldest wait first: (index into review_requested, waited seconds).
+    /// The review queue in the Dashboard's scope, oldest wait first: (index into
+    /// review_requested, waited seconds).
     pub fn review_queue(&self) -> Vec<(usize, i64)> {
         let Some(inbox) = &self.inbox.data else { return Vec::new() };
         let t = now();
@@ -82,6 +83,7 @@ impl State {
             .review_requested
             .iter()
             .enumerate()
+            .filter(|(_, h)| self.in_scope(&h.repository.name_with_owner))
             .map(|(i, h)| {
                 let since = self.queue.get(&(h.repository.name_with_owner.clone(), h.number)).map(|q| q.requested_at).filter(|t| *t > 0);
                 (i, t - since.or_else(|| parse_time(&h.updated_at)).unwrap_or(t))

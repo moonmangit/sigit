@@ -56,10 +56,10 @@ use model::{Branch, Cleanup, Commit, CommitDetail, Envs, Inbox, LocalStatus, Not
 // State
 // ---------------------------------------------------------------------------------------------
 
-/// Which repos the Comparisons tab shows: one of your sidebar groups, or the tracked repos in no
-/// group. `None` in State means all.
+/// Which repos the Dashboard's tabs show (picked on its tab bar): one of your sidebar groups, or
+/// the tracked repos in no group. `None` in State means all.
 #[derive(Clone, Debug, PartialEq)]
-pub enum CompareScope {
+pub enum RepoScope {
     Group(String),
     Other,
 }
@@ -444,8 +444,6 @@ pub struct State {
     /// at once while it refreshes.
     pub pulse_seen: HashMap<String, (i64, pulse::Pulse)>,
     pub pulse_preset: pulse::Preset,
-    /// None: every tracked repo; Some(group): just that group's repos.
-    pub pulse_scope: Option<String>,
     pub pulse_from: TextEdit,
     pub pulse_to: TextEdit,
     pub tracked_open: bool,
@@ -498,8 +496,8 @@ pub struct State {
     pub layouts: HashMap<(String, String), Load<modules::Layout>>,
     /// How the open lane's changed code is shown.
     pub lane_view: LaneView,
-    /// The Comparisons tab's group filter (None: all groups). Kept for the session.
-    pub compare_scope: Option<CompareScope>,
+    /// The Dashboard's group filter, shared by its tabs (None: all). Kept for the session.
+    pub repo_scope: Option<RepoScope>,
     pub compare_edit: Option<CompareEdit>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
     /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
@@ -614,7 +612,6 @@ impl State {
             pulse_next: None,
             pulse_seen: HashMap::new(),
             pulse_preset: pulse::Preset::Week,
-            pulse_scope: None,
             pulse_from: TextEdit::new(""),
             pulse_to: TextEdit::new(""),
             tracked_open: false,
@@ -642,7 +639,7 @@ impl State {
             avatars_asked: Default::default(),
             layouts: HashMap::new(),
             lane_view: LaneView::default(),
-            compare_scope: None,
+            repo_scope: None,
             compare_edit: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
@@ -1413,11 +1410,41 @@ impl State {
         self.refresh_compare();
     }
 
+    /// The scope that applies now: the picked one, unless its group no longer exists.
+    pub fn scope_now(&self) -> Option<&RepoScope> {
+        self.repo_scope.as_ref().filter(|sc| match sc {
+            RepoScope::Group(g) => self.prefs.groups.iter().any(|x| x.name == *g),
+            RepoScope::Other => true,
+        })
+    }
+
+    /// Whether `slug` is in the Dashboard's picked scope (any repo, with no scope).
+    pub fn in_scope(&self, slug: &str) -> bool {
+        match self.scope_now() {
+            None => true,
+            Some(RepoScope::Group(g)) => self.prefs.groups.iter().any(|x| x.name == *g && x.repos.iter().any(|r| r == slug)),
+            Some(RepoScope::Other) => !self.prefs.groups.iter().any(|x| x.repos.iter().any(|r| r == slug)),
+        }
+    }
+
+    /// Pick the Dashboard's scope: closes an open lane pane and reloads Activity for it.
+    pub fn set_repo_scope(&mut self, scope: Option<RepoScope>) {
+        if scope == self.repo_scope {
+            return;
+        }
+        self.repo_scope = scope;
+        self.compare_sel = None;
+        self.queue_sel = 0;
+        if self.pulse_key != self.pulse_key_now() {
+            self.refresh_pulse();
+        }
+    }
+
     /// The repos the Activity page shows now (all tracked, or one of your groups).
     pub fn pulse_repos(&self) -> Vec<String> {
-        match &self.pulse_scope {
-            Some(g) => self.prefs.groups.iter().find(|x| x.name == *g).map(|x| x.repos.clone()).unwrap_or_default(),
-            None => self.tracked(),
+        match self.scope_now() {
+            Some(RepoScope::Group(g)) => self.prefs.groups.iter().find(|x| x.name == *g).map(|x| x.repos.clone()).unwrap_or_default(),
+            _ => self.tracked().into_iter().filter(|r| self.in_scope(r)).collect(),
         }
     }
 
@@ -1470,7 +1497,7 @@ impl State {
         // its own would never match the cache and would reload the page from scratch.
         let r = self.pulse_range();
         let end = if self.pulse_preset == pulse::Preset::Custom { format!("{}..{}", self.pulse_from.text.trim(), self.pulse_to.text.trim()) } else { String::new() };
-        format!("{:?}|{:?}|{}|{end}|{}", self.pulse_scope, self.pulse_preset, r.since, self.pulse_repos().join(","))
+        format!("{:?}|{:?}|{}|{end}|{}", self.scope_now(), self.pulse_preset, r.since, self.pulse_repos().join(","))
     }
 
     pub fn refresh_pulse(&mut self) {
@@ -2613,7 +2640,7 @@ fn main() {
                 s.show(Page::Inbox);
                 compare_fixture(s);
                 s.compare_sel = None;
-                s.compare_scope = Some(CompareScope::Group("Back office".into()));
+                s.repo_scope = Some(RepoScope::Group("Back office".into()));
             }),
             ("comparisons-edit", |s: &mut State| {
                 s.show(Page::Inbox);
