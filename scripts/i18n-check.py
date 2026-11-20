@@ -18,7 +18,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FILES = sorted((ROOT / "src/ui").glob("*.rs")) + [ROOT / "src" / n for n in [
     "main.rs", "daily.rs", "focus.rs", "settings.rs", "onboarding.rs", "update.rs", "guard.rs",
-    "config.rs", "pulse.rs", "risk.rs", "model.rs", "activity.rs", "compare.rs"]]
+    "config.rs", "pulse.rs", "risk.rs", "model.rs", "activity.rs", "compare.rs", "route.rs"]]
 
 LITERAL = re.compile(r'(?<![A-Za-z0-9_#])"((?:[^"\\]|\\.)*)"')
 # Literals right after these are code, not words on screen.

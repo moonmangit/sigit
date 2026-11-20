@@ -485,7 +485,7 @@ fn route(s: &State, k: &Kit) -> El {
                 .w_full()
                 .gap(10.0)
                 .child(muted(k, "The branches a feature branch's PRs go through, in order. A repo can have its own route from the Branches page. {branch}, {target} and {subject} fill in.").wrap().w_full())
-                .child(super::route::route_editor(s, k, &s.route_rows, |s| &mut s.route_rows))
+                .child(super::route::route_editor(s, k, &s.route_rows, |s| &mut s.route_rows, "set-route"))
                 .child(foot),
         )],
     )

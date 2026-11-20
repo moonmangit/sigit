@@ -202,12 +202,12 @@ fn cell(s: &mut State, edit: Rows, i: usize, f: Cell) -> &mut TextEdit {
 /// The route's steps as editable cards (target branch, Draft, the preset's fields, and the
 /// buttons that move or remove it) and "Add target". `edit` says which rows of the state it
 /// edits, so Settings and the per-repo dialog share it.
-pub fn route_editor(_s: &State, k: &Kit, rows: &[RouteRow], edit: Rows) -> El {
+pub fn route_editor(_s: &State, k: &Kit, rows: &[RouteRow], edit: Rows, pfx: &str) -> El {
     let n = rows.len();
     let mut list = col().w_full().gap(10.0);
     for (i, r) in rows.iter().enumerate() {
         let input = |e: &TextEdit, label: &str, key: &str, f: Cell| {
-            TextInput::new(e).label(crate::i18n::t(label)).width(None).on_edit(move |s: &mut State| cell(s, edit, i, f)).build(k).key(tf!("{key}-{i}"))
+            TextInput::new(e).label(crate::i18n::t(label)).width(None).on_edit(move |s: &mut State| cell(s, edit, i, f)).build(k).key(tf!("{pfx}-{key}-{i}"))
         };
         let icon = |g: &'static rune::Icon, label: &str, off: bool, key: &str, press: fn(&mut State, Rows, usize)| {
             IconButton::new(g)
@@ -217,7 +217,7 @@ pub fn route_editor(_s: &State, k: &Kit, rows: &[RouteRow], edit: Rows) -> El {
                 .disabled(off)
                 .on_press(move |s: &mut State| press(s, edit, i))
                 .build(k)
-                .key(tf!("{key}-{i}"))
+                .key(tf!("{pfx}-{key}-{i}"))
         };
         let draft = Switch::new(r.draft)
             .label(crate::i18n::t("Draft"))
@@ -228,9 +228,9 @@ pub fn route_editor(_s: &State, k: &Kit, rows: &[RouteRow], edit: Rows) -> El {
                 }
             })
             .build(k)
-            .key(tf!("route-draft-{i}"));
+            .key(tf!("{pfx}-draft-{i}"));
         let card = col()
-            .key(tf!("route-row-{i}"))
+            .key(tf!("{pfx}-row-{i}"))
             .w_full()
             .gap(8.0)
             .px(12.0)
@@ -256,7 +256,7 @@ pub fn route_editor(_s: &State, k: &Kit, rows: &[RouteRow], edit: Rows) -> El {
             )
             .child(input(&r.title, "Title", "route-title", |r| &mut r.title))
             .child(text(crate::i18n::t("Body")).font(k.ty.small_medium).color(k.c.text_base))
-            .child(TextArea::new(&r.body).rows(3).width(None).on_edit(move |s: &mut State| cell(s, edit, i, |r| &mut r.body)).build(k).key(tf!("route-body-{i}")))
+            .child(TextArea::new(&r.body).rows(3).width(None).on_edit(move |s: &mut State| cell(s, edit, i, |r| &mut r.body)).build(k).key(tf!("{pfx}-body-{i}")))
             .child(
                 row()
                     .w_full()
@@ -273,7 +273,7 @@ pub fn route_editor(_s: &State, k: &Kit, rows: &[RouteRow], edit: Rows) -> El {
                 .variant(ButtonVariant::Outline)
                 .on_press(move |s: &mut State| edit(s).push(RouteRow::blank()))
                 .build(k)
-                .key("route-add"),
+                .key(tf!("{pfx}-add")),
         ),
     )
 }
@@ -302,7 +302,7 @@ pub fn route_edit_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         .pb(16.0)
         .gap(12.0)
         .child(muted(k, crate::i18n::t("This replaces the general route for this repo. {branch}, {target} and {subject} fill in.")).wrap())
-        .child(col().w_full().h(440.0).child(scroll("route-edit-scroll", route_editor(s, k, rows, dialog_rows))))
+        .child(col().w_full().h(440.0).child(scroll("route-edit-scroll", route_editor(s, k, rows, dialog_rows, "dlg-route"))))
         .child(
             row()
                 .w_full()
