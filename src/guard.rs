@@ -377,10 +377,12 @@ impl State {
         match action {
             Action::Merge { slug, .. } => {
                 self.refresh_prs();
-                // A merge changes every branch's PRs: refetch each when it's next needed.
+                // A merge changes every branch's PRs and comparisons: refetch each when it's
+                // next needed, the open form's pair now.
                 self.branch_prs.retain(|(sl, _), _| sl != slug);
-                if let Some(head) = self.branch_lane_sel.as_ref().filter(|(sl, _)| sl == slug).map(|(_, b)| b.clone()) {
-                    self.reload_branch_prs(slug, &head);
+                self.pr_compare.retain(|(sl, _, _), _| sl != slug);
+                if self.pr_draft.as_ref().is_some_and(|d| &d.slug == slug) {
+                    self.load_pr_pair(false);
                 }
             }
             Action::Close { .. } | Action::Approve { .. } | Action::RequestChanges { .. } | Action::Comment { .. } => self.refresh_prs(),
@@ -401,6 +403,8 @@ impl State {
                 self.save_prefs();
                 self.refresh_prs();
                 self.reload_branch_prs(&spec.slug, &spec.head);
+                // The new PR changes what the repo's comparisons list.
+                self.pr_compare.retain(|(sl, _, _), _| sl != &spec.slug);
             }
             Action::Rerun { .. } | Action::CancelRun { .. } => self.refresh_runs(),
             Action::Checkout { slug, name, .. } => {

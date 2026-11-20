@@ -17,17 +17,9 @@ fn field(s: &mut State, f: fn(&mut crate::PrDraft) -> &mut TextEdit) -> &mut Tex
     }
 }
 
-/// The repo's branch names, local and remote, each once, without `origin/`, A-Z.
+/// The repo's branch names, from GitHub and the clone, each once, without `origin/`, A-Z.
 fn branch_names(s: &State, slug: &str) -> Vec<String> {
-    let mut v: Vec<String> = s
-        .data
-        .get(slug)
-        .and_then(|d| d.branches.data.as_ref())
-        .map(|l| l.iter().map(|b| crate::route::head_name(&b.name).to_owned()).filter(|n| n != "HEAD").collect())
-        .unwrap_or_default();
-    v.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
-    v.dedup();
-    v
+    s.pr_branch_names(slug).unwrap_or_default()
 }
 
 /// "3 commits ahead", a spinner while the comparison loads, nothing if it failed.
@@ -36,7 +28,8 @@ fn comparison_line(s: &State, k: &Kit, d: &crate::PrDraft) -> Option<El> {
         return None;
     }
     if let Some(n) = s.pr_ahead() {
-        return Some(muted(k, tf!("{n} commits ahead")).key("prd-ahead"));
+        let line = if n == 1 { crate::i18n::t("1 commit ahead") } else { tf!("{n} commits ahead") };
+        return Some(muted(k, line).key("prd-ahead"));
     }
     let loading = s.pr_compare.get(&(d.slug.clone(), d.from.clone(), d.to.clone())).is_some_and(|l| l.loading);
     loading.then(|| row().key("prd-loading").gap(8.0).center_y().child(Spinner::new().size(12.0).build(k)).child(muted(k, crate::i18n::t("Comparing…"))))

@@ -434,9 +434,16 @@ pub fn create_pr_cmd(p: &crate::route::PrSpec) -> Cmd {
     c
 }
 
-/// Every PR (any state) opened from `head`, newest information for the route's progress.
+/// Every PR (any state) opened from `head`: whether one is already open into the form's target.
 pub fn branch_prs(slug: &str, head: &str) -> Result<Vec<crate::route::BranchPr>, String> {
     gh_json(&["pr", "list", "-R", slug, "--head", head, "--state", "all", "--limit", "50", "--json", "number,state,isDraft,baseRefName,createdAt,mergedAt,url"])
+}
+
+/// The names of every branch `slug` has on GitHub (one `--jq` line per branch, so pages
+/// join up; a paginated JSON array would not parse as one).
+pub fn branch_names(slug: &str) -> Result<Vec<String>, String> {
+    let out = run("gh", &["api", &format!("repos/{slug}/branches?per_page=100"), "--paginate", "--jq", ".[].name"], None)?;
+    Ok(out.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect())
 }
 
 pub fn close_cmd(slug: &str, n: u64) -> Cmd {

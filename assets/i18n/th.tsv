@@ -1163,7 +1163,6 @@ Open PR {head} → {base}	เปิด PR {head} → {base}
 Opened #{n} → {base}	เปิด #{n} → {base} แล้ว
 Opens a PR; you can close it	เปิด PR ใหม่ ปิดทีหลังได้
 {base} is a production branch	{base} เป็นสาขา production
-Push {head} to GitHub first	push {head} ขึ้น GitHub ก่อน
 Open PR	เปิด PR
 Body	เนื้อหา
 Reviewers	ผู้รีวิว
@@ -1184,4 +1183,5 @@ Open a pull request from any branch into another	เปิด pull request จ�
 Open a pull request from this branch	เปิด pull request จากสาขานี้
 Pick a branch	เลือกสาขา
 Use last commit	ใช้คอมมิตล่าสุด
+1 commit ahead	นำหน้า 1 คอมมิต
 {n} commits ahead	นำหน้า {n} คอมมิต
