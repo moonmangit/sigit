@@ -100,6 +100,60 @@ pub fn kept_for(prefs: &Prefs, slug: &str, head: &str, base: &str) -> Option<Str
     targets.get(i + 1).map(|t| t.base.clone())
 }
 
+/// Where one route step stands, from its newest PR alone.
+#[derive(Clone, Debug, PartialEq)]
+pub enum StepState {
+    None,
+    Open { draft: bool },
+    Merged,
+    Closed,
+}
+
+/// One route target with its newest PR, how many PRs the branch has into it, and the state.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Step {
+    pub base: String,
+    pub latest: Option<BranchPr>,
+    pub count: usize,
+    pub state: StepState,
+}
+
+/// One `Step` per target in route order, plus the open PRs into bases that aren't on the route.
+pub fn steps(targets: &[RouteTarget], prs: &[BranchPr]) -> (Vec<Step>, Vec<BranchPr>) {
+    let steps = targets
+        .iter()
+        .map(|t| {
+            let mine: Vec<&BranchPr> = prs.iter().filter(|p| p.base_ref_name == t.base).collect();
+            let latest = mine.iter().max_by(|a, b| a.created_at.cmp(&b.created_at)).map(|p| (*p).clone());
+            let state = match latest.as_ref().map(|p| (p.state.as_str(), p.is_draft)) {
+                Some(("OPEN", draft)) => StepState::Open { draft },
+                Some(("MERGED", _)) => StepState::Merged,
+                Some(_) => StepState::Closed,
+                None => StepState::None,
+            };
+            Step { base: t.base.clone(), latest, count: mine.len(), state }
+        })
+        .collect();
+    let off = prs
+        .iter()
+        .filter(|p| p.state == "OPEN" && !targets.iter().any(|t| t.base == p.base_ref_name))
+        .cloned()
+        .collect();
+    (steps, off)
+}
+
+/// A PR can be opened for step `i` when it has none (or a closed one) and the step before is merged.
+pub fn can_open(steps: &[Step], i: usize) -> bool {
+    let free = matches!(steps.get(i).map(|s| &s.state), Some(StepState::None | StepState::Closed));
+    free && blocked_by(steps, i).is_none()
+}
+
+/// The earlier step that must merge first: the one before `i` when it isn't merged.
+pub fn blocked_by(steps: &[Step], i: usize) -> Option<String> {
+    let prev = steps.get(i.checked_sub(1)?)?;
+    (prev.state != StepState::Merged).then(|| prev.base.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +234,69 @@ mod tests {
         let p: Prefs = serde_json::from_str("{}").unwrap();
         assert!(p.pr_route.is_empty());
         assert!(p.pr_route_overrides.is_empty());
+    }
+
+    fn pr(n: u64, state: &str, draft: bool, base: &str, at: &str) -> BranchPr {
+        BranchPr {
+            number: n,
+            state: state.into(),
+            is_draft: draft,
+            base_ref_name: base.into(),
+            created_at: at.into(),
+            url: String::new(),
+        }
+    }
+
+    fn route() -> Vec<RouteTarget> {
+        vec![t("staging"), t("main")]
+    }
+
+    #[test]
+    fn steps_follow_newest_pr() {
+        let prs = [
+            pr(160, "OPEN", false, "staging", "2026-11-19T10:00:00Z"),
+            pr(142, "MERGED", false, "staging", "2026-11-17T10:00:00Z"),
+        ];
+        let (s, _) = steps(&route(), &prs);
+        assert_eq!(s[0].state, StepState::Open { draft: false });
+        assert_eq!(s[0].count, 2);
+        assert_eq!(s[0].latest.as_ref().unwrap().number, 160);
+        assert_eq!(s[1].state, StepState::None);
+        assert!(!can_open(&s, 1));
+        assert_eq!(blocked_by(&s, 1), Some("staging".to_string()));
+    }
+
+    #[test]
+    fn steps_merged_unlocks_next() {
+        let prs = [pr(142, "MERGED", false, "staging", "2026-11-17T10:00:00Z")];
+        let (s, _) = steps(&route(), &prs);
+        assert!(can_open(&s, 1));
+        assert_eq!(blocked_by(&s, 1), None);
+        assert!(!can_open(&s, 0));
+    }
+
+    #[test]
+    fn closed_step_can_reopen() {
+        let prs = [pr(150, "CLOSED", false, "staging", "2026-11-17T10:00:00Z")];
+        let (s, _) = steps(&route(), &prs);
+        assert_eq!(s[0].state, StepState::Closed);
+        assert!(can_open(&s, 0));
+    }
+
+    #[test]
+    fn draft_state_kept() {
+        let prs = [pr(170, "OPEN", true, "main", "2026-11-19T10:00:00Z")];
+        let (s, _) = steps(&route(), &prs);
+        assert_eq!(s[1].state, StepState::Open { draft: true });
+    }
+
+    #[test]
+    fn steps_off_route_open_prs_listed() {
+        let prs = [
+            pr(180, "OPEN", false, "hotfix", "2026-11-19T10:00:00Z"),
+            pr(181, "MERGED", false, "hotfix", "2026-11-18T10:00:00Z"),
+        ];
+        let (_, off) = steps(&route(), &prs);
+        assert_eq!(off.iter().map(|p| p.number).collect::<Vec<_>>(), vec![180]);
     }
 }
