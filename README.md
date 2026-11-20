@@ -181,6 +181,8 @@ PRs are counted from up to 500 commits per comparison. Click a lane to list its 
 a one-line summary and size; switch to **By contributor** to see who wrote them (name, company,
 profile), and click a folder in **Changed code** to show only the PRs that touched it.
 
+**New pull request.** Open one from the **New pull request** button on a repo's Pull requests page, or **Open PR** for the selected branch on Branches. Pick any branch as From and any as To; the form shows how many commits ahead the pair is, starts with the title from the last commit (**Use last commit**), and **List commits** fills the body. It blocks with a reason when there's nothing to merge, the branch isn't pushed, a PR between those two is already open (click to open it), or the title is blank. The target, draft/ready, reviewers, assignees and labels are remembered per repo, and every PR still goes through a confirm step showing the exact `gh pr create` command; edits survive a cancel or a failure.
+
 **Clone folders.** Add folders in Settings → Git; they're scanned at launch and on Rescan now,
 5 levels deep, skipping hidden folders, `node_modules`, `target`, `vendor`, `dist` and `build`.
 Clones found are added to your repos. Scanning never writes to a clone.
