@@ -95,3 +95,20 @@ that reads better. That's the builder's call.
   defaulting to on again.
 - Every string goes through `t()`/`tf!()` with a Thai row (`python scripts/i18n-check.py` gives
   `0 without Thai`). Remove the Thai rows for deleted strings.
+
+## Addendum: pickers for reviewers, assignees and labels (approved 2026-11-20)
+
+- Reviewers and Assignees show the chosen names as removable chips, plus "+ Add reviewer" /
+  "+ Add assignee", a searchable `rune_kit::Combobox`. It lists the repo's assignable users,
+  shown as login and name (`gh api graphql` `repository.assignableUsers`). Assignees lists `@me`
+  first. When the search text matches no option, a last option `Add "<text>" as typed` adds it
+  as typed, which covers `org/team` and anyone the list misses.
+- Labels shows the chosen labels as chips in their GitHub colour, plus "+ Add label", a
+  searchable list of the repo's labels (`gh label list --json name,color,description`). Typed
+  entries aren't allowed, because an unknown label makes GitHub reject the PR.
+- Both lists load when the form opens and are cached per repo for the session (`Load`). While
+  they load, or if loading fails, people can still be added as typed, and the label picker says
+  it couldn't load.
+- Storage doesn't change: the chips edit the same comma-separated `PrDraft` fields, so
+  `PrSpec`, remembered values and `gh pr create` are unchanged. Chosen names aren't listed again
+  in the picker.
