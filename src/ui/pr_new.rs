@@ -2,7 +2,7 @@
 //! with the helpers (comparison, fill buttons, blocked reason). Create PR hands it to the guard.
 
 use rune::{El, TextEdit, col, row, spacer};
-use rune_kit::{Button, ButtonVariant, Dialog, Kit, SegmentedControl, Select, Spinner, TextArea, TextInput};
+use rune_kit::{Button, ButtonVariant, Dialog, Kit, SegmentedControl, Select, Spinner, TextArea, TextField};
 
 use super::muted;
 use crate::i18n::text;
@@ -57,8 +57,9 @@ fn picker(s: &State, k: &Kit, which: u8, label: &str, current: &str, key: &str) 
 pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let Some(d) = &s.pr_draft else { return };
     let blocked = s.pr_blocked();
-    let input = |e: &TextEdit, label: &str, key: &str, f: fn(&mut crate::PrDraft) -> &mut TextEdit| {
-        TextInput::new(e).label(crate::i18n::t(label)).width(None).on_edit(move |s: &mut State| field(s, f)).build(k).key(key.to_owned())
+    // A visible label above each box, and a hint inside it while it's empty.
+    let input = |e: &TextEdit, label: &str, hint: &str, key: &str, f: fn(&mut crate::PrDraft) -> &mut TextEdit| {
+        TextField::new(crate::i18n::t(label), e).placeholder(crate::i18n::t(hint)).on_edit(move |s: &mut State| field(s, f)).build(k).key(key.to_owned())
     };
     let mut body = col().w_full().px(16.0).pb(16.0).gap(12.0).child(muted(k, d.slug.clone())).child(
         row()
@@ -88,8 +89,8 @@ pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             row()
                 .w_full()
                 .gap(8.0)
-                .center_y()
-                .child(row().w(0.0).grow(1.0).child(input(&d.title, "Title", "prd-title", |d| &mut d.title)))
+                .items_end()
+                .child(row().w(0.0).grow(1.0).child(input(&d.title, "Title", "What this pull request does", "prd-title", |d| &mut d.title)))
                 .child(Button::new(crate::i18n::t("Use last commit")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.fill_pr_title()).build(k).key("prd-fill-title")),
         )
         .child(
@@ -113,10 +114,10 @@ pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             row()
                 .w_full()
                 .gap(8.0)
-                .child(row().w(0.0).grow(1.0).child(input(&d.reviewers, "Reviewers", "prd-reviewers", |d| &mut d.reviewers)))
-                .child(row().w(0.0).grow(1.0).child(input(&d.assignees, "Assignees", "prd-assignees", |d| &mut d.assignees))),
+                .child(row().w(0.0).grow(1.0).child(input(&d.reviewers, "Reviewers", "Usernames or org/team, comma-separated", "prd-reviewers", |d| &mut d.reviewers)))
+                .child(row().w(0.0).grow(1.0).child(input(&d.assignees, "Assignees", "@me or usernames, comma-separated", "prd-assignees", |d| &mut d.assignees))),
         )
-        .child(input(&d.labels, "Labels", "prd-labels", |d| &mut d.labels));
+        .child(input(&d.labels, "Labels", "Existing labels, e.g. bug, release", "prd-labels", |d| &mut d.labels));
     if let Some(why) = &blocked {
         let line = match s.pr_already_open() {
             Some(n) => {

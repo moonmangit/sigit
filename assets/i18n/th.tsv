@@ -1185,3 +1185,7 @@ Pick a branch	เลือกสาขา
 Use last commit	ใช้คอมมิตล่าสุด
 1 commit ahead	นำหน้า 1 คอมมิต
 {n} commits ahead	นำหน้า {n} คอมมิต
+@me or usernames, comma-separated	@me หรือชื่อผู้ใช้ คั่นด้วยจุลภาค
+Existing labels, e.g. bug, release	ป้ายกำกับที่มีอยู่แล้ว เช่น bug, release
+Usernames or org/team, comma-separated	ชื่อผู้ใช้หรือ org/team คั่นด้วยจุลภาค
+What this pull request does	pull request นี้ทำอะไร
