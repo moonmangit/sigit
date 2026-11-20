@@ -160,6 +160,12 @@ pub mod ttl {
 }
 
 /// Park the open detail (with its key) in `memo` so coming back to it is instant.
+/// Fixture merges use the same default as the real buttons: the PR's own head and base.
+fn fixture_deletes(s: &State, number: u64) -> bool {
+    let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|v| v.iter().find(|p| p.number == number));
+    pr.map_or(true, |p| route::merge_deletes_branch(&s.prefs, "anomalyco/rune", &p.head_ref_name, &p.base_ref_name))
+}
+
 fn stash<K: std::hash::Hash + Eq, T>(memo: &mut HashMap<K, Load<T>>, cur: &mut Load<T>, key: Option<K>) {
     let mut prev = std::mem::take(cur);
     if let Some(k) = key
@@ -2696,9 +2702,9 @@ fn main() {
             ("merge", |s: &mut State| {
                 // Only the risk check runs (read-only); nothing is merged without the dialog.
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone()));
-                if let Some((number, title)) = pr {
-                    s.request(guard::Action::Merge { slug: "anomalyco/rune".into(), number, title, method: gh::MergeMethod::Squash, delete_branch: true });
+                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone(), route::merge_deletes_branch(&s.prefs, "anomalyco/rune", &p.head_ref_name, &p.base_ref_name)));
+                if let Some((number, title, delete_branch)) = pr {
+                    s.request(guard::Action::Merge { slug: "anomalyco/rune".into(), number, title, method: gh::MergeMethod::Squash, delete_branch });
                 }
             }),
             ("palette", |s: &mut State| {
@@ -2800,7 +2806,7 @@ fn main() {
             ("cmd-countdown", |s: &mut State| {
                 // A merge counting down (an hour away, so nothing ever runs).
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let action = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: true };
+                let action = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: fixture_deletes(s, 1004) };
                 s.grace = Some(guard::Grace { action, at: Instant::now() + Duration::from_secs(3600) });
             }),
             ("aged-prs", |s: &mut State| {
@@ -2886,15 +2892,15 @@ fn main() {
                 // The merge dialog with Settings → Show gh / git commands off.
                 s.prefs.show_commands = false;
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone()));
-                if let Some((number, title)) = pr {
-                    s.request(guard::Action::Merge { slug: "anomalyco/rune".into(), number, title, method: gh::MergeMethod::Squash, delete_branch: true });
+                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone(), route::merge_deletes_branch(&s.prefs, "anomalyco/rune", &p.head_ref_name, &p.base_ref_name)));
+                if let Some((number, title, delete_branch)) = pr {
+                    s.request(guard::Action::Merge { slug: "anomalyco/rune".into(), number, title, method: gh::MergeMethod::Squash, delete_branch });
                 }
             }),
             ("toast-commands", |s: &mut State| {
                 // What a finished action's result looks like (nothing actually runs).
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let a = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: true };
+                let a = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: fixture_deletes(s, 1004) };
                 let ran = s.ran_lines(&a.command_lines(false));
                 s.toast(format!("✓ Squashed and merged pull request #1004{ran}"), false);
             }),
