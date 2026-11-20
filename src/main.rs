@@ -36,6 +36,7 @@ mod modules;
 mod model;
 mod pulse;
 mod risk;
+mod route;
 mod scan;
 mod ui;
 

@@ -121,6 +121,10 @@ pub struct Prefs {
     pub comparison_overrides: Vec<crate::compare::Override>,
     /// Folders whose git clones the Dashboard scan looks through.
     pub clone_folders: Vec<PathBuf>,
+    /// The ordered target branches a feature branch ships through, each with a PR preset.
+    pub pr_route: Vec<crate::route::RouteTarget>,
+    /// Per-repo routes that replace the general one.
+    pub pr_route_overrides: Vec<crate::route::RepoRoute>,
 }
 
 impl Default for Prefs {
@@ -150,6 +154,8 @@ impl Default for Prefs {
             comparisons: crate::compare::defaults(),
             comparison_overrides: Vec::new(),
             clone_folders: Vec::new(),
+            pr_route: Vec::new(),
+            pr_route_overrides: Vec::new(),
         }
     }
 }
