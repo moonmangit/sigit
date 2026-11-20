@@ -1177,3 +1177,11 @@ Route for this repo…	เส้นทางของรีโปนี้…
 Set up a PR route in Settings → Git to open PRs from here	ตั้งเส้นทาง PR ที่ การตั้งค่า → Git เพื่อเปิด PR จากที่นี่
 after {prev} is merged	หลังจาก {prev} merge แล้ว
 no PR yet	ยังไม่มี PR
+preset: {base} (this repo)	พรีเซ็ต: {base} (รีโปนี้)
+preset: {base} (general)	พรีเซ็ต: {base} (ทั่วไป)
+Push {head} to GitHub first	push {head} ขึ้น GitHub ก่อน
+Open PR	เปิด PR
+Body	เนื้อหา
+Reviewers	ผู้รีวิว
+Assignees	ผู้รับผิดชอบ
+Labels	ป้ายกำกับ

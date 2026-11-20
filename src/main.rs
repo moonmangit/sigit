@@ -294,6 +294,23 @@ pub struct CompareEdit {
     pub rows: Vec<(TextEdit, TextEdit, bool)>,
 }
 
+/// The open-PR dialog: the fields of one route step's PR, filled from its preset and editable.
+pub struct PrDraft {
+    pub slug: String,
+    pub head: String,
+    pub base: String,
+    pub draft: bool,
+    pub title: TextEdit,
+    pub body: TextEdit,
+    pub reviewers: TextEdit,
+    pub assignees: TextEdit,
+    pub labels: TextEdit,
+    /// The preset came from this repo's own route, not the general one.
+    pub from_repo: bool,
+    /// The earlier route step that isn't merged yet, if any.
+    pub after_unmerged: Option<String>,
+}
+
 /// The "New group" / "Rename group" dialog.
 pub struct GroupEdit {
     /// The group being renamed; None makes a new one.
@@ -508,6 +525,7 @@ pub struct State {
     /// The Dashboard's group filter, shared by its tabs (None: all). Kept for the session.
     pub repo_scope: Option<RepoScope>,
     pub compare_edit: Option<CompareEdit>,
+    pub pr_draft: Option<PrDraft>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
     /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
     pub cmp_rows: Vec<(TextEdit, TextEdit, TextEdit)>,
@@ -651,6 +669,7 @@ impl State {
             lane_view: LaneView::default(),
             repo_scope: None,
             compare_edit: None,
+            pr_draft: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
             tracked_q: TextEdit::new(""),
@@ -1646,9 +1665,51 @@ impl State {
         route::route_for(&self.prefs, slug).0.iter().all(|t| t.base != head) && default != Some(head)
     }
 
-    /// Open the dialog that creates the PR for route step `step` of `head`. The dialog is a
-    /// later task.
-    pub fn open_pr_dialog(&mut self, _slug: &str, _head: &str, _step: usize) {}
+    /// Open the dialog that creates the PR for route step `step` of `head`, its fields filled
+    /// from that step's preset.
+    pub fn open_pr_dialog(&mut self, slug: &str, head: &str, step: usize) {
+        let (targets, from_repo) = route::route_for(&self.prefs, slug);
+        let Some(t) = targets.get(step).cloned() else { return };
+        let branches = self.data.get(slug).and_then(|d| d.branches.data.as_ref());
+        let remote = format!("origin/{head}");
+        let subject = branches
+            .and_then(|l| l.iter().find(|b| !b.remote && b.name == head).or_else(|| l.iter().find(|b| b.remote && b.name == remote)))
+            .map(|b| b.subject.clone())
+            .unwrap_or_default();
+        let prs = self.route_prs.get(&(slug.to_owned(), head.to_owned())).and_then(|l| l.data.as_deref()).unwrap_or(&[]);
+        let after_unmerged = route::blocked_by(&route::steps(targets, prs).0, step);
+        let fill = |text: &str| TextEdit::new(&route::fill(text, head, &t.base, &subject));
+        self.pr_draft = Some(PrDraft {
+            slug: slug.to_owned(),
+            head: head.to_owned(),
+            base: t.base.clone(),
+            draft: t.draft,
+            title: TextEdit::new(&route::title_for(&t, head, &subject)),
+            body: fill(&t.body),
+            reviewers: fill(&t.reviewers),
+            assignees: fill(&t.assignees),
+            labels: fill(&t.labels),
+            from_repo,
+            after_unmerged,
+        });
+    }
+
+    /// Hand the dialog's PR to the guard's confirm flow and close the dialog.
+    pub fn submit_pr_draft(&mut self) {
+        let Some(d) = self.pr_draft.take() else { return };
+        let spec = route::PrSpec {
+            slug: d.slug,
+            head: d.head,
+            base: d.base,
+            draft: d.draft,
+            title: d.title.text.clone(),
+            body: d.body.text.clone(),
+            reviewers: d.reviewers.text.clone(),
+            assignees: d.assignees.text.clone(),
+            labels: d.labels.text.clone(),
+        };
+        self.request(guard::Action::CreatePr { spec, after_unmerged: d.after_unmerged });
+    }
 
     /// Reload the PR list (and the open PR).
     pub fn refresh_prs(&mut self) {
@@ -2712,6 +2773,12 @@ fn main() {
                 s.branch_lane_sel = Some(("acme/api".into(), "wip/local".into()));
                 s.route_prs.insert(("acme/api".into(), "wip/local".into()), Load { data: Some(vec![]), ..Default::default() });
             }),
+            ("route-dialog", |s: &mut State| {
+                // feat-a → main with a preset, the dialog open.
+                route_fixture(s, &[("staging", "MERGED", false, 142, "2026-11-17T10:00:00Z")], true);
+                s.prefs.pr_route[1] = route::RouteTarget { base: "main".into(), draft: true, title: "[main] {branch}".into(), body: "Ships {subject}".into(), labels: "release".into(), ..Default::default() };
+                s.open_pr_dialog("acme/api", "feat/rate-limit", 1);
+            }),
             ("comparisons-modules-open", |s: &mut State| {
                 // The lane pane with the Modules section expanded.
                 s.show(Page::Inbox);
@@ -3491,6 +3558,50 @@ mod cache_tests {
         // The guard's own handling of a command that failed.
         s.action_finished(action.clone(), action.label(), None, false, (Err(entry.detail.clone()), entry, Ok(())));
         assert!(s.route_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
+    }
+
+    /// route_state with a staging → main route whose main step has a preset, `feat-a` pushed
+    /// and with no PRs yet.
+    fn dialog_state() -> State {
+        let mut s = route_state();
+        s.prefs.pr_route[1] = route::RouteTarget { base: "main".into(), draft: true, title: "[main] {branch}".into(), body: "Ships {subject}".into(), labels: "release".into(), ..Default::default() };
+        let b = |name: &str, remote: bool| model::Branch { name: name.into(), remote, subject: "add login".into(), ..Default::default() };
+        s.rd_mut("a/b").branches = Load { data: Some(vec![b("feat-a", false), b("origin/feat-a", true)]), ..Default::default() };
+        s.route_prs.insert(("a/b".into(), "feat-a".into()), Load { data: Some(vec![]), ..Default::default() });
+        s
+    }
+
+    #[test]
+    fn open_pr_dialog_fills_from_preset() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        let d = s.pr_draft.as_ref().unwrap();
+        assert_eq!((d.title.text.as_str(), d.body.text.as_str(), d.labels.text.as_str()), ("[main] feat-a", "Ships add login", "release"));
+        assert!(d.draft && !d.from_repo);
+        assert_eq!((d.slug.as_str(), d.head.as_str(), d.base.as_str()), ("a/b", "feat-a", "main"));
+        assert_eq!(d.after_unmerged.as_deref(), Some("staging"));
+    }
+
+    #[test]
+    fn submit_requests_create_pr() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.submit_pr_draft();
+        assert!(s.pr_draft.is_none());
+        let Some(guard::Pending { action: guard::Action::CreatePr { spec, after_unmerged }, .. }) = &s.pending else { panic!("no CreatePr pending") };
+        assert_eq!((spec.base.as_str(), spec.head.as_str(), spec.draft), ("main", "feat-a", true));
+        assert_eq!(after_unmerged.as_deref(), Some("staging"));
+    }
+
+    #[test]
+    fn edited_fields_win_over_preset() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
+        s.submit_pr_draft();
+        let Some(guard::Pending { action: guard::Action::CreatePr { spec, .. }, .. }) = &s.pending else { panic!("no CreatePr pending") };
+        assert_eq!(spec.title, "my own title");
+        assert_eq!(spec.labels, "release");
     }
 
     #[test]
