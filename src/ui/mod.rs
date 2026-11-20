@@ -15,6 +15,7 @@ pub mod overlays;
 pub mod split;
 mod prs;
 mod pulse;
+mod route;
 mod settings;
 mod sidebar;
 

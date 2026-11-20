@@ -475,6 +475,8 @@ pub struct State {
     pub branch_lanes: HashMap<(String, String, String), Load<compare::RepoCompare>>,
     /// The branch whose lane is open on the Branches page: (repo, branch without `origin/`).
     pub branch_lane_sel: Option<(String, String)>,
+    /// The PRs of a branch, by (repo, head): the route steps on the Branches pane. Session only.
+    pub route_prs: HashMap<(String, String), Load<Vec<route::BranchPr>>>,
     /// What branch lanes compare with (None: the repo's default branch).
     pub branch_base: Option<String>,
     /// The "compared with" list on the branch pane is open.
@@ -633,6 +635,7 @@ impl State {
             compare_sel: None,
             branch_lanes: HashMap::new(),
             branch_lane_sel: None,
+            route_prs: HashMap::new(),
             branch_base: None,
             branch_base_open: false,
             lane_details: HashMap::new(),
@@ -1121,7 +1124,10 @@ impl State {
     pub fn select_branch_lane(&mut self, branch: &str) {
         let Some(slug) = self.cur.clone() else { return };
         let branch = branch.strip_prefix("origin/").unwrap_or(branch).to_owned();
-        self.branch_lane_sel = Some((slug, branch));
+        self.branch_lane_sel = Some((slug.clone(), branch.clone()));
+        if !self.route_prs.contains_key(&(slug.clone(), branch.clone())) {
+            self.reload_route_prs(&slug, &branch);
+        }
         self.lane_view.folder = None;
         self.load_branch_lane();
         self.load_lane_details(false);
@@ -1610,8 +1616,37 @@ impl State {
         jobs::spawn(self, move || git::status(&dir), move |s, r| s.rd_mut(&slug).status.finish(r));
     }
 
-    /// Stub: a later task reloads a route's PRs for this branch.
-    pub fn reload_route_prs(&mut self, _slug: &str, _head: &str) {}
+    /// Fetch the PRs of `head` in `slug` for the route steps (the old list stays up meanwhile).
+    pub fn reload_route_prs(&mut self, slug: &str, head: &str) {
+        let key = (slug.to_owned(), head.to_owned());
+        let entry = self.route_prs.entry(key.clone()).or_default();
+        entry.loading = true;
+        entry.error = None;
+        let (work_slug, work_head) = key.clone();
+        jobs::spawn(self, move || gh::branch_prs(&work_slug, &work_head), move |s, result| {
+            if let Some(l) = s.route_prs.get_mut(&key) {
+                l.finish(result);
+            }
+        });
+    }
+
+    /// Is `head` on GitHub: the repo's branch list has `origin/{head}`.
+    pub fn is_pushed(&self, slug: &str, head: &str) -> bool {
+        let remote = format!("origin/{head}");
+        self.data.get(slug).and_then(|d| d.branches.data.as_ref()).is_some_and(|l| l.iter().any(|b| b.remote && b.name == remote))
+    }
+
+    /// Whether the Branches pane shows the PR route for `branch`: not for a route target or the
+    /// repo's default branch, which nothing ships from.
+    pub fn shows_route(&self, slug: &str, branch: &str) -> bool {
+        let head = route::head_name(branch);
+        let default = self.data.get(slug).and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.as_str());
+        route::route_for(&self.prefs, slug).0.iter().all(|t| t.base != head) && default != Some(head)
+    }
+
+    /// Open the dialog that creates the PR for route step `step` of `head`. The dialog is a
+    /// later task.
+    pub fn open_pr_dialog(&mut self, _slug: &str, _head: &str, _step: usize) {}
 
     /// Reload the PR list (and the open PR).
     pub fn refresh_prs(&mut self) {
@@ -2533,6 +2568,26 @@ fn branches_fixture(s: &mut State) {
     s.branches_table.select("feat/rate-limit");
 }
 
+/// The branches fixture with a staging → main route set, feat/rate-limit's PRs as given
+/// (base, state, draft, number, created), and `route` off to show the empty-route line.
+fn route_fixture(s: &mut State, prs: &[(&str, &str, bool, u64, &str)], route: bool) {
+    branches_fixture(s);
+    let slug = "acme/api".to_string();
+    if route {
+        let t = |b: &str| route::RouteTarget { base: b.into(), ..Default::default() };
+        s.prefs.pr_route = vec![t("staging"), t("main")];
+    }
+    let list: Vec<route::BranchPr> = prs
+        .iter()
+        .map(|(base, state, draft, number, at)| route::BranchPr { number: *number, state: (*state).into(), is_draft: *draft, base_ref_name: (*base).into(), created_at: (*at).into(), url: String::new() })
+        .collect();
+    let d = s.rd_mut(&slug);
+    if let Some(b) = d.branches.data.as_mut() {
+        b.push(model::Branch { name: "origin/feat/rate-limit".into(), remote: true, ..Default::default() });
+        b.push(model::Branch { name: "wip/local".into(), ..Default::default() });
+    }
+    s.route_prs.insert((slug, "feat/rate-limit".into()), Load { data: Some(list), ..Default::default() });
+}
 
 fn main() {
     config::migrate_old_folder(); // before the crash log makes the folder
@@ -2637,6 +2692,23 @@ fn main() {
             }),
             ("branches-detail", |s: &mut State| {
                 branches_fixture(s);
+            }),
+            ("route-steps", |s: &mut State| {
+                // staging merged, main can open.
+                route_fixture(s, &[("staging", "MERGED", false, 142, "2026-11-17T10:00:00Z")], true);
+            }),
+            ("route-reopened", |s: &mut State| {
+                // #160 into staging is open after #142 merged: main waits again.
+                route_fixture(s, &[("staging", "MERGED", false, 142, "2026-11-17T10:00:00Z"), ("staging", "OPEN", false, 160, "2026-11-19T10:00:00Z")], true);
+            }),
+            ("route-empty", |s: &mut State| {
+                route_fixture(s, &[], false);
+            }),
+            ("route-unpushed", |s: &mut State| {
+                // A local-only branch: nothing to open a PR from yet.
+                route_fixture(s, &[], true);
+                s.branch_lane_sel = Some(("acme/api".into(), "wip/local".into()));
+                s.route_prs.insert(("acme/api".into(), "wip/local".into()), Load { data: Some(vec![]), ..Default::default() });
             }),
             ("comparisons-modules-open", |s: &mut State| {
                 // The lane pane with the Modules section expanded.
@@ -3373,6 +3445,47 @@ mod cache_tests {
         s.rd_mut("a/b").meta = Load { data: Some(RepoMeta { default_branch: "main".into(), ..Default::default() }), ..Default::default() };
         s.page = Page::Branches;
         s
+    }
+
+    fn route_state() -> State {
+        let mut s = branch_state();
+        let t = |b: &str| route::RouteTarget { base: b.into(), ..Default::default() };
+        s.prefs.pr_route = vec![t("staging"), t("main")];
+        s
+    }
+
+    #[test]
+    fn route_hidden_for_targets_and_default() {
+        let s = route_state();
+        assert!(!s.shows_route("a/b", "staging"));
+        assert!(!s.shows_route("a/b", "main"));
+        assert!(s.shows_route("a/b", "feat-a"));
+        // The repo's default branch hides it too, even when it isn't on the route.
+        let mut s = branch_state();
+        assert!(!s.shows_route("a/b", "main"));
+        s.prefs.pr_route = vec![route::RouteTarget { base: "staging".into(), ..Default::default() }];
+        assert!(!s.shows_route("a/b", "staging"));
+        assert!(s.shows_route("a/b", "feat-a"));
+    }
+
+    #[test]
+    fn is_pushed_uses_origin_name() {
+        let mut s = branch_state();
+        let b = |name: &str, remote: bool| model::Branch { name: name.into(), remote, ..Default::default() };
+        s.rd_mut("a/b").branches = Load { data: Some(vec![b("feat/login-v2", false), b("origin/feat/login-v2", true), b("wip", false)]), ..Default::default() };
+        assert!(s.is_pushed("a/b", "feat/login-v2"));
+        assert!(!s.is_pushed("a/b", "wip"));
+        assert!(!s.is_pushed("other/repo", "feat/login-v2"));
+    }
+
+    #[test]
+    fn create_pr_failure_reloads_statuses() {
+        let mut s = branch_state();
+        let spec = route::PrSpec { slug: "no-such-owner/zz".into(), head: "feat".into(), base: "main".into(), draft: false, title: String::new(), body: String::new(), reviewers: String::new(), assignees: String::new(), labels: String::new() };
+        let key = ("no-such-owner/zz".to_string(), "feat".to_string());
+        assert!(!s.route_prs.contains_key(&key));
+        s.action_failed(&guard::Action::CreatePr { spec, after_unmerged: None });
+        assert!(s.route_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
     }
 
     #[test]

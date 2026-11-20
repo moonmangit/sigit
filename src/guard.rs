@@ -330,6 +330,7 @@ impl State {
             s.activity.insert(0, entry);
             if !ok {
                 s.toast(crate::i18n::t(tf!("{label} failed: {detail}")) + &ran, true);
+                s.action_failed(&action);
                 return;
             }
             let undo = match &action {
@@ -351,10 +352,23 @@ impl State {
         });
     }
 
+    /// What to reload after an action failed: a PR that already exists changes what the route shows.
+    pub(crate) fn action_failed(&mut self, action: &Action) {
+        if let Action::CreatePr { spec, .. } = action {
+            self.reload_route_prs(&spec.slug, &spec.head);
+        }
+    }
+
     /// What to reload after an action succeeded.
     fn after(&mut self, action: &Action) {
         match action {
-            Action::Merge { .. } | Action::Close { .. } | Action::Approve { .. } | Action::RequestChanges { .. } | Action::Comment { .. } => self.refresh_prs(),
+            Action::Merge { slug, .. } => {
+                self.refresh_prs();
+                if let Some(head) = self.branch_lane_sel.as_ref().filter(|(sl, _)| sl == slug).map(|(_, b)| b.clone()) {
+                    self.reload_route_prs(slug, &head);
+                }
+            }
+            Action::Close { .. } | Action::Approve { .. } | Action::RequestChanges { .. } | Action::Comment { .. } => self.refresh_prs(),
             Action::CreatePr { spec, .. } => {
                 self.refresh_prs();
                 self.reload_route_prs(&spec.slug, &spec.head);

@@ -370,6 +370,9 @@ pub fn branch_pane(s: &State, k: &Kit) -> Option<El> {
     if State::branch_lane_skipped(branch, &base) {
         return Some(side_pane(k, "b-pane", c.child(text("up to date").font(k.ty.small).color(k.c.success.fg))));
     }
+    if let Some(section) = super::route::route_section(s, k, slug, branch) {
+        c = c.child(section);
+    }
     let key = (slug.clone(), branch.clone(), base);
     let rc = s.branch_lanes.get(&key).and_then(|l| l.data.as_ref());
     let body = match (rc, s.open_lane()) {
