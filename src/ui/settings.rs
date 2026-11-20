@@ -59,7 +59,7 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let content = match s.settings_sec {
         0 => appearance(s, k),
         1 => accounts(s, k),
-        2 => col().w_full().gap(18.0).child(git_identity(s, k)).child(clone_folders(s, k)).child(comparisons(s, k)).child(route(s, k)),
+        2 => col().w_full().gap(18.0).child(git_identity(s, k)).child(clone_folders(s, k)).child(comparisons(s, k)),
         3 => safety(s, k),
         4 => notifications(s, k),
         5 => data(s, k),
@@ -457,35 +457,6 @@ fn comparisons(s: &State, k: &Kit) -> El {
                 .gap(10.0)
                 .child(muted(k, "Each counts the commits and PRs on From that To doesn't have yet. Change one per repo from the Dashboard.").wrap().w_full())
                 .child(list)
-                .child(foot),
-        )],
-    )
-}
-
-/// The general PR route: its steps, then Save.
-fn route(s: &State, k: &Kit) -> El {
-    let foot = row().w_full().gap(8.0).child(spacer()).child(
-        Button::new(crate::i18n::t("Save"))
-            .variant(ButtonVariant::Submit)
-            .on_press(|s: &mut State| {
-                if let Err(e) = s.save_route() {
-                    s.toast(e, true);
-                }
-            })
-            .build(k)
-            .key("set-route-save"),
-    );
-    group(
-        k,
-        "PR route",
-        vec![block(
-            k,
-            "git-route",
-            col()
-                .w_full()
-                .gap(10.0)
-                .child(muted(k, "The branches a feature branch's PRs go through, in order. A repo can have its own route from the Branches page. {branch}, {target} and {subject} fill in.").wrap().w_full())
-                .child(super::route::route_editor(s, k, &s.route_rows, |s| &mut s.route_rows, "set-route"))
                 .child(foot),
         )],
     )

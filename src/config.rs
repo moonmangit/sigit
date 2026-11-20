@@ -121,10 +121,6 @@ pub struct Prefs {
     pub comparison_overrides: Vec<crate::compare::Override>,
     /// Folders whose git clones the Dashboard scan looks through.
     pub clone_folders: Vec<PathBuf>,
-    /// The ordered target branches a feature branch ships through, each with a PR preset.
-    pub pr_route: Vec<crate::route::RouteTarget>,
-    /// Per-repo routes that replace the general one.
-    pub pr_route_overrides: Vec<crate::route::RepoRoute>,
 }
 
 impl Default for Prefs {
@@ -154,8 +150,6 @@ impl Default for Prefs {
             comparisons: crate::compare::defaults(),
             comparison_overrides: Vec::new(),
             clone_folders: Vec::new(),
-            pr_route: Vec::new(),
-            pr_route_overrides: Vec::new(),
         }
     }
 }
@@ -243,5 +237,11 @@ mod tests {
         // New fields fill in their defaults for an older file.
         assert_eq!(partial.grace_secs, 5);
         assert!(partial.prod_names.contains(&"production".to_string()));
+    }
+
+    #[test]
+    fn prefs_with_removed_route_fields_load() {
+        let p: Prefs = serde_json::from_str(r#"{"pr_route":[{"base":"staging"}],"pr_route_overrides":[]}"#).unwrap();
+        assert_eq!(p, Prefs::default());
     }
 }

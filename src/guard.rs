@@ -38,8 +38,7 @@ pub enum Action {
     /// `op`: apply, pop, drop.
     Stash { dir: PathBuf, op: &'static str, name: String },
     DeleteBranch { dir: PathBuf, name: String, sha: String, force: bool, unpushed: Vec<String> },
-    /// `after_unmerged`: the route step before this one, when it isn't merged yet.
-    CreatePr { spec: crate::route::PrSpec, after_unmerged: Option<String> },
+    CreatePr { spec: crate::route::PrSpec },
 }
 
 impl Action {
@@ -499,7 +498,7 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
             }
             a.word = Some(name.clone());
         }
-        Action::CreatePr { spec, after_unmerged, .. } => a.risk = create_pr_risk(&spec.base, &ctx.prefs.prod_names, after_unmerged.as_deref()),
+        Action::CreatePr { spec, .. } => a.risk = create_pr_risk(&spec.base, &ctx.prefs.prod_names),
         _ => {}
     }
     if a.risk.level == Level::High && a.word.is_none() {
@@ -508,16 +507,12 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
     a
 }
 
-/// Opening a PR is harmless (close it again); it asks only when it targets production or
-/// the step before it isn't merged yet.
-pub(crate) fn create_pr_risk(base: &str, prod_names: &[String], after_unmerged: Option<&str>) -> Risk {
+/// Opening a PR is harmless (close it again); it asks only when it targets production.
+pub(crate) fn create_pr_risk(base: &str, prod_names: &[String]) -> Risk {
     let mut r = Risk::new(Level::Low);
     r.because(Level::Low, "Opens a PR; you can close it");
     if risk::is_production(base, false, prod_names) {
         r.because(Level::Medium, tf!("{base} is a production branch"));
-    }
-    if let Some(prev) = after_unmerged {
-        r.because(Level::Medium, tf!("{prev} isn't merged yet"));
     }
     r
 }
@@ -636,17 +631,14 @@ mod tests {
     #[test]
     fn create_pr_risk_levels() {
         let names = Prefs::default().prod_names;
-        assert_eq!(create_pr_risk("staging", &names, None).level, Level::Low);
-        assert_eq!(create_pr_risk("production", &names, None).level, Level::Medium);
-        let r = create_pr_risk("staging", &names, Some("dev"));
-        assert_eq!(r.level, Level::Medium);
-        assert!(r.reasons.iter().any(|x| x.contains("dev")));
+        assert_eq!(create_pr_risk("staging", &names).level, Level::Low);
+        assert_eq!(create_pr_risk("production", &names).level, Level::Medium);
     }
 
     #[test]
     fn create_pr_action_commands() {
         let s = spec();
-        let a = Action::CreatePr { spec: s.clone(), after_unmerged: None };
+        let a = Action::CreatePr { spec: s.clone() };
         assert_eq!(a.commands(), vec![gh::create_pr_cmd(&s)]);
         assert_eq!(a.label(), "Open PR feat-a → main");
         assert_eq!(a.subject(), "Add a");

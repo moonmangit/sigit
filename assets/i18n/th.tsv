@@ -1163,37 +1163,10 @@ Open PR {head} → {base}	เปิด PR {head} → {base}
 Opened #{n} → {base}	เปิด #{n} → {base} แล้ว
 Opens a PR; you can close it	เปิด PR ใหม่ ปิดทีหลังได้
 {base} is a production branch	{base} เป็นสาขา production
-{prev} isn't merged yet	{prev} ยังไม่ถูก merge
-{next} comes after {base} on this route	{next} มาหลัง {base} ในเส้นทางนี้
-({n} PRs)	({n} PR)
-Also open	เปิดอยู่อีก
-Couldn't load this branch's PRs: {error}	โหลด PR ของแบรนช์นี้ไม่ได้: {error}
-Loading PRs…	กำลังโหลด PR…
-Open PR → {base}	เปิด PR → {base}
-Open Settings	เปิดการตั้งค่า
-Open anyway	เปิดเลย
-PR route	เส้นทาง PR
-Route for this repo…	เส้นทางของรีโปนี้…
-Set up a PR route in Settings → Git to open PRs from here	ตั้งเส้นทาง PR ที่ การตั้งค่า → Git เพื่อเปิด PR จากที่นี่
-after {prev} is merged	หลังจาก {prev} merge แล้ว
-no PR yet	ยังไม่มี PR
-preset: {base} (this repo)	พรีเซ็ต: {base} (รีโปนี้)
-preset: {base} (general)	พรีเซ็ต: {base} (ทั่วไป)
 Push {head} to GitHub first	push {head} ขึ้น GitHub ก่อน
 Open PR	เปิด PR
 Body	เนื้อหา
 Reviewers	ผู้รีวิว
 Assignees	ผู้รับผิดชอบ
 Labels	ป้ายกำกับ
-Add target	เพิ่มปลายทาง
-PR route saved	บันทึกเส้นทาง PR แล้ว
-Route for {slug}	เส้นทางของ {slug}
-Target branch	สาขาปลายทาง
-The branches a feature branch's PRs go through, in order. A repo can have its own route from the Branches page. {branch}, {target} and {subject} fill in.	สาขาที่ PR ของสาขางานต้องผ่านตามลำดับ รีโปหนึ่งมีเส้นทางของตัวเองได้จากหน้าสาขา {branch}, {target} และ {subject} จะถูกเติมให้
-This replaces the general route for this repo. {branch}, {target} and {subject} fill in.	ใช้แทนเส้นทางทั่วไปสำหรับรีโปนี้ {branch}, {target} และ {subject} จะถูกเติมให้
-Use the general route	ใช้เส้นทางทั่วไป
-Every route step needs a target branch	ทุกขั้นของเส้นทางต้องมีสาขาปลายทาง
-{branch} is on the route twice	{branch} อยู่ในเส้นทางสองครั้ง
 draft	ฉบับร่าง
-This repo's route has no targets	เส้นทางของรีโปนี้ไม่มีปลายทาง
-Edit this repo's route	แก้ไขเส้นทางของรีโปนี้

@@ -159,12 +159,6 @@ pub mod ttl {
     pub const DETAIL: i64 = 120;
 }
 
-/// Fixture merges use the same default as the real buttons: the PR's own head and base.
-fn fixture_deletes(s: &State, number: u64) -> bool {
-    let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|v| v.iter().find(|p| p.number == number));
-    pr.map_or(true, |p| route::merge_deletes_branch(&s.prefs, "anomalyco/rune", &p.head_ref_name, &p.base_ref_name))
-}
-
 /// Park the open detail (with its key) in `memo` so coming back to it is instant.
 fn stash<K: std::hash::Hash + Eq, T>(memo: &mut HashMap<K, Load<T>>, cur: &mut Load<T>, key: Option<K>) {
     let mut prev = std::mem::take(cur);
@@ -294,7 +288,7 @@ pub struct CompareEdit {
     pub rows: Vec<(TextEdit, TextEdit, bool)>,
 }
 
-/// The open-PR dialog: the fields of one route step's PR, filled from its preset and editable.
+/// The open-PR dialog: the fields of a new PR, editable.
 pub struct PrDraft {
     pub slug: String,
     pub head: String,
@@ -305,10 +299,6 @@ pub struct PrDraft {
     pub reviewers: TextEdit,
     pub assignees: TextEdit,
     pub labels: TextEdit,
-    /// The preset came from this repo's own route, not the general one.
-    pub from_repo: bool,
-    /// The earlier route step that isn't merged yet, if any.
-    pub after_unmerged: Option<String>,
 }
 
 /// The "New group" / "Rename group" dialog.
@@ -492,7 +482,7 @@ pub struct State {
     pub branch_lanes: HashMap<(String, String, String), Load<compare::RepoCompare>>,
     /// The branch whose lane is open on the Branches page: (repo, branch without `origin/`).
     pub branch_lane_sel: Option<(String, String)>,
-    /// The PRs of a branch, by (repo, head): the route steps on the Branches pane. Session only.
+    /// The PRs of a branch, by (repo, head): whether one is already open. Session only.
     pub route_prs: HashMap<(String, String), Load<Vec<route::BranchPr>>>,
     /// What branch lanes compare with (None: the repo's default branch).
     pub branch_base: Option<String>,
@@ -532,10 +522,6 @@ pub struct State {
     /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
     pub cmp_rows: Vec<(TextEdit, TextEdit, TextEdit)>,
     pub cmp_ids: Vec<Option<String>>,
-    /// Settings → Git: the general PR route being edited.
-    pub route_rows: Vec<route::RouteRow>,
-    /// The "Route for owner/repo" dialog: the repo and its route being edited.
-    pub route_edit: Option<(String, Vec<route::RouteRow>)>,
     pub tracked_q: TextEdit,
     /// The dialog's name field (kept here, not inside the Option, so it always exists).
     pub group_name: TextEdit,
@@ -679,8 +665,6 @@ impl State {
             last_pr_draft: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
-            route_rows: Vec::new(),
-            route_edit: None,
             tracked_q: TextEdit::new(""),
             group_name: TextEdit::new(""),
         }
@@ -1024,13 +1008,6 @@ impl State {
                     self.load_branch_lane();
                     self.load_lane_details(false);
                 }
-                // And where it stands on the PR route.
-                if let Some((slug, branch)) = self.branch_lane_sel.clone()
-                    && self.shows_route(&slug, &branch)
-                    && !self.route_prs.get(&(slug.clone(), branch.clone())).is_some_and(|l| l.loading)
-                {
-                    self.reload_route_prs(&slug, &branch);
-                }
             }
             Page::Group => self.load_group(false),
         }
@@ -1160,9 +1137,6 @@ impl State {
         let Some(slug) = self.cur.clone() else { return };
         let branch = branch.strip_prefix("origin/").unwrap_or(branch).to_owned();
         self.branch_lane_sel = Some((slug.clone(), branch.clone()));
-        if self.shows_route(&slug, &branch) && self.route_prs.get(&(slug.clone(), branch.clone())).is_none_or(|l| l.stale(ttl::GH)) {
-            self.reload_route_prs(&slug, &branch);
-        }
         self.lane_view.folder = None;
         self.load_branch_lane();
         self.load_lane_details(false);
@@ -1651,7 +1625,7 @@ impl State {
         jobs::spawn(self, move || git::status(&dir), move |s, r| s.rd_mut(&slug).status.finish(r));
     }
 
-    /// Fetch the PRs of `head` in `slug` for the route steps (the old list stays up meanwhile).
+    /// Fetch the PRs of `head` in `slug` (the old list stays up meanwhile).
     pub fn reload_route_prs(&mut self, slug: &str, head: &str) {
         let key = (slug.to_owned(), head.to_owned());
         let entry = self.route_prs.entry(key.clone()).or_default();
@@ -1678,40 +1652,25 @@ impl State {
         self.data.get(slug).and_then(|d| d.branches.data.as_ref()).map(|_| self.is_pushed(slug, head))
     }
 
-    /// Whether the Branches pane shows the PR route for `branch`: not for a route target or the
-    /// repo's default branch, which nothing ships from.
-    pub fn shows_route(&self, slug: &str, branch: &str) -> bool {
-        let head = route::head_name(branch);
-        let default = self.data.get(slug).and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.as_str());
-        route::route_for(&self.prefs, slug).0.iter().all(|t| t.base != head) && default != Some(head)
-    }
-
-    /// Open the dialog that creates the PR for route step `step` of `head`, its fields filled
-    /// from that step's preset.
-    pub fn open_pr_dialog(&mut self, slug: &str, head: &str, step: usize) {
-        let (targets, from_repo) = route::route_for(&self.prefs, slug);
-        let Some(t) = targets.get(step).cloned() else { return };
+    /// Open the dialog that creates a PR of `head` into `base`; the title starts as the
+    /// branch's last commit subject.
+    pub fn open_pr_dialog(&mut self, slug: &str, head: &str, base: &str) {
         let branches = self.data.get(slug).and_then(|d| d.branches.data.as_ref());
         let remote = format!("origin/{head}");
         let subject = branches
             .and_then(|l| l.iter().find(|b| !b.remote && b.name == head).or_else(|| l.iter().find(|b| b.remote && b.name == remote)))
             .map(|b| b.subject.clone())
             .unwrap_or_default();
-        let prs = self.route_prs.get(&(slug.to_owned(), head.to_owned())).and_then(|l| l.data.as_deref()).unwrap_or(&[]);
-        let after_unmerged = route::blocked_by(&route::steps(targets, prs).0, step);
-        let fill = |text: &str| TextEdit::new(&route::fill(text, head, &t.base, &subject));
         self.pr_draft = Some(PrDraft {
             slug: slug.to_owned(),
             head: head.to_owned(),
-            base: t.base.clone(),
-            draft: t.draft,
-            title: TextEdit::new(&route::title_for(&t, head, &subject)),
-            body: fill(&t.body),
-            reviewers: fill(&t.reviewers),
-            assignees: fill(&t.assignees),
-            labels: fill(&t.labels),
-            from_repo,
-            after_unmerged,
+            base: base.to_owned(),
+            draft: false,
+            title: TextEdit::new(&subject),
+            body: TextEdit::new(""),
+            reviewers: TextEdit::new(""),
+            assignees: TextEdit::new(""),
+            labels: TextEdit::new(""),
         });
     }
 
@@ -1739,9 +1698,8 @@ impl State {
             assignees: d.assignees.text.clone(),
             labels: d.labels.text.clone(),
         };
-        let after_unmerged = d.after_unmerged.clone();
         self.last_pr_draft = Some(d);
-        self.request(guard::Action::CreatePr { spec, after_unmerged });
+        self.request(guard::Action::CreatePr { spec });
     }
 
     /// Reopen the dialog with the draft that was submitted, unless another one is open.
@@ -2673,27 +2631,6 @@ fn branches_fixture(s: &mut State) {
     s.branches_table.select("feat/rate-limit");
 }
 
-/// The branches fixture with a staging → main route set, feat/rate-limit's PRs as given
-/// (base, state, draft, number, created), and `route` off to show the empty-route line.
-fn route_fixture(s: &mut State, prs: &[(&str, &str, bool, u64, &str)], route: bool) {
-    branches_fixture(s);
-    let slug = "acme/api".to_string();
-    if route {
-        let t = |b: &str| route::RouteTarget { base: b.into(), ..Default::default() };
-        s.prefs.pr_route = vec![t("staging"), t("main")];
-    }
-    let list: Vec<route::BranchPr> = prs
-        .iter()
-        .map(|(base, state, draft, number, at)| route::BranchPr { number: *number, state: (*state).into(), is_draft: *draft, base_ref_name: (*base).into(), created_at: (*at).into(), merged_at: String::new(), url: String::new() })
-        .collect();
-    let d = s.rd_mut(&slug);
-    if let Some(b) = d.branches.data.as_mut() {
-        b.push(model::Branch { name: "origin/feat/rate-limit".into(), remote: true, ..Default::default() });
-        b.push(model::Branch { name: "wip/local".into(), ..Default::default() });
-    }
-    s.route_prs.insert((slug, "feat/rate-limit".into()), Load { data: Some(list), ..Default::default() });
-}
-
 fn main() {
     config::migrate_old_folder(); // before the crash log makes the folder
     crash_log::install();
@@ -2798,33 +2735,13 @@ fn main() {
             ("branches-detail", |s: &mut State| {
                 branches_fixture(s);
             }),
-            ("route-steps", |s: &mut State| {
-                // staging merged, main can open.
-                route_fixture(s, &[("staging", "MERGED", false, 142, "2026-11-17T10:00:00Z")], true);
-            }),
-            ("route-reopened", |s: &mut State| {
-                // #160 into staging is open after #142 merged: main waits again.
-                route_fixture(s, &[("staging", "MERGED", false, 142, "2026-11-17T10:00:00Z"), ("staging", "OPEN", false, 160, "2026-11-19T10:00:00Z")], true);
-            }),
-            ("route-empty", |s: &mut State| {
-                route_fixture(s, &[], false);
-            }),
-            ("route-unpushed", |s: &mut State| {
-                // A local-only branch: nothing to open a PR from yet.
-                route_fixture(s, &[], true);
-                s.branch_lane_sel = Some(("acme/api".into(), "wip/local".into()));
-                s.route_prs.insert(("acme/api".into(), "wip/local".into()), Load { data: Some(vec![]), ..Default::default() });
-            }),
-            ("route-dialog", |s: &mut State| {
-                // feat-a → main with a preset, the dialog open.
-                route_fixture(s, &[("staging", "MERGED", false, 142, "2026-11-17T10:00:00Z")], true);
-                s.prefs.pr_route[1] = route::RouteTarget { base: "main".into(), draft: true, title: "[main] {branch}".into(), body: "Ships {subject}".into(), labels: "release".into(), ..Default::default() };
-                s.open_pr_dialog("acme/api", "feat/rate-limit", 1);
-            }),
-            ("route-repo-edit", |s: &mut State| {
-                // The branch pane with "Route for acme/api" open on the general route.
-                route_fixture(s, &[], true);
-                s.open_route_edit("acme/api");
+            ("pr-dialog", |s: &mut State| {
+                // feat/rate-limit pushed, the new-PR dialog open on it.
+                branches_fixture(s);
+                if let Some(b) = s.rd_mut("acme/api").branches.data.as_mut() {
+                    b.push(model::Branch { name: "origin/feat/rate-limit".into(), remote: true, ..Default::default() });
+                }
+                s.open_pr_dialog("acme/api", "feat/rate-limit", "main");
             }),
             ("comparisons-modules-open", |s: &mut State| {
                 // The lane pane with the Modules section expanded.
@@ -2890,9 +2807,9 @@ fn main() {
             ("merge", |s: &mut State| {
                 // Only the risk check runs (read-only); nothing is merged without the dialog.
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone(), route::merge_deletes_branch(&s.prefs, "anomalyco/rune", &p.head_ref_name, &p.base_ref_name)));
-                if let Some((number, title, delete_branch)) = pr {
-                    s.request(guard::Action::Merge { slug: "anomalyco/rune".into(), number, title, method: gh::MergeMethod::Squash, delete_branch });
+                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone()));
+                if let Some((number, title)) = pr {
+                    s.request(ui::merge_action("anomalyco/rune", number, &title));
                 }
             }),
             ("palette", |s: &mut State| {
@@ -2923,14 +2840,6 @@ fn main() {
                 s.setup = onboarding::Setup::Welcome(onboarding::Preflight { git: ok("git"), gh: ok("gh"), auth: ok("octocat on github.com") });
             }),
             ("settings-git", |s: &mut State| s.open_settings(2)),
-            ("settings-route", |s: &mut State| {
-                // Two targets, the last one with a preset.
-                s.prefs.pr_route = vec![
-                    route::RouteTarget { base: "staging".into(), ..Default::default() },
-                    route::RouteTarget { base: "main".into(), draft: true, title: "[main] {branch}".into(), reviewers: "acme/leads".into(), labels: "release".into(), ..Default::default() },
-                ];
-                s.open_settings(2);
-            }),
             ("updates", |s: &mut State| {
                 s.open_settings(8);
                 s.check_for_updates(); // the real check, against the public releases
@@ -3002,7 +2911,7 @@ fn main() {
             ("cmd-countdown", |s: &mut State| {
                 // A merge counting down (an hour away, so nothing ever runs).
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let action = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: fixture_deletes(s, 1004) };
+                let action = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: true };
                 s.grace = Some(guard::Grace { action, at: Instant::now() + Duration::from_secs(3600) });
             }),
             ("aged-prs", |s: &mut State| {
@@ -3088,15 +2997,15 @@ fn main() {
                 // The merge dialog with Settings → Show gh / git commands off.
                 s.prefs.show_commands = false;
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone(), route::merge_deletes_branch(&s.prefs, "anomalyco/rune", &p.head_ref_name, &p.base_ref_name)));
-                if let Some((number, title, delete_branch)) = pr {
-                    s.request(guard::Action::Merge { slug: "anomalyco/rune".into(), number, title, method: gh::MergeMethod::Squash, delete_branch });
+                let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|p| p.first()).map(|p| (p.number, p.title.clone()));
+                if let Some((number, title)) = pr {
+                    s.request(ui::merge_action("anomalyco/rune", number, &title));
                 }
             }),
             ("toast-commands", |s: &mut State| {
                 // What a finished action's result looks like (nothing actually runs).
                 s.select_repo("anomalyco/rune", Page::Pulls);
-                let a = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: fixture_deletes(s, 1004) };
+                let a = guard::Action::Merge { slug: "anomalyco/rune".into(), number: 1004, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: true };
                 let ran = s.ran_lines(&a.command_lines(false));
                 s.toast(format!("✓ Squashed and merged pull request #1004{ran}"), false);
             }),
@@ -3571,27 +3480,6 @@ mod cache_tests {
         s
     }
 
-    fn route_state() -> State {
-        let mut s = branch_state();
-        let t = |b: &str| route::RouteTarget { base: b.into(), ..Default::default() };
-        s.prefs.pr_route = vec![t("staging"), t("main")];
-        s
-    }
-
-    #[test]
-    fn route_hidden_for_targets_and_default() {
-        let s = route_state();
-        assert!(!s.shows_route("a/b", "staging"));
-        assert!(!s.shows_route("a/b", "main"));
-        assert!(s.shows_route("a/b", "feat-a"));
-        // The repo's default branch hides it too, even when it isn't on the route.
-        let mut s = branch_state();
-        assert!(!s.shows_route("a/b", "main"));
-        s.prefs.pr_route = vec![route::RouteTarget { base: "staging".into(), ..Default::default() }];
-        assert!(!s.shows_route("a/b", "staging"));
-        assert!(s.shows_route("a/b", "feat-a"));
-    }
-
     #[test]
     fn is_pushed_uses_origin_name() {
         let mut s = branch_state();
@@ -3608,18 +3496,16 @@ mod cache_tests {
         let spec = route::PrSpec { slug: "a/b".into(), head: "feat".into(), base: "main".into(), draft: false, title: String::new(), body: String::new(), reviewers: String::new(), assignees: String::new(), labels: String::new() };
         let key = ("a/b".to_string(), "feat".to_string());
         assert!(!s.route_prs.contains_key(&key));
-        let action = guard::Action::CreatePr { spec, after_unmerged: None };
+        let action = guard::Action::CreatePr { spec };
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: false, detail: "a pull request already exists".into(), commands: vec![] };
         // The guard's own handling of a command that failed.
         s.action_finished(action.clone(), action.label(), None, false, (Err(entry.detail.clone()), entry, Ok(())));
         assert!(s.route_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
     }
 
-    /// route_state with a staging → main route whose main step has a preset, `feat-a` pushed
-    /// and with no PRs yet.
+    /// A repo "a/b" with `feat-a` pushed and with no PRs yet.
     fn dialog_state() -> State {
-        let mut s = route_state();
-        s.prefs.pr_route[1] = route::RouteTarget { base: "main".into(), draft: true, title: "[main] {branch}".into(), body: "Ships {subject}".into(), labels: "release".into(), ..Default::default() };
+        let mut s = branch_state();
         let b = |name: &str, remote: bool| model::Branch { name: name.into(), remote, subject: "add login".into(), ..Default::default() };
         s.rd_mut("a/b").branches = Load { data: Some(vec![b("feat-a", false), b("origin/feat-a", true)]), ..Default::default() };
         s.route_prs.insert(("a/b".into(), "feat-a".into()), Load { data: Some(vec![]), ..Default::default() });
@@ -3627,36 +3513,33 @@ mod cache_tests {
     }
 
     #[test]
-    fn open_pr_dialog_fills_from_preset() {
+    fn open_pr_dialog_starts_from_the_last_commit() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         let d = s.pr_draft.as_ref().unwrap();
-        assert_eq!((d.title.text.as_str(), d.body.text.as_str(), d.labels.text.as_str()), ("[main] feat-a", "Ships add login", "release"));
-        assert!(d.draft && !d.from_repo);
+        assert_eq!((d.title.text.as_str(), d.body.text.as_str(), d.labels.text.as_str()), ("add login", "", ""));
+        assert!(!d.draft);
         assert_eq!((d.slug.as_str(), d.head.as_str(), d.base.as_str()), ("a/b", "feat-a", "main"));
-        assert_eq!(d.after_unmerged.as_deref(), Some("staging"));
     }
 
     #[test]
     fn submit_requests_create_pr() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         s.submit_pr_draft();
         assert!(s.pr_draft.is_none());
-        let Some(guard::Pending { action: guard::Action::CreatePr { spec, after_unmerged }, .. }) = &s.pending else { panic!("no CreatePr pending") };
-        assert_eq!((spec.base.as_str(), spec.head.as_str(), spec.draft), ("main", "feat-a", true));
-        assert_eq!(after_unmerged.as_deref(), Some("staging"));
+        let Some(guard::Pending { action: guard::Action::CreatePr { spec }, .. }) = &s.pending else { panic!("no CreatePr pending") };
+        assert_eq!((spec.base.as_str(), spec.head.as_str(), spec.draft), ("main", "feat-a", false));
     }
 
     #[test]
-    fn edited_fields_win_over_preset() {
+    fn edited_fields_reach_the_spec() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
         s.submit_pr_draft();
         let Some(guard::Pending { action: guard::Action::CreatePr { spec, .. }, .. }) = &s.pending else { panic!("no CreatePr pending") };
         assert_eq!(spec.title, "my own title");
-        assert_eq!(spec.labels, "release");
     }
 
     /// Submit the open dialog and hand back the CreatePr action the guard holds.
@@ -3673,7 +3556,7 @@ mod cache_tests {
     #[test]
     fn failed_create_pr_reopens_the_dialog_with_the_edits() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
         let action = submitted(&mut s);
         assert!(s.pr_draft.is_none() && s.last_pr_draft.is_some());
@@ -3686,7 +3569,7 @@ mod cache_tests {
     #[test]
     fn cancelling_the_confirm_reopens_the_dialog_with_the_edits() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
         submitted(&mut s);
         s.cancel_pending();
@@ -3697,7 +3580,7 @@ mod cache_tests {
     #[test]
     fn cancelling_another_action_leaves_the_dialog_alone() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         submitted(&mut s);
         s.pending = None;
         s.request(guard::Action::Close { slug: "a/b".into(), number: 1, title: String::new() });
@@ -3708,7 +3591,7 @@ mod cache_tests {
     #[test]
     fn created_pr_clears_the_kept_draft() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         let action = submitted(&mut s);
         s.pending = None;
         finish_with(&mut s, action, Ok("https://github.com/a/b/pull/9".into()));
@@ -3719,7 +3602,7 @@ mod cache_tests {
     #[test]
     fn submit_refuses_a_blank_title() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         s.pr_draft.as_mut().unwrap().title.text = "   ".into();
         s.submit_pr_draft();
         assert!(s.pending.is_none() && s.pr_draft.is_some());
@@ -3741,25 +3624,11 @@ mod cache_tests {
     }
 
     #[test]
-    fn picking_a_lane_reloads_only_stale_statuses() {
-        let mut s = dialog_state();
-        s.cur = Some("a/b".into());
-        let key = ("a/b".to_string(), "feat-a".to_string());
-        let fresh = Load { data: Some(vec![]), at: Some(model::now()), ..Default::default() };
-        s.route_prs.insert(key.clone(), fresh);
-        s.select_branch_lane("feat-a");
-        assert!(s.route_prs[&key].error.is_none(), "fresh data is kept");
-        s.route_prs.get_mut(&key).unwrap().at = Some(model::now() - ttl::GH - 1);
-        s.select_branch_lane("feat-a");
-        assert_eq!(s.route_prs[&key].error.as_deref(), Some("offline"), "stale data is fetched again");
-    }
-
-    #[test]
     fn submit_refuses_a_known_unpushed_head() {
         let mut s = dialog_state();
         let b = |name: &str, remote: bool| model::Branch { name: name.into(), remote, ..Default::default() };
         s.rd_mut("a/b").branches = Load { data: Some(vec![b("feat-a", false)]), ..Default::default() };
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
         s.submit_pr_draft();
         assert!(s.pending.is_none());
         assert!(s.pr_draft.is_some());
@@ -3769,7 +3638,8 @@ mod cache_tests {
     fn submit_allows_head_when_branches_not_loaded() {
         let mut s = dialog_state();
         s.rd_mut("a/b").branches = Load::default();
-        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.pr_draft.as_mut().unwrap().title.text = "add login".into(); // no branch list, so no subject to start from
         s.submit_pr_draft();
         assert!(s.pr_draft.is_none());
         assert!(matches!(s.pending, Some(guard::Pending { action: guard::Action::CreatePr { .. }, .. })));
@@ -3782,56 +3652,6 @@ mod cache_tests {
         assert_eq!(s.pushed_state("a/b", "other"), Some(false));
         s.rd_mut("a/b").branches = Load::default();
         assert_eq!(s.pushed_state("a/b", "feat-a"), None);
-    }
-
-    fn route_rows(bases: &[&str]) -> Vec<route::RouteRow> {
-        route::rows_of(&bases.iter().map(|b| route::RouteTarget { base: (*b).into(), ..Default::default() }).collect::<Vec<_>>())
-    }
-
-    #[test]
-    fn validate_route_rejects_blank_and_repeats() {
-        assert_eq!(route::validate_route(&route_rows(&["staging", ""])), Err("Every route step needs a target branch".to_owned()));
-        assert!(route::validate_route(&route_rows(&["main", "main"])).unwrap_err().contains("main is on the route twice"));
-        let ok = route::validate_route(&route_rows(&["staging", " main "])).unwrap();
-        assert_eq!(ok.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), ["staging", "main"]);
-    }
-
-    #[test]
-    fn repo_route_replaces_then_drops() {
-        let mut s = route_state();
-        s.open_route_edit("a/x");
-        assert_eq!(s.route_edit.as_ref().map(|(slug, rows)| (slug.as_str(), rows.len())), Some(("a/x", 2)), "starts from the general route");
-        s.route_edit.as_mut().unwrap().1 = route_rows(&["qa"]);
-        s.save_route_edit();
-        assert!(s.route_edit.is_none());
-        let (t, own) = route::route_for(&s.prefs, "a/x");
-        assert_eq!((t.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), own), (vec!["qa"], true));
-        // Saving again replaces rather than adds.
-        s.open_route_edit("a/x");
-        s.route_edit.as_mut().unwrap().1 = route_rows(&["qa", "prod"]);
-        s.save_route_edit();
-        assert_eq!(s.prefs.pr_route_overrides.len(), 1);
-        s.open_route_edit("a/x");
-        s.drop_route_edit();
-        let (t, own) = route::route_for(&s.prefs, "a/x");
-        assert_eq!((t.len(), own), (2, false));
-        assert!(s.route_edit.is_none());
-    }
-
-    #[test]
-    fn save_route_keeps_order() {
-        let mut s = route_state();
-        s.open_route_rows();
-        s.route_rows.swap(0, 1);
-        assert_eq!(s.save_route(), Ok(()));
-        assert_eq!(s.prefs.pr_route.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), ["main", "staging"]);
-        s.route_rows.swap(0, 1);
-        assert_eq!(s.save_route(), Ok(()));
-        assert_eq!(s.prefs.pr_route.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), ["staging", "main"]);
-        // An invalid edit changes nothing.
-        s.route_rows[0].base = TextEdit::new("");
-        assert!(s.save_route().is_err());
-        assert_eq!(s.prefs.pr_route.len(), 2);
     }
 
     #[test]

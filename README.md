@@ -181,14 +181,6 @@ PRs are counted from up to 500 commits per comparison. Click a lane to list its 
 a one-line summary and size; switch to **By contributor** to see who wrote them (name, company,
 profile), and click a folder in **Changed code** to show only the PRs that touched it.
 
-**PR routes.** A route is an ordered list of target branches (say staging, then main), each with a
-preset for its PR: draft or ready, a title and description with `{branch}`, `{target}` and
-`{subject}` blanks, reviewers, assignees and labels. Set it in Settings → Git, or per repo from
-**Route for this repo…** on the Branches pane. There, picking a feature branch shows each step's PR
-state, and **Open PR → target** opens a dialog filled from that preset; every PR still goes through
-the confirm step that shows the exact `gh pr create` command. The next step opens once the previous
-step's newest PR is merged.
-
 **Clone folders.** Add folders in Settings → Git; they're scanned at launch and on Rescan now,
 5 levels deep, skipping hidden folders, `node_modules`, `target`, `vendor`, `dist` and `build`.
 Clones found are added to your repos. Scanning never writes to a clone.

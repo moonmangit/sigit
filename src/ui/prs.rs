@@ -272,8 +272,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
         let body = s.comment.text.trim().to_owned();
         let approve = Action::Approve { slug: slug.clone(), number: n, title: String::new(), body: body.clone(), confirm: false };
         let changes = Action::RequestChanges { slug: slug.clone(), number: n, body: if body.is_empty() { "…".into() } else { body } };
-        let del = crate::route::merge_deletes_branch(&s.prefs, &slug, &pr.head_ref_name, &pr.base_ref_name);
-        let merge = Action::Merge { slug: slug.clone(), number: n, title: String::new(), method: MergeMethod::Squash, delete_branch: del };
+        let merge = merge_action(&slug, n, "");
         let close = Action::Close { slug: slug.clone(), number: n, title: String::new() };
         actions = actions
             .child(
@@ -310,7 +309,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                     .variant(ButtonVariant::Outline)
                     
                     .on_press(move |s: &mut State| {
-                        s.request(Action::Merge { slug: s3.clone(), number: n, title: t1.clone(), method: MergeMethod::Squash, delete_branch: del })
+                        s.request(merge_action(&s3, n, &t1))
                     })
                     .build(k)
                     .key("merge").cmd_tip(s, tip) },
@@ -514,6 +513,23 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     Some(side_pane(k, "pr-pane", c))
 }
 
+/// The Merge a PR's button runs: squash, deleting the branch.
+pub(crate) fn merge_action(slug: &str, number: u64, title: &str) -> Action {
+    Action::Merge { slug: slug.to_owned(), number, title: title.to_owned(), method: MergeMethod::Squash, delete_branch: true }
+}
+
 fn section(k: &Kit, title: &str, body: El) -> El {
     col().w_full().gap(8.0).child(text(title.to_owned()).font(k.ty.small_medium).color(k.c.text_muted)).child(body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_defaults_to_deleting_branch() {
+        let Action::Merge { delete_branch, method, .. } = merge_action("a/b", 7, "t") else { panic!("not a Merge") };
+        assert!(delete_branch);
+        assert_eq!(method, MergeMethod::Squash);
+    }
 }

@@ -86,7 +86,7 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let mut body = col().w_full().px(16.0).pb(16.0).gap(12.0);
 
     // Merge options live in the dialog.
-    if let Action::Merge { method, delete_branch, slug, number, .. } = &p.action {
+    if let Action::Merge { method, delete_branch, .. } = &p.action {
         let i = MergeMethod::ALL.iter().position(|m| m == method);
         body = body.child(
             row()
@@ -119,13 +119,6 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                         .key("delete-branch"),
                 ),
         );
-        let pr = s.rd().and_then(|r| r.prs.data.as_ref()).and_then(|v| v.iter().find(|x| x.number == *number));
-        if let (true, Some(pr)) = (*delete_branch, pr) {
-            if let Some(next) = crate::route::kept_for(&s.prefs, slug, &pr.head_ref_name, &pr.base_ref_name) {
-                let base = &pr.base_ref_name;
-                body = body.child(text(tf!("{next} comes after {base} on this route")).font(k.ty.small).color(k.c.warning.fg).wrap());
-            }
-        }
     }
 
     // Risk level + reasons.

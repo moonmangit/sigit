@@ -14,6 +14,7 @@ mod onboarding;
 pub mod overlays;
 pub mod split;
 mod prs;
+pub(crate) use prs::merge_action;
 mod pulse;
 mod route;
 mod settings;
@@ -354,7 +355,6 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     pulse::tracked_dialog(s, &k, &mut layer);
     compare::repo_dialog(s, &k, &mut layer);
     route::pr_dialog(s, &k, &mut layer);
-    route::route_edit_dialog(s, &k, &mut layer);
     branches::base_list(s, &k, &mut layer);
     let menu_anchor = sidebar::context(s, &k, &mut layer);
     overlays::palette(s, &k, &mut layer);
