@@ -99,7 +99,15 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .key("pr-state")
                 .help(crate::i18n::t("Which pull requests to list")),
         )
-        .child(spacer());
+        .child(spacer())
+        .child(
+            Button::new(crate::i18n::t("New pull request"))
+                .variant(ButtonVariant::Contrast)
+                .on_press(|s: &mut State| s.new_pr_from_prs_page())
+                .build(k)
+                .key("pr-new")
+                .help(crate::i18n::t("Open a pull request from any branch into another")),
+        );
     let toolbar = if s.pr_searching {
         toolbar.child(row().gap(6.0).center_y().child(rune_kit::Spinner::new().size(12.0).build(k)).child(muted(k, "Searching GitHub…")))
     } else {

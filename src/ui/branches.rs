@@ -54,6 +54,15 @@ pub fn view(s: &State, k: &Kit) -> El {
         toolbar = toolbar.child(muted(k, { let n = visible(s).len(); tf!("{n} branch{}", if n == 1 { "" } else { "es" }) }).help(crate::i18n::t("Double-click a branch to check it out. 🛡 marks protected or default branches."))).child(spacer());
         if let Some(name) = sel {
             let remote = s.branch_view == 1;
+            let pr_name = name.clone();
+            toolbar = toolbar.child(
+                Button::new(crate::i18n::t("Open PR"))
+                    .variant(ButtonVariant::Outline)
+                    .on_press(move |s: &mut State| s.new_pr_from_branch(&pr_name))
+                    .build(k)
+                    .key("b-open-pr")
+                    .help(crate::i18n::t("Open a pull request from this branch")),
+            );
             toolbar = toolbar.child(
                 { let tip = s.with_commands(crate::i18n::t("Switch your clone to it. Asks first if you have uncommitted changes, and offers to stash them."), &crate::git::checkout_cmds(&name, remote).iter().map(crate::gh::Cmd::line).collect::<Vec<_>>()); Button::new(crate::i18n::t(tf!("Check out {}", short_name(&name))))
                     .variant(ButtonVariant::Contrast)

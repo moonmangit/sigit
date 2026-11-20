@@ -491,6 +491,8 @@ pub struct State {
     pub branch_base: Option<String>,
     /// The "compared with" list on the branch pane is open.
     pub branch_base_open: bool,
+    /// Which of the new-PR form's branch lists is open: 1 From, 2 To, 0 none.
+    pub pr_pick_open: u8,
     /// PR details of opened lanes, by (repo, sorted PR numbers); this session only.
     pub lane_details: HashMap<(String, Vec<u64>), Load<Vec<compare::PrDetail>>>,
     /// Files changed by commits that were clicked open, by (repo, sha); this session only.
@@ -652,6 +654,7 @@ impl State {
             pr_compare: HashMap::new(),
             branch_base: None,
             branch_base_open: false,
+            pr_pick_open: 0,
             lane_details: HashMap::new(),
             commit_files: HashMap::new(),
             open_commits: HashSet::new(),
@@ -1671,6 +1674,7 @@ impl State {
         let exists = |name: &str| !name.is_empty() && branches.is_none_or(|l| l.iter().any(|b| route::head_name(&b.name) == name));
         let default = data.and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone()).unwrap_or_default();
         let to = if exists(&last.base) { last.base.clone() } else { default };
+        self.pr_pick_open = 0;
         self.pr_draft = Some(PrDraft {
             slug: slug.to_owned(),
             from,
@@ -1684,6 +1688,20 @@ impl State {
         });
         self.fill_pr_title();
         self.load_pr_pair();
+    }
+
+    /// The PRs page's New pull request button: the current repo, from its current branch.
+    pub fn new_pr_from_prs_page(&mut self) {
+        if let Some(slug) = self.cur.clone() {
+            self.open_new_pr(&slug, None);
+        }
+    }
+
+    /// The Branches page's Open PR button: the current repo, from the selected branch.
+    pub fn new_pr_from_branch(&mut self, name: &str) {
+        if let Some(slug) = self.cur.clone() {
+            self.open_new_pr(&slug, Some(name));
+        }
     }
 
     pub fn set_pr_from(&mut self, b: &str) {
@@ -2716,6 +2734,22 @@ fn open_commit_fixture(s: &mut State) {
 
 /// acme/api's Branches page (Local) with feat/rate-limit picked: its lane against main brings
 /// the PRs and commit of the "To staging" lane, so the details and layout are reused (no network).
+/// The new-PR form open on feat/rate-limit (pushed) into main, 3 commits ahead, no PR open.
+fn new_pr_fixture(s: &mut State) {
+    branches_fixture(s);
+    if let Some(b) = s.rd_mut("acme/api").branches.data.as_mut() {
+        b.push(model::Branch { name: "origin/feat/rate-limit".into(), remote: true, ..Default::default() });
+    }
+    s.open_new_pr("acme/api", Some("feat/rate-limit"));
+    s.fill_pr_title();
+    let commit = |n: u32, subject: &str| compare::LooseCommit { sha: format!("{n:07x}"), subject: subject.into(), author: "ploy".into() };
+    let cell = compare::Cell::Waiting { commits: 3, prs: vec![], loose: vec![commit(1, "Sample rate limit"), commit(2, "Sample limiter tests"), commit(3, "Sample limiter docs")], checked: 3 };
+    let mut l = Load::default();
+    l.finish(Ok(compare::RepoCompare { slug: "acme/api".into(), cells: vec![cell], error: None }));
+    s.pr_compare.insert(("acme/api".into(), "feat/rate-limit".into(), "main".into()), l);
+    s.branch_prs.insert(("acme/api".into(), "feat/rate-limit".into()), Load { data: Some(vec![]), ..Default::default() });
+}
+
 fn branches_fixture(s: &mut State) {
     compare_fixture(s);
     let slug = "acme/api".to_string();
@@ -2860,14 +2894,24 @@ fn main() {
             ("branches-detail", |s: &mut State| {
                 branches_fixture(s);
             }),
-            ("pr-dialog", |s: &mut State| {
-                // feat/rate-limit pushed, the new-PR dialog open on it.
-                branches_fixture(s);
+            ("new-pr", |s: &mut State| {
+                // feat/rate-limit pushed, 3 commits ahead of main: ready to create.
+                new_pr_fixture(s);
+            }),
+            ("new-pr-blocked", |s: &mut State| {
+                // The same pair, but an open PR from feat/rate-limit into main exists.
+                new_pr_fixture(s);
+                s.branch_prs.insert(
+                    ("acme/api".into(), "feat/rate-limit".into()),
+                    Load { data: Some(vec![route::BranchPr { number: 42, state: "OPEN".into(), is_draft: false, base_ref_name: "main".into(), created_at: String::new(), merged_at: String::new(), url: String::new() }]), ..Default::default() },
+                );
+            }),
+            ("new-pr-unpushed", |s: &mut State| {
+                // feat/rate-limit exists only in the clone: Push it first.
+                new_pr_fixture(s);
                 if let Some(b) = s.rd_mut("acme/api").branches.data.as_mut() {
-                    b.push(model::Branch { name: "origin/feat/rate-limit".into(), remote: true, ..Default::default() });
+                    b.retain(|b| b.name != "origin/feat/rate-limit");
                 }
-                s.open_new_pr("acme/api", Some("feat/rate-limit"));
-                s.fill_pr_title();
             }),
             ("comparisons-modules-open", |s: &mut State| {
                 // The lane pane with the Modules section expanded.
@@ -3691,6 +3735,18 @@ mod cache_tests {
         s.rd_mut("a/b").branches = Load::default();
         s.open_new_pr("a/b", Some("feat-a"));
         assert_eq!(s.pr_draft.as_ref().unwrap().title.text, "");
+    }
+
+    #[test]
+    fn entry_points_open_the_form() {
+        let mut s = form_state();
+        s.new_pr_from_prs_page();
+        let d = s.pr_draft.as_ref().unwrap();
+        assert_eq!((d.slug.as_str(), d.from.as_str()), ("a/b", "wip/x"));
+        s.pr_draft = None;
+        s.new_pr_from_branch("origin/feat/x");
+        let d = s.pr_draft.as_ref().unwrap();
+        assert_eq!((d.slug.as_str(), d.from.as_str()), ("a/b", "feat/x"));
     }
 
     #[test]

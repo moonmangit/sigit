@@ -1177,3 +1177,11 @@ Nothing to merge: {from} has no commits that {to} doesn't	ไม่มีอะ�
 A PR from {from} into {to} is already open: #{n}	มี PR จาก {from} เข้า {to} เปิดอยู่แล้ว: #{n}
 Add a title	ใส่ชื่อเรื่อง
 Pick a branch to merge into	เลือกสาขาที่จะรวมเข้าไป
+Create PR	สร้าง PR
+List commits	รายการคอมมิต
+New pull request	สร้าง pull request ใหม่
+Open a pull request from any branch into another	เปิด pull request จากสาขาใดก็ได้ไปยังอีกสาขา
+Open a pull request from this branch	เปิด pull request จากสาขานี้
+Pick a branch	เลือกสาขา
+Use last commit	ใช้คอมมิตล่าสุด
+{n} commits ahead	นำหน้า {n} คอมมิต
