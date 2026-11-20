@@ -242,6 +242,15 @@ impl State {
         });
     }
 
+    /// The confirm dialog was dismissed: a cancelled CreatePr gives the user's draft back.
+    pub fn cancel_pending(&mut self) {
+        if let Some(p) = self.pending.take()
+            && matches!(p.action, Action::CreatePr { .. })
+        {
+            self.restore_pr_draft();
+        }
+    }
+
     /// Whether the dialog's confirm button may be pressed.
     pub fn can_confirm(&self) -> bool {
         let Some(p) = &self.pending else { return false };
@@ -359,6 +368,7 @@ impl State {
     /// What to reload after an action failed: a PR that already exists changes what the route shows.
     pub(crate) fn action_failed(&mut self, action: &Action) {
         if let Action::CreatePr { spec, .. } = action {
+            self.restore_pr_draft();
             self.reload_route_prs(&spec.slug, &spec.head);
         }
     }
@@ -368,12 +378,15 @@ impl State {
         match action {
             Action::Merge { slug, .. } => {
                 self.refresh_prs();
+                // A merge moves every branch's route: refetch each when it's next picked.
+                self.route_prs.retain(|(sl, _), _| sl != slug);
                 if let Some(head) = self.branch_lane_sel.as_ref().filter(|(sl, _)| sl == slug).map(|(_, b)| b.clone()) {
                     self.reload_route_prs(slug, &head);
                 }
             }
             Action::Close { .. } | Action::Approve { .. } | Action::RequestChanges { .. } | Action::Comment { .. } => self.refresh_prs(),
             Action::CreatePr { spec, .. } => {
+                self.last_pr_draft = None;
                 self.refresh_prs();
                 self.reload_route_prs(&spec.slug, &spec.head);
             }

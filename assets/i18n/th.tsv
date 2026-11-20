@@ -1194,3 +1194,6 @@ This replaces the general route for this repo. {branch}, {target} and {subject} 
 Use the general route	ใช้เส้นทางทั่วไป
 Every route step needs a target branch	ทุกขั้นของเส้นทางต้องมีสาขาปลายทาง
 {branch} is on the route twice	{branch} อยู่ในเส้นทางสองครั้ง
+draft	ฉบับร่าง
+This repo's route has no targets	เส้นทางของรีโปนี้ไม่มีปลายทาง
+Edit this repo's route	แก้ไขเส้นทางของรีโปนี้

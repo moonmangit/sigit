@@ -159,13 +159,13 @@ pub mod ttl {
     pub const DETAIL: i64 = 120;
 }
 
-/// Park the open detail (with its key) in `memo` so coming back to it is instant.
 /// Fixture merges use the same default as the real buttons: the PR's own head and base.
 fn fixture_deletes(s: &State, number: u64) -> bool {
     let pr = s.rd().and_then(|d| d.prs.data.as_ref()).and_then(|v| v.iter().find(|p| p.number == number));
     pr.map_or(true, |p| route::merge_deletes_branch(&s.prefs, "anomalyco/rune", &p.head_ref_name, &p.base_ref_name))
 }
 
+/// Park the open detail (with its key) in `memo` so coming back to it is instant.
 fn stash<K: std::hash::Hash + Eq, T>(memo: &mut HashMap<K, Load<T>>, cur: &mut Load<T>, key: Option<K>) {
     let mut prev = std::mem::take(cur);
     if let Some(k) = key
@@ -526,6 +526,8 @@ pub struct State {
     pub repo_scope: Option<RepoScope>,
     pub compare_edit: Option<CompareEdit>,
     pub pr_draft: Option<PrDraft>,
+    /// The draft last handed to the guard: it comes back if the PR isn't opened.
+    pub last_pr_draft: Option<PrDraft>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
     /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
     pub cmp_rows: Vec<(TextEdit, TextEdit, TextEdit)>,
@@ -674,6 +676,7 @@ impl State {
             repo_scope: None,
             compare_edit: None,
             pr_draft: None,
+            last_pr_draft: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
             route_rows: Vec::new(),
@@ -1021,6 +1024,13 @@ impl State {
                     self.load_branch_lane();
                     self.load_lane_details(false);
                 }
+                // And where it stands on the PR route.
+                if let Some((slug, branch)) = self.branch_lane_sel.clone()
+                    && self.shows_route(&slug, &branch)
+                    && !self.route_prs.get(&(slug.clone(), branch.clone())).is_some_and(|l| l.loading)
+                {
+                    self.reload_route_prs(&slug, &branch);
+                }
             }
             Page::Group => self.load_group(false),
         }
@@ -1150,7 +1160,7 @@ impl State {
         let Some(slug) = self.cur.clone() else { return };
         let branch = branch.strip_prefix("origin/").unwrap_or(branch).to_owned();
         self.branch_lane_sel = Some((slug.clone(), branch.clone()));
-        if self.shows_route(&slug, &branch) && !self.route_prs.contains_key(&(slug.clone(), branch.clone())) {
+        if self.shows_route(&slug, &branch) && self.route_prs.get(&(slug.clone(), branch.clone())).is_none_or(|l| l.stale(ttl::GH)) {
             self.reload_route_prs(&slug, &branch);
         }
         self.lane_view.folder = None;
@@ -1705,9 +1715,13 @@ impl State {
         });
     }
 
-    /// Hand the dialog's PR to the guard's confirm flow and close the dialog.
+    /// Hand the dialog's PR to the guard's confirm flow and close the dialog. The draft is kept
+    /// in `last_pr_draft` until the PR is opened, so a cancel or a failure gives it back.
     pub fn submit_pr_draft(&mut self) {
         let Some(d) = self.pr_draft.as_ref() else { return };
+        if d.title.text.trim().is_empty() {
+            return;
+        }
         // Only a head known to be missing from GitHub stops here; before the branch list
         // loads the guard's confirm still shows the command.
         if self.pushed_state(&d.slug, &d.head) == Some(false) {
@@ -1715,9 +1729,9 @@ impl State {
         }
         let Some(d) = self.pr_draft.take() else { return };
         let spec = route::PrSpec {
-            slug: d.slug,
-            head: d.head,
-            base: d.base,
+            slug: d.slug.clone(),
+            head: d.head.clone(),
+            base: d.base.clone(),
             draft: d.draft,
             title: d.title.text.clone(),
             body: d.body.text.clone(),
@@ -1725,7 +1739,18 @@ impl State {
             assignees: d.assignees.text.clone(),
             labels: d.labels.text.clone(),
         };
-        self.request(guard::Action::CreatePr { spec, after_unmerged: d.after_unmerged });
+        let after_unmerged = d.after_unmerged.clone();
+        self.last_pr_draft = Some(d);
+        self.request(guard::Action::CreatePr { spec, after_unmerged });
+    }
+
+    /// Reopen the dialog with the draft that was submitted, unless another one is open.
+    pub fn restore_pr_draft(&mut self) {
+        if let Some(d) = self.last_pr_draft.take()
+            && self.pr_draft.is_none()
+        {
+            self.pr_draft = Some(d);
+        }
     }
 
     /// Reload the PR list (and the open PR).
@@ -2659,7 +2684,7 @@ fn route_fixture(s: &mut State, prs: &[(&str, &str, bool, u64, &str)], route: bo
     }
     let list: Vec<route::BranchPr> = prs
         .iter()
-        .map(|(base, state, draft, number, at)| route::BranchPr { number: *number, state: (*state).into(), is_draft: *draft, base_ref_name: (*base).into(), created_at: (*at).into(), url: String::new() })
+        .map(|(base, state, draft, number, at)| route::BranchPr { number: *number, state: (*state).into(), is_draft: *draft, base_ref_name: (*base).into(), created_at: (*at).into(), merged_at: String::new(), url: String::new() })
         .collect();
     let d = s.rd_mut(&slug);
     if let Some(b) = d.branches.data.as_mut() {
@@ -3632,6 +3657,101 @@ mod cache_tests {
         let Some(guard::Pending { action: guard::Action::CreatePr { spec, .. }, .. }) = &s.pending else { panic!("no CreatePr pending") };
         assert_eq!(spec.title, "my own title");
         assert_eq!(spec.labels, "release");
+    }
+
+    /// Submit the open dialog and hand back the CreatePr action the guard holds.
+    fn submitted(s: &mut State) -> guard::Action {
+        s.submit_pr_draft();
+        s.pending.as_ref().expect("no CreatePr pending").action.clone()
+    }
+
+    fn finish_with(s: &mut State, action: guard::Action, r: Result<String, String>) {
+        let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: r.is_ok(), detail: r.clone().unwrap_or_else(|e| e), commands: vec![] };
+        s.action_finished(action.clone(), action.label(), None, false, (r, entry, Ok(())));
+    }
+
+    #[test]
+    fn failed_create_pr_reopens_the_dialog_with_the_edits() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
+        let action = submitted(&mut s);
+        assert!(s.pr_draft.is_none() && s.last_pr_draft.is_some());
+        s.pending = None;
+        finish_with(&mut s, action, Err("boom".into()));
+        assert_eq!(s.pr_draft.as_ref().map(|d| d.title.text.as_str()), Some("my own title"));
+        assert!(s.last_pr_draft.is_none());
+    }
+
+    #[test]
+    fn cancelling_the_confirm_reopens_the_dialog_with_the_edits() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
+        submitted(&mut s);
+        s.cancel_pending();
+        assert!(s.pending.is_none());
+        assert_eq!(s.pr_draft.as_ref().map(|d| d.title.text.as_str()), Some("my own title"));
+    }
+
+    #[test]
+    fn cancelling_another_action_leaves_the_dialog_alone() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        submitted(&mut s);
+        s.pending = None;
+        s.request(guard::Action::Close { slug: "a/b".into(), number: 1, title: String::new() });
+        s.cancel_pending();
+        assert!(s.pr_draft.is_none(), "only a cancelled CreatePr gives the draft back");
+    }
+
+    #[test]
+    fn created_pr_clears_the_kept_draft() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        let action = submitted(&mut s);
+        s.pending = None;
+        finish_with(&mut s, action, Ok("https://github.com/a/b/pull/9".into()));
+        assert!(s.last_pr_draft.is_none());
+        assert!(s.pr_draft.is_none());
+    }
+
+    #[test]
+    fn submit_refuses_a_blank_title() {
+        let mut s = dialog_state();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.pr_draft.as_mut().unwrap().title.text = "   ".into();
+        s.submit_pr_draft();
+        assert!(s.pending.is_none() && s.pr_draft.is_some());
+    }
+
+    #[test]
+    fn merge_drops_the_repos_cached_statuses() {
+        let mut s = dialog_state();
+        s.route_prs.insert(("a/b".into(), "other".into()), Load { data: Some(vec![]), ..Default::default() });
+        s.route_prs.insert(("c/d".into(), "other".into()), Load { data: Some(vec![]), ..Default::default() });
+        s.branch_lane_sel = Some(("a/b".into(), "feat-a".into()));
+        let action = guard::Action::Merge { slug: "a/b".into(), number: 1, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: false };
+        finish_with(&mut s, action, Ok("merged".into()));
+        assert!(!s.route_prs.contains_key(&("a/b".to_string(), "other".to_string())));
+        assert!(s.route_prs.contains_key(&("c/d".to_string(), "other".to_string())), "other repos keep theirs");
+        let picked = s.route_prs.get(&("a/b".to_string(), "feat-a".to_string())).expect("the picked branch is fetched again");
+        // Tests run jobs inline and the lookup is offline: a fetch leaves "offline" behind.
+        assert!(picked.data.is_none() && picked.error.as_deref() == Some("offline"));
+    }
+
+    #[test]
+    fn picking_a_lane_reloads_only_stale_statuses() {
+        let mut s = dialog_state();
+        s.cur = Some("a/b".into());
+        let key = ("a/b".to_string(), "feat-a".to_string());
+        let fresh = Load { data: Some(vec![]), at: Some(model::now()), ..Default::default() };
+        s.route_prs.insert(key.clone(), fresh);
+        s.select_branch_lane("feat-a");
+        assert!(s.route_prs[&key].error.is_none(), "fresh data is kept");
+        s.route_prs.get_mut(&key).unwrap().at = Some(model::now() - ttl::GH - 1);
+        s.select_branch_lane("feat-a");
+        assert_eq!(s.route_prs[&key].error.as_deref(), Some("offline"), "stale data is fetched again");
     }
 
     #[test]

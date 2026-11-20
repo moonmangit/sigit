@@ -66,14 +66,14 @@ pub fn rows_of(targets: &[RouteTarget]) -> Vec<RouteRow> {
         .collect()
 }
 
-/// The rows as targets, every field trimmed.
+/// The rows as targets: the branch, title and lists trimmed, the body as typed.
 pub fn targets_of(rows: &[RouteRow]) -> Vec<RouteTarget> {
     rows.iter()
         .map(|r| RouteTarget {
             base: r.base.text.trim().to_owned(),
             draft: r.draft,
             title: r.title.text.trim().to_owned(),
-            body: r.body.text.trim().to_owned(),
+            body: r.body.text.clone(),
             reviewers: r.reviewers.text.trim().to_owned(),
             assignees: r.assignees.text.trim().to_owned(),
             labels: r.labels.text.trim().to_owned(),
@@ -136,6 +136,11 @@ pub struct PrSpec {
     pub labels: String,
 }
 
+/// `gh` sends `"mergedAt": null` for a PR that isn't merged.
+fn null_as_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
 /// A PR of a branch as `gh pr list --json` reports it.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +152,8 @@ pub struct BranchPr {
     pub base_ref_name: String,
     #[serde(default)]
     pub created_at: String,
+    #[serde(default, deserialize_with = "null_as_empty")]
+    pub merged_at: String,
     #[serde(default)]
     pub url: String,
 }
@@ -191,7 +198,7 @@ pub fn steps(targets: &[RouteTarget], prs: &[BranchPr]) -> (Vec<Step>, Vec<Branc
         .iter()
         .map(|t| {
             let mine: Vec<&BranchPr> = prs.iter().filter(|p| p.base_ref_name == t.base).collect();
-            let latest = mine.iter().max_by(|a, b| a.created_at.cmp(&b.created_at)).map(|p| (*p).clone());
+            let latest = mine.iter().max_by(|a, b| (&a.created_at, a.number).cmp(&(&b.created_at, b.number))).map(|p| (*p).clone());
             let state = match latest.as_ref().map(|p| (p.state.as_str(), p.is_draft)) {
                 Some(("OPEN", draft)) => StepState::Open { draft },
                 Some(("MERGED", _)) => StepState::Merged,
@@ -228,9 +235,32 @@ mod tests {
 
     #[test]
     fn branch_pr_parses_gh_json() {
-        let j = r#"[{"number":142,"state":"MERGED","isDraft":false,"baseRefName":"staging","createdAt":"2026-11-17T10:00:00Z","url":"u"}]"#;
+        let j = r#"[{"number":142,"state":"MERGED","isDraft":false,"baseRefName":"staging","createdAt":"2026-11-17T10:00:00Z","mergedAt":"2026-11-18T09:00:00Z","url":"u"}]"#;
         let v = serde_json::from_str::<Vec<BranchPr>>(j).unwrap();
         assert_eq!((v[0].number, v[0].state.as_str(), v[0].base_ref_name.as_str()), (142, "MERGED", "staging"));
+        assert_eq!(v[0].merged_at, "2026-11-18T09:00:00Z");
+        // An open PR has no mergedAt (gh sends null or omits it).
+        let open = serde_json::from_str::<Vec<BranchPr>>(r#"[{"number":1,"state":"OPEN","baseRefName":"main","mergedAt":null}]"#).unwrap();
+        assert!(open[0].merged_at.is_empty());
+    }
+
+    #[test]
+    fn targets_keep_the_body_as_typed() {
+        let mut rows = rows_of(&[RouteTarget { base: " main ".into(), body: "line
+
+".into(), labels: " a ".into(), ..Default::default() }]);
+        rows[0].title = rune::TextEdit::new(" t ");
+        let t = &targets_of(&rows)[0];
+        assert_eq!((t.base.as_str(), t.title.as_str(), t.labels.as_str(), t.body.as_str()), ("main", "t", "a", "line
+
+"));
+    }
+
+    #[test]
+    fn steps_break_ties_on_number() {
+        let at = "2026-11-17T10:00:00Z";
+        let prs = [pr(7, "CLOSED", false, "staging", at), pr(9, "OPEN", false, "staging", at), pr(8, "CLOSED", false, "staging", at)];
+        assert_eq!(steps(&route(), &prs).0[0].latest.as_ref().unwrap().number, 9);
     }
 
     fn t(base: &str) -> RouteTarget {
@@ -310,6 +340,7 @@ mod tests {
             is_draft: draft,
             base_ref_name: base.into(),
             created_at: at.into(),
+            merged_at: String::new(),
             url: String::new(),
         }
     }

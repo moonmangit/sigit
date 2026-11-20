@@ -203,7 +203,7 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         Action::Stash { op, .. } => tf!("{}{} stash", op[..1].to_uppercase(), &op[1..]),
         other => other.label(),
     };
-    let mut buttons = row().w_full().gap(8.0).child(spacer()).child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.pending = None).build(k).key("no"));
+    let mut buttons = row().w_full().gap(8.0).child(spacer()).child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.cancel_pending()).build(k).key("no"));
     if !p.dirty.is_empty() && p.blocked.is_none() {
         buttons = buttons.child(
             { let tip = s.with_commands(crate::i18n::t("Stashes your changes first, then runs it. Undo pops the stash back."), &p.action.command_lines(true)); Button::new(crate::i18n::t("Stash and continue"))
@@ -233,7 +233,7 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         Level::High => tf!("⚠ {}?", p.action.label()),
         _ => tf!("{}?", p.action.label()),
     };
-    Dialog::new("guard", crate::i18n::t(title)).description(crate::i18n::t(p.action.subject())).open(true).fit().width(560.0).on_close(|s: &mut State| s.pending = None).child(body).build(k, layer);
+    Dialog::new("guard", crate::i18n::t(title)).description(crate::i18n::t(p.action.subject())).open(true).fit().width(560.0).on_close(|s: &mut State| s.cancel_pending()).child(body).build(k, layer);
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -436,7 +436,7 @@ pub fn create_pr_cmd(p: &crate::route::PrSpec) -> Cmd {
 
 /// Every PR (any state) opened from `head`, newest information for the route's progress.
 pub fn branch_prs(slug: &str, head: &str) -> Result<Vec<crate::route::BranchPr>, String> {
-    gh_json(&["pr", "list", "-R", slug, "--head", head, "--state", "all", "--limit", "50", "--json", "number,state,isDraft,baseRefName,createdAt,url"])
+    gh_json(&["pr", "list", "-R", slug, "--head", head, "--state", "all", "--limit", "50", "--json", "number,state,isDraft,baseRefName,createdAt,mergedAt,url"])
 }
 
 pub fn close_cmd(slug: &str, n: u64) -> Cmd {

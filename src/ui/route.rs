@@ -17,11 +17,28 @@ pub fn route_section(s: &State, k: &Kit, slug: &str, branch: &str) -> Option<El>
         return None;
     }
     let head = route::head_name(branch).to_owned();
-    let (targets, _) = route::route_for(&s.prefs, slug);
+    let (targets, from_repo) = route::route_for(&s.prefs, slug);
+    let load = s.route_prs.get(&(slug.to_owned(), head.clone()));
     let slug2 = slug.to_owned();
     let route_btn = Button::new(crate::i18n::t("Route for this repo…")).variant(ButtonVariant::GhostMuted).on_press(move |s: &mut State| s.open_route_edit(&slug2)).build(k).key("route-edit");
     let title = text(crate::i18n::t("PR route")).font(k.ty.ui_medium).color(k.c.text_strong);
-    let mut c = col().key("route-section").w_full().gap(8.0).child(row().w_full().gap(8.0).center_y().child(title).child(spacer()).child(route_btn));
+    let mut header = row().w_full().gap(8.0).center_y().child(title);
+    if load.is_some_and(|l| l.loading && l.data.is_some()) {
+        header = header.child(Spinner::new().size(12.0).build(k).key("route-reloading"));
+    }
+    let mut c = col().key("route-section").w_full().gap(8.0).child(header.child(spacer()).child(route_btn));
+    if targets.is_empty() && from_repo {
+        let slug3 = slug.to_owned();
+        return Some(
+            c.child(muted(k, crate::i18n::t("This repo's route has no targets")).wrap()).child(
+                Button::new(crate::i18n::t("Edit this repo's route"))
+                    .variant(ButtonVariant::Outline)
+                    .on_press(move |s: &mut State| s.open_route_edit(&slug3))
+                    .build(k)
+                    .key("route-repo-empty"),
+            ),
+        );
+    }
     if targets.is_empty() {
         return Some(
             c.child(muted(k, crate::i18n::t("Set up a PR route in Settings → Git to open PRs from here")).wrap()).child(
@@ -33,7 +50,6 @@ pub fn route_section(s: &State, k: &Kit, slug: &str, branch: &str) -> Option<El>
             ),
         );
     }
-    let load = s.route_prs.get(&(slug.to_owned(), head.clone()));
     let Some(prs) = load.and_then(|l| l.data.as_ref()) else {
         let body = match load.and_then(|l| l.error.clone()) {
             Some(e) => {
@@ -56,6 +72,24 @@ pub fn route_section(s: &State, k: &Kit, slug: &str, branch: &str) -> Option<El>
         };
         return Some(c.child(body));
     };
+    if let Some(e) = load.and_then(|l| l.error.clone()) {
+        let (slug, head) = (slug.to_owned(), head.clone());
+        c = c.child(
+            row()
+                .key("route-error")
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(muted(k, tf!("Couldn't load this branch's PRs: {error}", error = e)).wrap().grow(1.0).shrink())
+                .child(
+                    Button::new(crate::i18n::t("Retry"))
+                        .variant(ButtonVariant::GhostMuted)
+                        .on_press(move |s: &mut State| s.reload_route_prs(&slug, &head))
+                        .build(k)
+                        .key("route-retry"),
+                ),
+        );
+    }
     let (steps, off) = route::steps(targets, prs);
     for (i, step) in steps.iter().enumerate() {
         c = c.child(step_row(s, k, slug, &head, &steps, step, i));
@@ -89,7 +123,8 @@ fn step_row(_s: &State, k: &Kit, slug: &str, head: &str, steps: &[Step], step: &
             _ => (crate::i18n::t("closed"), Some(Outcome::Failure)),
         };
         let mut label = format!("#{}", p.number);
-        let age = ago_str(&p.created_at, now());
+        let when = if matches!(step.state, StepState::Merged) && !p.merged_at.is_empty() { &p.merged_at } else { &p.created_at };
+        let age = ago_str(when, now());
         if !age.is_empty() {
             label = format!("{label} · {age}");
         }
@@ -183,7 +218,7 @@ pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                 .gap(8.0)
                 .child(spacer())
                 .child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.pr_draft = None).build(k).key("prd-cancel"))
-                .child(Button::new(crate::i18n::t("Open PR")).variant(ButtonVariant::Submit).disabled(!pushed).on_press(|s: &mut State| s.submit_pr_draft()).build(k).key("prd-open")),
+                .child(Button::new(crate::i18n::t("Open PR")).variant(ButtonVariant::Submit).disabled(!pushed || d.title.text.trim().is_empty()).on_press(|s: &mut State| s.submit_pr_draft()).build(k).key("prd-open")),
         );
     Dialog::new("route-pr", tf!("Open PR {head} → {base}", head = d.head, base = d.base)).open(true).fit().width(620.0).on_close(|s: &mut State| s.pr_draft = None).child(body).build(k, layer);
 }
