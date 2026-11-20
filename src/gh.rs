@@ -465,9 +465,12 @@ pub fn assignable_users(slug: &str) -> Result<Vec<crate::route::Person>, String>
     serde_json::from_str(&out).map_err(|e| format!("unexpected gh output: {e}"))
 }
 
-/// `slug`'s labels (the first 200).
+/// The most labels the form lists; it says so when a repo has at least this many.
+pub const LABEL_LIMIT: usize = 1000;
+
+/// `slug`'s labels (the first [`LABEL_LIMIT`]).
 pub fn labels(slug: &str) -> Result<Vec<crate::route::RepoLabel>, String> {
-    gh_json(&["label", "list", "-R", slug, "--json", "name,color,description", "--limit", "200"])
+    gh_json(&["label", "list", "-R", slug, "--json", "name,color,description", "--limit", &LABEL_LIMIT.to_string()])
 }
 
 pub fn close_cmd(slug: &str, n: u64) -> Cmd {

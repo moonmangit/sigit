@@ -14,10 +14,15 @@ fn label_color(hex: &str, fallback: Color) -> Color {
     if hex.len() == 6 { rune::color::hex(&format!("#{hex}")).unwrap_or(fallback) } else { fallback }
 }
 
+/// Whether `name` is chosen already. GitHub logins and label names ignore case.
+fn has(chosen: &[String], name: &str) -> bool {
+    chosen.iter().any(|c| c.eq_ignore_ascii_case(name))
+}
+
 /// The last option of a people picker: add what was typed, if it's not already an option or chosen.
 fn typed_option(options: &mut Vec<ComboboxOption>, chosen: &[String], search: &str) {
     let text = search.trim();
-    if !text.is_empty() && !options.iter().any(|o| o.id == text) && !chosen.iter().any(|c| c == text) {
+    if !text.is_empty() && !options.iter().any(|o| o.id.eq_ignore_ascii_case(text)) && !has(chosen, text) {
         options.push(ComboboxOption::new(text, tf!("Add \"{text}\" as typed")));
     }
 }
@@ -26,10 +31,10 @@ fn typed_option(options: &mut Vec<ComboboxOption>, chosen: &[String], search: &s
 /// what's typed as one more option when no option is it. The combobox filters them by what's typed.
 fn people_options(users: &[Person], chosen: &[String], me: bool, search: &str) -> Vec<ComboboxOption> {
     let mut options: Vec<ComboboxOption> = Vec::new();
-    if me && !chosen.iter().any(|c| c == "@me") {
+    if me && !has(chosen, "@me") {
         options.push(ComboboxOption::new("@me", "@me"));
     }
-    for u in users.iter().filter(|u| !chosen.contains(&u.login)) {
+    for u in users.iter().filter(|u| !has(chosen, &u.login)) {
         let mut o = ComboboxOption::new(u.login.clone(), u.login.clone());
         o.detail = u.name.clone();
         options.push(o);
@@ -43,7 +48,7 @@ fn people_options(users: &[Person], chosen: &[String], me: bool, search: &str) -
 fn label_options(labels: &[RepoLabel], chosen: &[String]) -> Vec<ComboboxOption> {
     labels
         .iter()
-        .filter(|l| !chosen.contains(&l.name))
+        .filter(|l| !has(chosen, &l.name))
         .map(|l| {
             let mut o = ComboboxOption::new(l.name.clone(), l.name.clone());
             o.detail = l.description.clone();
@@ -92,7 +97,11 @@ fn picker(s: &State, k: &Kit, which: u8, label: &str, current: &str, key: &str) 
                 .current(Some(current).filter(|c| !c.is_empty()))
                 .placeholder(crate::i18n::t("Pick a branch"))
                 .open(s.pr_pick_open == which)
-                .on_toggle(move |s: &mut State| s.pr_pick_open = if s.pr_pick_open == which { 0 } else { which })
+                .on_toggle(move |s: &mut State| {
+                    // One list open at a time: a branch dropdown closes the people and label pickers.
+                    s.pr_close_picks(None);
+                    s.pr_pick_open = if s.pr_pick_open == which { 0 } else { which };
+                })
                 .trigger(k),
         )
 }
@@ -120,14 +129,17 @@ fn chip(k: &Kit, list: PrList, key: &str, value: &str, dot: Option<Color>) -> El
 fn pick_block(s: &State, k: &Kit, pop: &mut Vec<El>, list: PrList) -> El {
     let Some(d) = &s.pr_draft else { return col() };
     let (label, add, search, key, text_now, state, access): (&str, &str, &str, &str, &str, &ComboboxState, fn(&mut State) -> &mut ComboboxState) = match list {
-        PrList::Reviewers => ("Reviewers", "+ Add reviewer", "Username or org/team", "prd-reviewers", &d.reviewers.text, &s.pr_reviewers_pick, |s| &mut s.pr_reviewers_pick),
-        PrList::Assignees => ("Assignees", "+ Add assignee", "@me or a username", "prd-assignees", &d.assignees.text, &s.pr_assignees_pick, |s| &mut s.pr_assignees_pick),
-        PrList::Labels => ("Labels", "+ Add label", "Search labels", "prd-labels", &d.labels.text, &s.pr_labels_pick, |s| &mut s.pr_labels_pick),
+        // `pr_pick` (not the field itself) so using one picker closes the others.
+        PrList::Reviewers => ("Reviewers", "+ Add reviewer", "Username or org/team", "prd-reviewers", &d.reviewers.text, &s.pr_reviewers_pick, |s| s.pr_pick(PrList::Reviewers)),
+        PrList::Assignees => ("Assignees", "+ Add assignee", "@me or a username", "prd-assignees", &d.assignees.text, &s.pr_assignees_pick, |s| s.pr_pick(PrList::Assignees)),
+        PrList::Labels => ("Labels", "+ Add label", "Search labels", "prd-labels", &d.labels.text, &s.pr_labels_pick, |s| s.pr_pick(PrList::Labels)),
     };
     let chosen = route::split_list(text_now);
+    let mut capped = false;
     let (options, loading, failed, error, colors) = if list == PrList::Labels {
         let l = s.pr_labels.get(&d.slug);
         let labels = l.and_then(|l| l.data.clone()).unwrap_or_default();
+        capped = labels.len() >= crate::gh::LABEL_LIMIT;
         let colors: Vec<(String, Color)> = labels.iter().map(|x| (x.name.clone(), label_color(&x.color, k.c.icon_faint))).collect();
         (label_options(&labels, &chosen), l.is_some_and(|l| l.loading), l.is_some_and(|l| l.data.is_none() && l.error.is_some()), "Couldn't load labels", colors)
     } else {
@@ -154,6 +166,9 @@ fn pick_block(s: &State, k: &Kit, pop: &mut Vec<El>, list: PrList) -> El {
         tail = tail.child(Spinner::new().size(12.0).build(k).key(format!("{key}-loading")));
     } else if failed {
         tail = tail.child(muted(k, crate::i18n::t(error)).key(format!("{key}-failed")));
+    } else if capped {
+        // A repo this big may have labels past the list: say so rather than "No labels match".
+        tail = tail.child(muted(k, tf!("Showing the first {n} labels", n = crate::gh::LABEL_LIMIT)).key(format!("{key}-capped")));
     }
     let mut block = col().w(0.0).grow(1.0).gap(6.0).child(text(crate::i18n::t(label)).font(k.ty.small_medium).color(k.c.text_base));
     if !chosen.is_empty() {
@@ -295,6 +310,16 @@ mod tests {
         let labels = [RepoLabel { name: "bug".into(), color: "d73a4a".into(), description: "Broken".into() }, RepoLabel { name: "docs".into(), color: String::new(), description: String::new() }];
         assert_eq!(ids(&label_options(&labels, &["docs".to_owned()])), ["bug"], "labels skip chosen and never offer typed");
         assert_eq!(label_options(&labels, &[])[0].detail, "Broken");
+    }
+
+    #[test]
+    fn chosen_names_match_ignoring_case() {
+        let users = [person("lead", ""), person("Sam", "")];
+        assert_eq!(ids(&people_options(&users, &["Lead".to_owned()], false, "")), ["Sam"], "`Lead` already covers `lead`");
+        assert_eq!(ids(&people_options(&users, &[], false, "sam")), ["lead", "Sam"], "typed `sam` is the `Sam` option, so no typed entry");
+        assert_eq!(ids(&people_options(&users, &["SAM".to_owned()], false, "sam")), ["lead"], "typed and already chosen: nothing to add");
+        let labels = [RepoLabel { name: "Bug".into(), color: String::new(), description: String::new() }];
+        assert!(label_options(&labels, &["bug".to_owned()]).is_empty());
     }
 
     #[test]

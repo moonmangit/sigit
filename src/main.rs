@@ -1733,11 +1733,34 @@ impl State {
     }
 
     /// Add `value` to one of the open form's lists: trimmed, and not blank or already there.
+    /// Close the form's people and label pickers, all but `keep`.
+    pub fn pr_close_picks(&mut self, keep: Option<PrList>) {
+        for (list, pick) in [(PrList::Reviewers, &mut self.pr_reviewers_pick), (PrList::Assignees, &mut self.pr_assignees_pick), (PrList::Labels, &mut self.pr_labels_pick)] {
+            if keep != Some(list) {
+                pick.close();
+            }
+        }
+    }
+
+    /// One picker's state, for the picker itself. Every event it handles (opening, typing,
+    /// choosing) comes through here, so using one picker closes the others and the branch
+    /// dropdowns: only one list is open at a time.
+    pub fn pr_pick(&mut self, list: PrList) -> &mut rune_kit::ComboboxState {
+        self.pr_pick_open = 0;
+        self.pr_close_picks(Some(list));
+        match list {
+            PrList::Reviewers => &mut self.pr_reviewers_pick,
+            PrList::Assignees => &mut self.pr_assignees_pick,
+            PrList::Labels => &mut self.pr_labels_pick,
+        }
+    }
+
     pub fn pr_add(&mut self, field: PrList, value: &str) {
         let value = value.trim();
         let Some(edit) = self.pr_list_mut(field) else { return };
         let mut items = route::split_list(&edit.text);
-        if value.is_empty() || items.iter().any(|x| x == value) {
+        // GitHub logins and label names ignore case: `Lead` is already `lead`.
+        if value.is_empty() || items.iter().any(|x| x.eq_ignore_ascii_case(value)) {
             return;
         }
         items.push(value.to_owned());
@@ -1747,7 +1770,7 @@ impl State {
     /// Take `value` off one of the open form's lists.
     pub fn pr_remove(&mut self, field: PrList, value: &str) {
         let Some(edit) = self.pr_list_mut(field) else { return };
-        let items: Vec<String> = route::split_list(&edit.text).into_iter().filter(|x| x != value.trim()).collect();
+        let items: Vec<String> = route::split_list(&edit.text).into_iter().filter(|x| !x.eq_ignore_ascii_case(value.trim())).collect();
         *edit = TextEdit::new(items.join(", "));
     }
 
@@ -1816,9 +1839,7 @@ impl State {
         let default = self.data.get(slug).and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone()).unwrap_or_default();
         let to = if exists(&last.base) { last.base.clone() } else { default };
         self.pr_pick_open = 0;
-        for pick in [&mut self.pr_reviewers_pick, &mut self.pr_assignees_pick, &mut self.pr_labels_pick] {
-            pick.close();
-        }
+        self.pr_close_picks(None);
         self.pr_draft = Some(PrDraft {
             slug: slug.to_owned(),
             from,
@@ -3922,6 +3943,33 @@ mod cache_tests {
         assert_eq!(s.pr_draft.as_ref().unwrap().reviewers.text, "lead, sam");
         s.pr_remove(PrList::Reviewers, "lead");
         assert_eq!(s.pr_draft.as_ref().unwrap().reviewers.text, "sam");
+    }
+
+    #[test]
+    fn pr_add_ignores_case() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.pr_draft.as_mut().unwrap().reviewers = TextEdit::new("Lead");
+        s.pr_add(PrList::Reviewers, "lead");
+        assert_eq!(s.pr_draft.as_ref().unwrap().reviewers.text, "Lead", "GitHub logins ignore case");
+        s.pr_remove(PrList::Reviewers, "LEAD");
+        assert_eq!(s.pr_draft.as_ref().unwrap().reviewers.text, "");
+    }
+
+    #[test]
+    fn one_picker_open_at_a_time() {
+        use rune_kit::ComboboxEvent;
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.pr_labels_pick.step(ComboboxEvent::Toggle { current: None });
+        s.pr_pick_open = 1;
+        assert!(s.pr_labels_pick.is_open());
+        // Opening Reviewers goes through `pr_pick`, as the picker's own events do.
+        s.pr_pick(PrList::Reviewers).step(ComboboxEvent::Toggle { current: None });
+        assert!(s.pr_reviewers_pick.is_open());
+        assert!(!s.pr_labels_pick.is_open() && s.pr_pick_open == 0, "the label picker and the branch dropdown closed");
+        s.pr_close_picks(None);
+        assert!(!s.pr_reviewers_pick.is_open());
     }
 
     #[test]
