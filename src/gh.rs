@@ -421,6 +421,24 @@ pub fn merge_cmd(slug: &str, n: u64, method: MergeMethod, delete_branch: bool) -
     if delete_branch { c.arg("--delete-branch") } else { c }
 }
 
+pub fn create_pr_cmd(p: &crate::route::PrSpec) -> Cmd {
+    let mut c = Cmd::new("gh", &["pr", "create", "-R", &p.slug, "--head", &p.head, "--base", &p.base, "--title", &p.title, "--body", &p.body]);
+    if p.draft {
+        c = c.arg("--draft");
+    }
+    for (flag, list) in [("--reviewer", &p.reviewers), ("--assignee", &p.assignees), ("--label", &p.labels)] {
+        for x in crate::route::split_list(list) {
+            c = c.arg(flag).arg(x);
+        }
+    }
+    c
+}
+
+/// Every PR (any state) opened from `head`, newest information for the route's progress.
+pub fn branch_prs(slug: &str, head: &str) -> Result<Vec<crate::route::BranchPr>, String> {
+    gh_json(&["pr", "list", "-R", slug, "--head", head, "--state", "all", "--limit", "50", "--json", "number,state,isDraft,baseRefName,createdAt,url"])
+}
+
 pub fn close_cmd(slug: &str, n: u64) -> Cmd {
     Cmd::new("gh", &["pr", "close", &n.to_string(), "-R", slug])
 }
@@ -711,6 +729,35 @@ mod account_tests {
 mod command_tests {
     use super::*;
     use crate::guard::Action;
+
+    fn spec() -> crate::route::PrSpec {
+        crate::route::PrSpec {
+            slug: "a/x".into(), head: "feat-a".into(), base: "main".into(), draft: true,
+            title: "T".into(), body: "B".into(), reviewers: "lead".into(), assignees: "".into(), labels: "release".into(),
+        }
+    }
+
+    #[test]
+    fn create_pr_cmd_args_in_order() {
+        let c = create_pr_cmd(&spec());
+        assert_eq!(c.args, ["pr", "create", "-R", "a/x", "--head", "feat-a", "--base", "main", "--title", "T", "--body", "B", "--draft", "--reviewer", "lead", "--label", "release"]);
+    }
+
+    #[test]
+    fn create_pr_cmd_skips_blank_list_items() {
+        let c = create_pr_cmd(&crate::route::PrSpec { reviewers: " , lead ,".into(), ..spec() });
+        assert_eq!(c.args.iter().filter(|a| *a == "--reviewer").count(), 1);
+        let i = c.args.iter().position(|a| a == "--reviewer").unwrap();
+        assert_eq!(c.args[i + 1], "lead");
+    }
+
+    #[test]
+    fn create_pr_cmd_keeps_body_as_one_arg() {
+        let body = "a \"quoted\"\nline";
+        let c = create_pr_cmd(&crate::route::PrSpec { body: body.into(), ..spec() });
+        let i = c.args.iter().position(|a| a == "--body").unwrap();
+        assert_eq!(c.args[i + 1], body);
+    }
 
     #[test]
     fn merge_path_keeps_order_and_drops_repeats() {

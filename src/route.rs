@@ -60,6 +60,35 @@ pub fn split_list(s: &str) -> Vec<String> {
     s.split(',').map(str::trim).filter(|x| !x.is_empty()).map(String::from).collect()
 }
 
+/// Everything `gh pr create` needs for one route step.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PrSpec {
+    pub slug: String,
+    pub head: String,
+    pub base: String,
+    pub draft: bool,
+    pub title: String,
+    pub body: String,
+    pub reviewers: String,
+    pub assignees: String,
+    pub labels: String,
+}
+
+/// A PR of a branch as `gh pr list --json` reports it.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchPr {
+    pub number: u64,
+    pub state: String,
+    #[serde(default)]
+    pub is_draft: bool,
+    pub base_ref_name: String,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub url: String,
+}
+
 /// When `base` is a route target that isn't the last, and `head` isn't itself a route target,
 /// the next target's name: the feature branch must be kept for the next step.
 pub fn kept_for(prefs: &Prefs, slug: &str, head: &str, base: &str) -> Option<String> {
@@ -75,6 +104,13 @@ pub fn kept_for(prefs: &Prefs, slug: &str, head: &str, base: &str) -> Option<Str
 mod tests {
     use super::*;
     use crate::config::Prefs;
+
+    #[test]
+    fn branch_pr_parses_gh_json() {
+        let j = r#"[{"number":142,"state":"MERGED","isDraft":false,"baseRefName":"staging","createdAt":"2026-11-17T10:00:00Z","url":"u"}]"#;
+        let v = serde_json::from_str::<Vec<BranchPr>>(j).unwrap();
+        assert_eq!((v[0].number, v[0].state.as_str(), v[0].base_ref_name.as_str()), (142, "MERGED", "staging"));
+    }
 
     fn t(base: &str) -> RouteTarget {
         RouteTarget { base: base.into(), ..Default::default() }
