@@ -1185,3 +1185,12 @@ Body	เนื้อหา
 Reviewers	ผู้รีวิว
 Assignees	ผู้รับผิดชอบ
 Labels	ป้ายกำกับ
+Add target	เพิ่มปลายทาง
+PR route saved	บันทึกเส้นทาง PR แล้ว
+Route for {slug}	เส้นทางของ {slug}
+Target branch	สาขาปลายทาง
+The branches a feature branch's PRs go through, in order. A repo can have its own route from the Branches page. {branch}, {target} and {subject} fill in.	สาขาที่ PR ของสาขางานต้องผ่านตามลำดับ รีโปหนึ่งมีเส้นทางของตัวเองได้จากหน้าสาขา {branch}, {target} และ {subject} จะถูกเติมให้
+This replaces the general route for this repo. {branch}, {target} and {subject} fill in.	ใช้แทนเส้นทางทั่วไปสำหรับรีโปนี้ {branch}, {target} และ {subject} จะถูกเติมให้
+Use the general route	ใช้เส้นทางทั่วไป
+Every route step needs a target branch	ทุกขั้นของเส้นทางต้องมีสาขาปลายทาง
+{branch} is on the route twice	{branch} อยู่ในเส้นทางสองครั้ง

@@ -530,6 +530,10 @@ pub struct State {
     /// it had when loaded (`None` for a new row), so a rename or a move isn't mistaken for a new one.
     pub cmp_rows: Vec<(TextEdit, TextEdit, TextEdit)>,
     pub cmp_ids: Vec<Option<String>>,
+    /// Settings → Git: the general PR route being edited.
+    pub route_rows: Vec<route::RouteRow>,
+    /// The "Route for owner/repo" dialog: the repo and its route being edited.
+    pub route_edit: Option<(String, Vec<route::RouteRow>)>,
     pub tracked_q: TextEdit,
     /// The dialog's name field (kept here, not inside the Option, so it always exists).
     pub group_name: TextEdit,
@@ -672,6 +676,8 @@ impl State {
             pr_draft: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
+            route_rows: Vec::new(),
+            route_edit: None,
             tracked_q: TextEdit::new(""),
             group_name: TextEdit::new(""),
         }
@@ -2790,6 +2796,11 @@ fn main() {
                 s.prefs.pr_route[1] = route::RouteTarget { base: "main".into(), draft: true, title: "[main] {branch}".into(), body: "Ships {subject}".into(), labels: "release".into(), ..Default::default() };
                 s.open_pr_dialog("acme/api", "feat/rate-limit", 1);
             }),
+            ("route-repo-edit", |s: &mut State| {
+                // The branch pane with "Route for acme/api" open on the general route.
+                route_fixture(s, &[], true);
+                s.open_route_edit("acme/api");
+            }),
             ("comparisons-modules-open", |s: &mut State| {
                 // The lane pane with the Modules section expanded.
                 s.show(Page::Inbox);
@@ -2887,6 +2898,14 @@ fn main() {
                 s.setup = onboarding::Setup::Welcome(onboarding::Preflight { git: ok("git"), gh: ok("gh"), auth: ok("octocat on github.com") });
             }),
             ("settings-git", |s: &mut State| s.open_settings(2)),
+            ("settings-route", |s: &mut State| {
+                // Two targets, the last one with a preset.
+                s.prefs.pr_route = vec![
+                    route::RouteTarget { base: "staging".into(), ..Default::default() },
+                    route::RouteTarget { base: "main".into(), draft: true, title: "[main] {branch}".into(), reviewers: "acme/leads".into(), labels: "release".into(), ..Default::default() },
+                ];
+                s.open_settings(2);
+            }),
             ("updates", |s: &mut State| {
                 s.open_settings(8);
                 s.check_for_updates(); // the real check, against the public releases
@@ -3643,6 +3662,56 @@ mod cache_tests {
         assert_eq!(s.pushed_state("a/b", "other"), Some(false));
         s.rd_mut("a/b").branches = Load::default();
         assert_eq!(s.pushed_state("a/b", "feat-a"), None);
+    }
+
+    fn route_rows(bases: &[&str]) -> Vec<route::RouteRow> {
+        route::rows_of(&bases.iter().map(|b| route::RouteTarget { base: (*b).into(), ..Default::default() }).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn validate_route_rejects_blank_and_repeats() {
+        assert_eq!(route::validate_route(&route_rows(&["staging", ""])), Err("Every route step needs a target branch".to_owned()));
+        assert!(route::validate_route(&route_rows(&["main", "main"])).unwrap_err().contains("main is on the route twice"));
+        let ok = route::validate_route(&route_rows(&["staging", " main "])).unwrap();
+        assert_eq!(ok.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), ["staging", "main"]);
+    }
+
+    #[test]
+    fn repo_route_replaces_then_drops() {
+        let mut s = route_state();
+        s.open_route_edit("a/x");
+        assert_eq!(s.route_edit.as_ref().map(|(slug, rows)| (slug.as_str(), rows.len())), Some(("a/x", 2)), "starts from the general route");
+        s.route_edit.as_mut().unwrap().1 = route_rows(&["qa"]);
+        s.save_route_edit();
+        assert!(s.route_edit.is_none());
+        let (t, own) = route::route_for(&s.prefs, "a/x");
+        assert_eq!((t.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), own), (vec!["qa"], true));
+        // Saving again replaces rather than adds.
+        s.open_route_edit("a/x");
+        s.route_edit.as_mut().unwrap().1 = route_rows(&["qa", "prod"]);
+        s.save_route_edit();
+        assert_eq!(s.prefs.pr_route_overrides.len(), 1);
+        s.open_route_edit("a/x");
+        s.drop_route_edit();
+        let (t, own) = route::route_for(&s.prefs, "a/x");
+        assert_eq!((t.len(), own), (2, false));
+        assert!(s.route_edit.is_none());
+    }
+
+    #[test]
+    fn save_route_keeps_order() {
+        let mut s = route_state();
+        s.open_route_rows();
+        s.route_rows.swap(0, 1);
+        assert_eq!(s.save_route(), Ok(()));
+        assert_eq!(s.prefs.pr_route.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), ["main", "staging"]);
+        s.route_rows.swap(0, 1);
+        assert_eq!(s.save_route(), Ok(()));
+        assert_eq!(s.prefs.pr_route.iter().map(|t| t.base.as_str()).collect::<Vec<_>>(), ["staging", "main"]);
+        // An invalid edit changes nothing.
+        s.route_rows[0].base = TextEdit::new("");
+        assert!(s.save_route().is_err());
+        assert_eq!(s.prefs.pr_route.len(), 2);
     }
 
     #[test]

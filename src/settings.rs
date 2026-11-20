@@ -19,6 +19,7 @@ impl State {
         self.settings_open = true;
         self.palette = false;
         self.open_cmp_rows();
+        self.open_route_rows();
         let t = model::now();
         jobs::spawn(self, move || activity::recent(t), |s, v| s.activity = v);
         self.load_accounts();
@@ -106,6 +107,59 @@ impl State {
         self.toast(crate::i18n::t("Comparisons saved"), false);
         self.refresh_compare();
         Ok(())
+    }
+
+    /// Fill the Settings → Git route rows from the saved general route.
+    pub fn open_route_rows(&mut self) {
+        self.route_rows = crate::route::rows_of(&self.prefs.pr_route);
+    }
+
+    /// Check the route rows, then save them as the general route.
+    pub fn save_route(&mut self) -> Result<(), String> {
+        self.prefs.pr_route = crate::route::validate_route(&self.route_rows)?;
+        self.open_route_rows();
+        self.save_prefs();
+        self.toast(crate::i18n::t("PR route saved"), false);
+        self.reload_picked_route(None);
+        Ok(())
+    }
+
+    /// Ask again for the picked Branches-pane branch's PR statuses, after its route changed.
+    /// `only`: the one repo whose route changed (None: the general route, every repo's).
+    fn reload_picked_route(&mut self, only: Option<&str>) {
+        if let Some((slug, branch)) = self.branch_lane_sel.clone().filter(|(s, _)| only.is_none_or(|o| o == s)) {
+            self.reload_route_prs(&slug, crate::route::head_name(&branch));
+        }
+    }
+
+    /// Open the "Route for owner/repo" dialog on that repo's route (the general one if it has none).
+    pub fn open_route_edit(&mut self, slug: &str) {
+        let (targets, _) = crate::route::route_for(&self.prefs, slug);
+        self.route_edit = Some((slug.to_owned(), crate::route::rows_of(targets)));
+    }
+
+    /// Make the dialog's route this repo's own, replacing the general one for it.
+    pub fn save_route_edit(&mut self) {
+        let Some((slug, rows)) = self.route_edit.as_ref() else { return };
+        let targets = match crate::route::validate_route(rows) {
+            Ok(t) => t,
+            Err(e) => return self.toast(e, true),
+        };
+        let slug = slug.clone();
+        self.route_edit = None;
+        self.prefs.pr_route_overrides.retain(|r| r.slug != slug);
+        self.prefs.pr_route_overrides.push(crate::route::RepoRoute { slug: slug.clone(), targets });
+        self.save_prefs();
+        self.toast(crate::i18n::t("PR route saved"), false);
+        self.reload_picked_route(Some(&slug));
+    }
+
+    /// Drop the repo's own route: it follows the general one again.
+    pub fn drop_route_edit(&mut self) {
+        let Some((slug, _)) = self.route_edit.take() else { return };
+        self.prefs.pr_route_overrides.retain(|r| r.slug != slug);
+        self.save_prefs();
+        self.reload_picked_route(Some(&slug));
     }
 
     pub fn close_settings(&mut self) {

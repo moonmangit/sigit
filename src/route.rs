@@ -33,6 +33,68 @@ pub fn route_for<'a>(prefs: &'a Prefs, slug: &str) -> (&'a [RouteTarget], bool) 
     }
 }
 
+/// One step of a route while it's being edited: the same fields as a `RouteTarget`, as text
+/// fields.
+pub struct RouteRow {
+    pub base: rune::TextEdit,
+    pub draft: bool,
+    pub title: rune::TextEdit,
+    pub body: rune::TextEdit,
+    pub reviewers: rune::TextEdit,
+    pub assignees: rune::TextEdit,
+    pub labels: rune::TextEdit,
+}
+
+impl RouteRow {
+    pub fn blank() -> Self {
+        rows_of(&[RouteTarget::default()]).remove(0)
+    }
+}
+
+pub fn rows_of(targets: &[RouteTarget]) -> Vec<RouteRow> {
+    targets
+        .iter()
+        .map(|t| RouteRow {
+            base: rune::TextEdit::new(&t.base),
+            draft: t.draft,
+            title: rune::TextEdit::new(&t.title),
+            body: rune::TextEdit::new(&t.body),
+            reviewers: rune::TextEdit::new(&t.reviewers),
+            assignees: rune::TextEdit::new(&t.assignees),
+            labels: rune::TextEdit::new(&t.labels),
+        })
+        .collect()
+}
+
+/// The rows as targets, every field trimmed.
+pub fn targets_of(rows: &[RouteRow]) -> Vec<RouteTarget> {
+    rows.iter()
+        .map(|r| RouteTarget {
+            base: r.base.text.trim().to_owned(),
+            draft: r.draft,
+            title: r.title.text.trim().to_owned(),
+            body: r.body.text.trim().to_owned(),
+            reviewers: r.reviewers.text.trim().to_owned(),
+            assignees: r.assignees.text.trim().to_owned(),
+            labels: r.labels.text.trim().to_owned(),
+        })
+        .collect()
+}
+
+/// The rows as a route, or why they can't be one: every step needs a branch, none twice.
+pub fn validate_route(rows: &[RouteRow]) -> Result<Vec<RouteTarget>, String> {
+    let targets = targets_of(rows);
+    for (i, t) in targets.iter().enumerate() {
+        if t.base.is_empty() {
+            return Err(crate::i18n::t("Every route step needs a target branch").to_string());
+        }
+        if targets[..i].iter().any(|u| u.base == t.base) {
+            return Err(crate::tf!("{branch} is on the route twice", branch = t.base));
+        }
+    }
+    Ok(targets)
+}
+
 /// A branch as GitHub knows it: one leading `origin/` removed.
 pub fn head_name(branch: &str) -> &str {
     branch.strip_prefix("origin/").unwrap_or(branch)
