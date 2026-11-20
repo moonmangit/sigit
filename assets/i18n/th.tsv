@@ -1176,3 +1176,4 @@ Push {from} to GitHub first	push {from} ขึ้น GitHub ก่อน
 Nothing to merge: {from} has no commits that {to} doesn't	ไม่มีอะไรให้รวม: {from} ไม่มีคอมมิตที่ {to} ยังไม่มี
 A PR from {from} into {to} is already open: #{n}	มี PR จาก {from} เข้า {to} เปิดอยู่แล้ว: #{n}
 Add a title	ใส่ชื่อเรื่อง
+Pick a branch to merge into	เลือกสาขาที่จะรวมเข้าไป

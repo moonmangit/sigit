@@ -1667,7 +1667,8 @@ impl State {
             .or_else(|| branches.and_then(|l| l.iter().find(|b| b.current && !b.remote)).map(|b| b.name.clone()))
             .unwrap_or_default();
         let last = self.prefs.pr_last.iter().find(|p| p.slug == slug).cloned().unwrap_or_default();
-        let exists = |name: &str| !name.is_empty() && branches.is_some_and(|l| l.iter().any(|b| route::head_name(&b.name) == name));
+        // Before the branch list loads the remembered target is trusted.
+        let exists = |name: &str| !name.is_empty() && branches.is_none_or(|l| l.iter().any(|b| route::head_name(&b.name) == name));
         let default = data.and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone()).unwrap_or_default();
         let to = if exists(&last.base) { last.base.clone() } else { default };
         self.pr_draft = Some(PrDraft {
@@ -1681,6 +1682,7 @@ impl State {
             assignees: TextEdit::new(&last.assignees),
             labels: TextEdit::new(&last.labels),
         });
+        self.fill_pr_title();
         self.load_pr_pair();
     }
 
@@ -1781,6 +1783,9 @@ impl State {
         let (from, to) = (&d.from, &d.to);
         if from.is_empty() {
             return Some(crate::i18n::t("Pick a branch to merge from"));
+        }
+        if to.is_empty() {
+            return Some(crate::i18n::t("Pick a branch to merge into"));
         }
         if from == to {
             return Some(crate::i18n::t("From and To are the same branch"));
@@ -3670,6 +3675,25 @@ mod cache_tests {
     }
 
     #[test]
+    fn start_values_trust_remembered_before_branches_load() {
+        let mut s = form_state();
+        s.rd_mut("a/b").branches = Load::default();
+        s.prefs.pr_last = vec![config::PrLast { slug: "a/b".into(), base: "staging".into(), ..Default::default() }];
+        s.open_new_pr("a/b", Some("feat-a"));
+        assert_eq!(s.pr_draft.as_ref().unwrap().to, "staging");
+    }
+
+    #[test]
+    fn start_title_is_the_last_commit_subject() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
+        assert_eq!(s.pr_draft.as_ref().unwrap().title.text, "add login");
+        s.rd_mut("a/b").branches = Load::default();
+        s.open_new_pr("a/b", Some("feat-a"));
+        assert_eq!(s.pr_draft.as_ref().unwrap().title.text, "");
+    }
+
+    #[test]
     fn start_values_current_branch() {
         let mut s = form_state();
         s.open_new_pr("a/b", None);
@@ -3693,6 +3717,10 @@ mod cache_tests {
         s.open_new_pr("a/b", None);
         s.set_pr_from("");
         assert_eq!(s.pr_blocked().as_deref(), Some("Pick a branch to merge from"));
+        s.set_pr_to("");
+        s.set_pr_from("feat-a");
+        assert_eq!(s.pr_blocked().as_deref(), Some("Pick a branch to merge into"));
+        s.set_pr_to("main");
         s.set_pr_from("main");
         assert_eq!(s.pr_blocked().as_deref(), Some("From and To are the same branch"));
         s.set_pr_from("wip/x");
@@ -3710,8 +3738,12 @@ mod cache_tests {
         assert_eq!(s.pr_blocked().as_deref(), Some("Add a title"));
         s.pr_draft.as_mut().unwrap().title.text = "t".into();
         assert_eq!(s.pr_blocked(), None);
-        // A comparison that hasn't arrived doesn't block.
+        // A comparison that hasn't arrived, is loading, or failed doesn't block.
         s.pr_compare.clear();
+        assert_eq!(s.pr_blocked(), None);
+        s.pr_compare.insert(("a/b".into(), "feat-a".into(), "main".into()), Load::start());
+        assert_eq!(s.pr_blocked(), None);
+        s.pr_compare.insert(("a/b".into(), "feat-a".into(), "main".into()), Load { error: Some("offline".into()), ..Default::default() });
         assert_eq!(s.pr_blocked(), None);
     }
 
@@ -3877,7 +3909,7 @@ mod cache_tests {
         s.rd_mut("a/b").branches = Load::default();
         s.open_new_pr("a/b", Some("feat-a"));
         s.fill_pr_title();
-        s.pr_draft.as_mut().unwrap().title.text = "add login".into(); // no branch list, so no subject to start from
+        s.pr_draft.as_mut().unwrap().title.text = "add login".into(); // without a branch list there is no subject, so the title starts blank
         s.submit_pr_draft();
         assert!(s.pr_draft.is_none());
         assert!(matches!(s.pending, Some(guard::Pending { action: guard::Action::CreatePr { .. }, .. })));
