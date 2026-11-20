@@ -145,7 +145,7 @@ fn field(s: &mut State, f: fn(&mut crate::PrDraft) -> &mut TextEdit) -> &mut Tex
 /// "Open PR feat-a → main": the preset's fields, editable; Open PR hands the PR to the guard.
 pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let Some(d) = &s.pr_draft else { return };
-    let pushed = s.is_pushed(&d.slug, &d.head);
+    let pushed = s.pushed_state(&d.slug, &d.head) != Some(false);
     let note = if d.from_repo { tf!("preset: {base} (this repo)", base = d.base) } else { tf!("preset: {base} (general)", base = d.base) };
     let input = |e: &TextEdit, label: &str, key: &str, f: fn(&mut crate::PrDraft) -> &mut TextEdit| {
         TextInput::new(e).label(crate::i18n::t(label)).width(None).on_edit(move |s: &mut State| field(s, f)).build(k).key(key.to_owned())

@@ -1657,6 +1657,11 @@ impl State {
         self.data.get(slug).and_then(|d| d.branches.data.as_ref()).is_some_and(|l| l.iter().any(|b| b.remote && b.name == remote))
     }
 
+    /// Whether `head` is on GitHub: Some(true/false) once the branch list is loaded, None before.
+    pub fn pushed_state(&self, slug: &str, head: &str) -> Option<bool> {
+        self.data.get(slug).and_then(|d| d.branches.data.as_ref()).map(|_| self.is_pushed(slug, head))
+    }
+
     /// Whether the Branches pane shows the PR route for `branch`: not for a route target or the
     /// repo's default branch, which nothing ships from.
     pub fn shows_route(&self, slug: &str, branch: &str) -> bool {
@@ -1696,6 +1701,12 @@ impl State {
 
     /// Hand the dialog's PR to the guard's confirm flow and close the dialog.
     pub fn submit_pr_draft(&mut self) {
+        let Some(d) = self.pr_draft.as_ref() else { return };
+        // Only a head known to be missing from GitHub stops here; before the branch list
+        // loads the guard's confirm still shows the command.
+        if self.pushed_state(&d.slug, &d.head) == Some(false) {
+            return;
+        }
         let Some(d) = self.pr_draft.take() else { return };
         let spec = route::PrSpec {
             slug: d.slug,
@@ -3602,6 +3613,36 @@ mod cache_tests {
         let Some(guard::Pending { action: guard::Action::CreatePr { spec, .. }, .. }) = &s.pending else { panic!("no CreatePr pending") };
         assert_eq!(spec.title, "my own title");
         assert_eq!(spec.labels, "release");
+    }
+
+    #[test]
+    fn submit_refuses_a_known_unpushed_head() {
+        let mut s = dialog_state();
+        let b = |name: &str, remote: bool| model::Branch { name: name.into(), remote, ..Default::default() };
+        s.rd_mut("a/b").branches = Load { data: Some(vec![b("feat-a", false)]), ..Default::default() };
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.submit_pr_draft();
+        assert!(s.pending.is_none());
+        assert!(s.pr_draft.is_some());
+    }
+
+    #[test]
+    fn submit_allows_head_when_branches_not_loaded() {
+        let mut s = dialog_state();
+        s.rd_mut("a/b").branches = Load::default();
+        s.open_pr_dialog("a/b", "feat-a", 1);
+        s.submit_pr_draft();
+        assert!(s.pr_draft.is_none());
+        assert!(matches!(s.pending, Some(guard::Pending { action: guard::Action::CreatePr { .. }, .. })));
+    }
+
+    #[test]
+    fn pushed_state_is_three_way() {
+        let mut s = dialog_state();
+        assert_eq!(s.pushed_state("a/b", "feat-a"), Some(true));
+        assert_eq!(s.pushed_state("a/b", "other"), Some(false));
+        s.rd_mut("a/b").branches = Load::default();
+        assert_eq!(s.pushed_state("a/b", "feat-a"), None);
     }
 
     #[test]
