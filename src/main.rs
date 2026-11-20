@@ -302,6 +302,14 @@ pub struct PrDraft {
     pub labels: TextEdit,
 }
 
+/// One of the new-PR form's three comma-separated lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrList {
+    Reviewers,
+    Assignees,
+    Labels,
+}
+
 /// The "New group" / "Rename group" dialog.
 pub struct GroupEdit {
     /// The group being renamed; None makes a new one.
@@ -494,6 +502,14 @@ pub struct State {
     pub branch_base: Option<String>,
     /// The "compared with" list on the branch pane is open.
     pub branch_base_open: bool,
+    /// Who can be assigned or asked to review, by repo: the new-PR form's pickers. Session only.
+    pub pr_people: HashMap<String, Load<Vec<route::Person>>>,
+    /// Each repo's labels, by repo: the new-PR form's label picker. Session only.
+    pub pr_labels: HashMap<String, Load<Vec<route::RepoLabel>>>,
+    /// The new-PR form's Reviewers, Assignees and Labels pickers.
+    pub pr_reviewers_pick: rune_kit::ComboboxState,
+    pub pr_assignees_pick: rune_kit::ComboboxState,
+    pub pr_labels_pick: rune_kit::ComboboxState,
     /// Which of the new-PR form's branch lists is open: 1 From, 2 To, 0 none.
     pub pr_pick_open: u8,
     /// PR details of opened lanes, by (repo, sorted PR numbers); this session only.
@@ -656,6 +672,11 @@ impl State {
             branch_prs: HashMap::new(),
             pr_compare: HashMap::new(),
             gh_branches: HashMap::new(),
+            pr_people: HashMap::new(),
+            pr_labels: HashMap::new(),
+            pr_reviewers_pick: Default::default(),
+            pr_assignees_pick: Default::default(),
+            pr_labels_pick: Default::default(),
             branch_base: None,
             branch_base_open: false,
             pr_pick_open: 0,
@@ -1673,6 +1694,72 @@ impl State {
         });
     }
 
+    /// Load who `slug` lets people assign or ask to review when there's no list yet, the last
+    /// try failed, or it's older than `ttl` seconds (the old list stays up meanwhile).
+    pub fn load_pr_people(&mut self, slug: &str, ttl: i64) {
+        let entry = self.pr_people.entry(slug.to_owned()).or_default();
+        if !entry.stale(ttl) {
+            return;
+        }
+        entry.loading = true;
+        entry.error = None;
+        let key = slug.to_owned();
+        let work = key.clone();
+        // Tests never shell out: the lookup is offline there.
+        let fetch = move || if cfg!(test) { Err("offline".to_owned()) } else { gh::assignable_users(&work) };
+        jobs::spawn(self, fetch, move |s, result| {
+            if let Some(l) = s.pr_people.get_mut(&key) {
+                l.finish(result);
+            }
+        });
+    }
+
+    /// Load `slug`'s labels, as [`State::load_pr_people`] does.
+    pub fn load_pr_labels(&mut self, slug: &str, ttl: i64) {
+        let entry = self.pr_labels.entry(slug.to_owned()).or_default();
+        if !entry.stale(ttl) {
+            return;
+        }
+        entry.loading = true;
+        entry.error = None;
+        let key = slug.to_owned();
+        let work = key.clone();
+        let fetch = move || if cfg!(test) { Err("offline".to_owned()) } else { gh::labels(&work) };
+        jobs::spawn(self, fetch, move |s, result| {
+            if let Some(l) = s.pr_labels.get_mut(&key) {
+                l.finish(result);
+            }
+        });
+    }
+
+    /// Add `value` to one of the open form's lists: trimmed, and not blank or already there.
+    pub fn pr_add(&mut self, field: PrList, value: &str) {
+        let value = value.trim();
+        let Some(edit) = self.pr_list_mut(field) else { return };
+        let mut items = route::split_list(&edit.text);
+        if value.is_empty() || items.iter().any(|x| x == value) {
+            return;
+        }
+        items.push(value.to_owned());
+        *edit = TextEdit::new(items.join(", "));
+    }
+
+    /// Take `value` off one of the open form's lists.
+    pub fn pr_remove(&mut self, field: PrList, value: &str) {
+        let Some(edit) = self.pr_list_mut(field) else { return };
+        let items: Vec<String> = route::split_list(&edit.text).into_iter().filter(|x| x != value.trim()).collect();
+        *edit = TextEdit::new(items.join(", "));
+    }
+
+    fn pr_list_mut(&mut self, field: PrList) -> Option<&mut TextEdit> {
+        let d = self.pr_draft.as_mut()?;
+        Some(match field {
+            PrList::Reviewers => &mut d.reviewers,
+            PrList::Assignees => &mut d.assignees,
+            PrList::Labels => &mut d.labels,
+        })
+    }
+
     /// Whether `head` is on GitHub, from the repo's GitHub branch list: Some(true) if it's
     /// there, Some(false) if the list loaded without it, None while it loads or if it failed.
     pub fn pushed_state(&self, slug: &str, head: &str) -> Option<bool> {
@@ -1729,6 +1816,9 @@ impl State {
         let default = self.data.get(slug).and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone()).unwrap_or_default();
         let to = if exists(&last.base) { last.base.clone() } else { default };
         self.pr_pick_open = 0;
+        for pick in [&mut self.pr_reviewers_pick, &mut self.pr_assignees_pick, &mut self.pr_labels_pick] {
+            pick.close();
+        }
         self.pr_draft = Some(PrDraft {
             slug: slug.to_owned(),
             from,
@@ -1743,6 +1833,8 @@ impl State {
         self.fill_pr_title();
         self.load_pr_pair(true);
         self.load_gh_branches(slug, ttl::REVALIDATE);
+        self.load_pr_people(slug, ttl::GH);
+        self.load_pr_labels(slug, ttl::GH);
         let local = &self.rd_mut(slug).branches;
         if local.data.is_none() && !local.loading {
             self.refresh_branches_of(slug);
@@ -2840,7 +2932,27 @@ fn new_pr_fixture(s: &mut State) {
     let mut gh = Load::default();
     gh.finish(Ok(vec!["main".to_owned(), "dev".to_owned(), "feat/rate-limit".to_owned()]));
     s.gh_branches.insert("acme/api".into(), gh);
+    // Who and which labels the pickers offer, fresh, so opening the form doesn't fetch them.
+    let mut people = Load::default();
+    people.finish(Ok(vec![
+        route::Person { login: "lead".into(), name: "Sample Lena".into() },
+        route::Person { login: "sam".into(), name: "Sample Sam".into() },
+        route::Person { login: "ploy".into(), name: String::new() },
+    ]));
+    s.pr_people.insert("acme/api".into(), people);
+    let mut labels = Load::default();
+    labels.finish(Ok(vec![
+        route::RepoLabel { name: "bug".into(), color: "d73a4a".into(), description: "Sample bug label".into() },
+        route::RepoLabel { name: "release".into(), color: "0e8a16".into(), description: "Sample release label".into() },
+        route::RepoLabel { name: "docs".into(), color: "0075ca".into(), description: String::new() },
+    ]));
+    s.pr_labels.insert("acme/api".into(), labels);
     s.open_new_pr("acme/api", Some("feat/rate-limit"));
+    if let Some(d) = s.pr_draft.as_mut() {
+        d.reviewers = TextEdit::new("lead");
+        d.assignees = TextEdit::new("@me");
+        d.labels = TextEdit::new("bug");
+    }
     s.fill_pr_title();
     let commit = |n: u32, subject: &str| compare::LooseCommit { sha: format!("{n:07x}"), subject: subject.into(), author: "ploy".into() };
     let cell = compare::Cell::Waiting { commits: 3, prs: vec![], loose: vec![commit(1, "Sample rate limit"), commit(2, "Sample limiter tests"), commit(3, "Sample limiter docs")], checked: 3 };
@@ -3795,6 +3907,30 @@ mod cache_tests {
         };
         s.gh_branches.insert("a/b".into(), gh_list(&["main", "feat-a", "staging"]));
         s
+    }
+
+    #[test]
+    fn pr_add_and_remove_edit_the_list() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.pr_draft.as_mut().unwrap().reviewers = TextEdit::new("");
+        s.pr_add(PrList::Reviewers, "lead");
+        s.pr_add(PrList::Reviewers, "sam");
+        assert_eq!(s.pr_draft.as_ref().unwrap().reviewers.text, "lead, sam");
+        s.pr_add(PrList::Reviewers, "lead");
+        s.pr_add(PrList::Reviewers, "  ");
+        assert_eq!(s.pr_draft.as_ref().unwrap().reviewers.text, "lead, sam");
+        s.pr_remove(PrList::Reviewers, "lead");
+        assert_eq!(s.pr_draft.as_ref().unwrap().reviewers.text, "sam");
+    }
+
+    #[test]
+    fn open_new_pr_loads_people_and_labels() {
+        let mut s = form_state();
+        assert!(s.pr_people.is_empty() && s.pr_labels.is_empty());
+        s.open_new_pr("a/b", Some("feat-a"));
+        let (p, l) = (s.pr_people.get("a/b").unwrap(), s.pr_labels.get("a/b").unwrap());
+        assert!(!p.loading && p.error.is_some() && !l.loading && l.error.is_some(), "both fetches ran and finished offline");
     }
 
     #[test]

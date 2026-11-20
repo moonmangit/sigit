@@ -31,6 +31,24 @@ fn null_as_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Er
     Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
 }
 
+/// A person who can be assigned or asked to review in a repo.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Person {
+    pub login: String,
+    #[serde(default, deserialize_with = "null_as_empty")]
+    pub name: String,
+}
+
+/// A label a repo has, as `gh label list --json` reports it (`color` is 6 hex digits, no `#`).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RepoLabel {
+    pub name: String,
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub description: String,
+}
+
 /// A PR of a branch as `gh pr list --json` reports it.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

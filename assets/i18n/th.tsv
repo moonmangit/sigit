@@ -1185,7 +1185,16 @@ Pick a branch	เลือกสาขา
 Use last commit	ใช้คอมมิตล่าสุด
 1 commit ahead	นำหน้า 1 คอมมิต
 {n} commits ahead	นำหน้า {n} คอมมิต
-@me or usernames, comma-separated	@me หรือชื่อผู้ใช้ คั่นด้วยจุลภาค
-Existing labels, e.g. bug, release	ป้ายกำกับที่มีอยู่แล้ว เช่น bug, release
-Usernames or org/team, comma-separated	ชื่อผู้ใช้หรือ org/team คั่นด้วยจุลภาค
 What this pull request does	pull request นี้ทำอะไร
++ Add reviewer	+ เพิ่มผู้รีวิว
++ Add assignee	+ เพิ่มผู้รับผิดชอบ
++ Add label	+ เพิ่มป้ายกำกับ
+@me or a username	@me หรือชื่อผู้ใช้
+Username or org/team	ชื่อผู้ใช้หรือ org/team
+Search labels	ค้นหาป้ายกำกับ
+Add "{text}" as typed	เพิ่ม "{text}" ตามที่พิมพ์
+Couldn't load labels	โหลดป้ายกำกับไม่สำเร็จ
+Couldn't load people	โหลดรายชื่อไม่สำเร็จ
+No labels match	ไม่พบป้ายกำกับที่ตรงกัน
+No people match	ไม่พบผู้ใช้ที่ตรงกัน
+Remove {value}	นำ {value} ออก

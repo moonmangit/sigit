@@ -446,6 +446,30 @@ pub fn branch_names(slug: &str) -> Result<Vec<String>, String> {
     Ok(out.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect())
 }
 
+/// `gh api graphql` for a repo's assignable users. The owner and name travel as GraphQL
+/// variables (`-f`), never inside the query text.
+pub fn assignable_users_cmd(slug: &str) -> Cmd {
+    let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
+    Cmd::new("gh", &["api", "graphql", "-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){assignableUsers(first:100){nodes{login name}}}}"])
+        .arg("-f")
+        .arg(format!("owner={owner}"))
+        .arg("-f")
+        .arg(format!("name={name}"))
+        .arg("--jq")
+        .arg(".data.repository.assignableUsers.nodes")
+}
+
+/// Who can be assigned or asked to review in `slug` (the first 100).
+pub fn assignable_users(slug: &str) -> Result<Vec<crate::route::Person>, String> {
+    let out = assignable_users_cmd(slug).run(None)?;
+    serde_json::from_str(&out).map_err(|e| format!("unexpected gh output: {e}"))
+}
+
+/// `slug`'s labels (the first 200).
+pub fn labels(slug: &str) -> Result<Vec<crate::route::RepoLabel>, String> {
+    gh_json(&["label", "list", "-R", slug, "--json", "name,color,description", "--limit", "200"])
+}
+
 pub fn close_cmd(slug: &str, n: u64) -> Cmd {
     Cmd::new("gh", &["pr", "close", &n.to_string(), "-R", slug])
 }
@@ -748,6 +772,16 @@ mod command_tests {
     fn create_pr_cmd_args_in_order() {
         let c = create_pr_cmd(&spec());
         assert_eq!(c.args, ["pr", "create", "-R", "a/x", "--head", "feat-a", "--base", "main", "--title", "T", "--body", "B", "--draft", "--reviewer", "lead", "--label", "release"]);
+    }
+
+    #[test]
+    fn assignable_users_passes_owner_and_name_as_variables() {
+        let c = assignable_users_cmd("acme/api");
+        let at = |flag_value: &str| c.args.windows(2).any(|w| w[0] == "-f" && w[1] == flag_value);
+        assert!(at("owner=acme") && at("name=api"));
+        let query = c.args.iter().find(|a| a.starts_with("query=")).unwrap();
+        assert!(!query.contains("acme") && !query.contains("api\"") && query.contains("$owner") && query.contains("$name"));
+        assert_eq!(c.args[..3], ["api", "graphql", "-f"]);
     }
 
     #[test]
