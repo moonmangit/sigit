@@ -3,7 +3,6 @@
 use serde::Deserialize;
 
 /// A branch as GitHub knows it: one leading `origin/` removed.
-#[allow(dead_code)] // the new-PR form uses it next
 pub fn head_name(branch: &str) -> &str {
     branch.strip_prefix("origin/").unwrap_or(branch)
 }

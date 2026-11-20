@@ -19,7 +19,7 @@ fn field(s: &mut State, f: fn(&mut crate::PrDraft) -> &mut TextEdit) -> &mut Tex
 /// "Open PR feat-a → main": the preset's fields, editable; Open PR hands the PR to the guard.
 pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let Some(d) = &s.pr_draft else { return };
-    let pushed = s.pushed_state(&d.slug, &d.head) != Some(false);
+    let pushed = s.pushed_state(&d.slug, &d.from) != Some(false);
     let input = |e: &TextEdit, label: &str, key: &str, f: fn(&mut crate::PrDraft) -> &mut TextEdit| {
         TextInput::new(e).label(crate::i18n::t(label)).width(None).on_edit(move |s: &mut State| field(s, f)).build(k).key(key.to_owned())
     };
@@ -35,7 +35,7 @@ pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
             .key("prd-draft"),
     );
     if !pushed {
-        body = body.child(muted(k, tf!("Push {head} to GitHub first", head = d.head)).wrap().key("prd-unpushed"));
+        body = body.child(muted(k, tf!("Push {head} to GitHub first", head = d.from)).wrap().key("prd-unpushed"));
     }
     let body = body
         .child(input(&d.title, "Title", "prd-title", |d| &mut d.title))
@@ -57,5 +57,5 @@ pub fn pr_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                 .child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.pr_draft = None).build(k).key("prd-cancel"))
                 .child(Button::new(crate::i18n::t("Open PR")).variant(ButtonVariant::Submit).disabled(!pushed || d.title.text.trim().is_empty()).on_press(|s: &mut State| s.submit_pr_draft()).build(k).key("prd-open")),
         );
-    Dialog::new("pr-form", tf!("Open PR {head} → {base}", head = d.head, base = d.base)).open(true).fit().width(620.0).on_close(|s: &mut State| s.pr_draft = None).child(body).build(k, layer);
+    Dialog::new("pr-form", tf!("Open PR {head} → {base}", head = d.from, base = d.to)).open(true).fit().width(620.0).on_close(|s: &mut State| s.pr_draft = None).child(body).build(k, layer);
 }

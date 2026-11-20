@@ -288,11 +288,12 @@ pub struct CompareEdit {
     pub rows: Vec<(TextEdit, TextEdit, bool)>,
 }
 
-/// The open-PR dialog: the fields of a new PR, editable.
+/// The new-PR form: the fields of a new PR, editable. `from` and `to` are branch names
+/// without `origin/`.
 pub struct PrDraft {
     pub slug: String,
-    pub head: String,
-    pub base: String,
+    pub from: String,
+    pub to: String,
     pub draft: bool,
     pub title: TextEdit,
     pub body: TextEdit,
@@ -483,7 +484,9 @@ pub struct State {
     /// The branch whose lane is open on the Branches page: (repo, branch without `origin/`).
     pub branch_lane_sel: Option<(String, String)>,
     /// The PRs of a branch, by (repo, head): whether one is already open. Session only.
-    pub route_prs: HashMap<(String, String), Load<Vec<route::BranchPr>>>,
+    pub branch_prs: HashMap<(String, String), Load<Vec<route::BranchPr>>>,
+    /// The new-PR form's comparison, by (repo, from, to). Session only.
+    pub pr_compare: HashMap<(String, String, String), Load<compare::RepoCompare>>,
     /// What branch lanes compare with (None: the repo's default branch).
     pub branch_base: Option<String>,
     /// The "compared with" list on the branch pane is open.
@@ -645,7 +648,8 @@ impl State {
             compare_sel: None,
             branch_lanes: HashMap::new(),
             branch_lane_sel: None,
-            route_prs: HashMap::new(),
+            branch_prs: HashMap::new(),
+            pr_compare: HashMap::new(),
             branch_base: None,
             branch_base_open: false,
             lane_details: HashMap::new(),
@@ -1626,16 +1630,16 @@ impl State {
     }
 
     /// Fetch the PRs of `head` in `slug` (the old list stays up meanwhile).
-    pub fn reload_route_prs(&mut self, slug: &str, head: &str) {
+    pub fn reload_branch_prs(&mut self, slug: &str, head: &str) {
         let key = (slug.to_owned(), head.to_owned());
-        let entry = self.route_prs.entry(key.clone()).or_default();
+        let entry = self.branch_prs.entry(key.clone()).or_default();
         entry.loading = true;
         entry.error = None;
         let (work_slug, work_head) = key.clone();
         // Tests never shell out: the lookup is offline there.
         let fetch = move || if cfg!(test) { Err("offline".to_owned()) } else { gh::branch_prs(&work_slug, &work_head) };
         jobs::spawn(self, fetch, move |s, result| {
-            if let Some(l) = s.route_prs.get_mut(&key) {
+            if let Some(l) = s.branch_prs.get_mut(&key) {
                 l.finish(result);
             }
         });
@@ -1652,45 +1656,161 @@ impl State {
         self.data.get(slug).and_then(|d| d.branches.data.as_ref()).map(|_| self.is_pushed(slug, head))
     }
 
-    /// Open the dialog that creates a PR of `head` into `base`; the title starts as the
-    /// branch's last commit subject.
-    pub fn open_pr_dialog(&mut self, slug: &str, head: &str, base: &str) {
-        let branches = self.data.get(slug).and_then(|d| d.branches.data.as_ref());
-        let remote = format!("origin/{head}");
-        let subject = branches
-            .and_then(|l| l.iter().find(|b| !b.remote && b.name == head).or_else(|| l.iter().find(|b| b.remote && b.name == remote)))
-            .map(|b| b.subject.clone())
+    /// Open the new-PR form. From is `from`, else the clone's current branch, else blank. To is
+    /// the repo's last used target if that branch still exists, else its default branch. The
+    /// other fields come from the repo's last PR.
+    pub fn open_new_pr(&mut self, slug: &str, from: Option<&str>) {
+        let data = self.data.get(slug);
+        let branches = data.and_then(|d| d.branches.data.as_ref());
+        let from = from
+            .map(|f| route::head_name(f).to_owned())
+            .or_else(|| branches.and_then(|l| l.iter().find(|b| b.current && !b.remote)).map(|b| b.name.clone()))
             .unwrap_or_default();
+        let last = self.prefs.pr_last.iter().find(|p| p.slug == slug).cloned().unwrap_or_default();
+        let exists = |name: &str| !name.is_empty() && branches.is_some_and(|l| l.iter().any(|b| route::head_name(&b.name) == name));
+        let default = data.and_then(|d| d.meta.data.as_ref()).map(|m| m.default_branch.clone()).unwrap_or_default();
+        let to = if exists(&last.base) { last.base.clone() } else { default };
         self.pr_draft = Some(PrDraft {
             slug: slug.to_owned(),
-            head: head.to_owned(),
-            base: base.to_owned(),
-            draft: false,
-            title: TextEdit::new(&subject),
+            from,
+            to,
+            draft: last.draft,
+            title: TextEdit::new(""),
             body: TextEdit::new(""),
-            reviewers: TextEdit::new(""),
-            assignees: TextEdit::new(""),
-            labels: TextEdit::new(""),
+            reviewers: TextEdit::new(&last.reviewers),
+            assignees: TextEdit::new(&last.assignees),
+            labels: TextEdit::new(&last.labels),
         });
+        self.load_pr_pair();
+    }
+
+    pub fn set_pr_from(&mut self, b: &str) {
+        let b = route::head_name(b).to_owned();
+        if let Some(d) = self.pr_draft.as_mut() {
+            d.from = b;
+            self.load_pr_pair();
+        }
+    }
+
+    pub fn set_pr_to(&mut self, b: &str) {
+        let b = route::head_name(b).to_owned();
+        if let Some(d) = self.pr_draft.as_mut() {
+            d.to = b;
+            self.load_pr_pair();
+        }
+    }
+
+    /// Start the loads the form shows for its current pair: the comparison and the open-PR check.
+    fn load_pr_pair(&mut self) {
+        let Some(d) = self.pr_draft.as_ref() else { return };
+        let (slug, from, to) = (d.slug.clone(), d.from.clone(), d.to.clone());
+        if from.is_empty() || to.is_empty() || from == to {
+            return;
+        }
+        self.reload_branch_prs(&slug, &from);
+        let key = (slug, from, to);
+        if self.pr_compare.get(&key).is_some_and(|l| l.loading || l.data.is_some()) {
+            return;
+        }
+        self.pr_compare.insert(key.clone(), Load::start());
+        let (slug, from, to) = key.clone();
+        // Tests never shell out: the comparison is offline there.
+        let fetch = move || if cfg!(test) { Err("offline".to_owned()) } else { Ok(compare::fetch_branch(&slug, &from, &to)) };
+        jobs::spawn(self, fetch, move |s, result| {
+            if let Some(l) = s.pr_compare.get_mut(&key) {
+                l.finish(result);
+            }
+        });
+    }
+
+    /// The comparison of the form's current pair, once loaded without error.
+    fn pr_cell(&self) -> Option<&compare::Cell> {
+        let d = self.pr_draft.as_ref()?;
+        let rc = self.pr_compare.get(&(d.slug.clone(), d.from.clone(), d.to.clone()))?.data.as_ref()?;
+        if rc.error.is_some() {
+            return None;
+        }
+        rc.cells.first()
+    }
+
+    /// Commits `from` has that `to` doesn't; None while the comparison loads or if it failed.
+    pub fn pr_ahead(&self) -> Option<u32> {
+        match self.pr_cell()? {
+            compare::Cell::Waiting { commits, .. } => Some(*commits),
+            _ => None,
+        }
+    }
+
+    /// An OPEN PR from `from` into `to`.
+    pub fn pr_already_open(&self) -> Option<u64> {
+        let d = self.pr_draft.as_ref()?;
+        let l = self.branch_prs.get(&(d.slug.clone(), d.from.clone()))?.data.as_ref()?;
+        l.iter().find(|p| p.state == "OPEN" && p.base_ref_name == d.to).map(|p| p.number)
+    }
+
+    /// Set the title to the latest commit subject of From.
+    pub fn fill_pr_title(&mut self) {
+        let Some(d) = self.pr_draft.as_ref() else { return };
+        let remote = format!("origin/{}", d.from);
+        let subject = self
+            .data
+            .get(&d.slug)
+            .and_then(|r| r.branches.data.as_ref())
+            .and_then(|l| l.iter().find(|b| !b.remote && b.name == d.from).or_else(|| l.iter().find(|b| b.remote && b.name == remote)))
+            .map(|b| b.subject.clone());
+        if let (Some(subject), Some(d)) = (subject, self.pr_draft.as_mut()) {
+            d.title = TextEdit::new(&subject);
+        }
+    }
+
+    /// Set the body to one `- line` per PR, then per loose commit, in the comparison.
+    pub fn fill_pr_body(&mut self) {
+        let lines: Vec<String> = match self.pr_cell() {
+            Some(compare::Cell::Waiting { prs, loose, .. }) => prs.iter().map(|p| format!("- {}", p.title)).chain(loose.iter().map(|c| format!("- {}", c.subject))).collect(),
+            _ => return,
+        };
+        if let Some(d) = self.pr_draft.as_mut() {
+            d.body = TextEdit::new(&lines.join("\n"));
+        }
+    }
+
+    /// Why Create PR can't go ahead yet, if it can't. A comparison or open-PR check that is
+    /// loading or failed doesn't block.
+    pub fn pr_blocked(&self) -> Option<String> {
+        let d = self.pr_draft.as_ref()?;
+        let (from, to) = (&d.from, &d.to);
+        if from.is_empty() {
+            return Some(crate::i18n::t("Pick a branch to merge from"));
+        }
+        if from == to {
+            return Some(crate::i18n::t("From and To are the same branch"));
+        }
+        if self.pushed_state(&d.slug, from) == Some(false) {
+            return Some(tf!("Push {from} to GitHub first", from = from));
+        }
+        if self.pr_ahead() == Some(0) {
+            return Some(tf!("Nothing to merge: {from} has no commits that {to} doesn't", from = from, to = to));
+        }
+        if let Some(n) = self.pr_already_open() {
+            return Some(tf!("A PR from {from} into {to} is already open: #{n}", from = from, to = to, n = n));
+        }
+        if d.title.text.trim().is_empty() {
+            return Some(crate::i18n::t("Add a title"));
+        }
+        None
     }
 
     /// Hand the dialog's PR to the guard's confirm flow and close the dialog. The draft is kept
     /// in `last_pr_draft` until the PR is opened, so a cancel or a failure gives it back.
     pub fn submit_pr_draft(&mut self) {
-        let Some(d) = self.pr_draft.as_ref() else { return };
-        if d.title.text.trim().is_empty() {
-            return;
-        }
-        // Only a head known to be missing from GitHub stops here; before the branch list
-        // loads the guard's confirm still shows the command.
-        if self.pushed_state(&d.slug, &d.head) == Some(false) {
+        if self.pr_blocked().is_some() {
             return;
         }
         let Some(d) = self.pr_draft.take() else { return };
         let spec = route::PrSpec {
             slug: d.slug.clone(),
-            head: d.head.clone(),
-            base: d.base.clone(),
+            head: d.from.clone(),
+            base: d.to.clone(),
             draft: d.draft,
             title: d.title.text.clone(),
             body: d.body.text.clone(),
@@ -2741,7 +2861,8 @@ fn main() {
                 if let Some(b) = s.rd_mut("acme/api").branches.data.as_mut() {
                     b.push(model::Branch { name: "origin/feat/rate-limit".into(), remote: true, ..Default::default() });
                 }
-                s.open_pr_dialog("acme/api", "feat/rate-limit", "main");
+                s.open_new_pr("acme/api", Some("feat/rate-limit"));
+                s.fill_pr_title();
             }),
             ("comparisons-modules-open", |s: &mut State| {
                 // The lane pane with the Modules section expanded.
@@ -3495,12 +3616,12 @@ mod cache_tests {
         let mut s = branch_state();
         let spec = route::PrSpec { slug: "a/b".into(), head: "feat".into(), base: "main".into(), draft: false, title: String::new(), body: String::new(), reviewers: String::new(), assignees: String::new(), labels: String::new() };
         let key = ("a/b".to_string(), "feat".to_string());
-        assert!(!s.route_prs.contains_key(&key));
+        assert!(!s.branch_prs.contains_key(&key));
         let action = guard::Action::CreatePr { spec };
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: false, detail: "a pull request already exists".into(), commands: vec![] };
         // The guard's own handling of a command that failed.
         s.action_finished(action.clone(), action.label(), None, false, (Err(entry.detail.clone()), entry, Ok(())));
-        assert!(s.route_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
+        assert!(s.branch_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
     }
 
     /// A repo "a/b" with `feat-a` pushed and with no PRs yet.
@@ -3508,24 +3629,133 @@ mod cache_tests {
         let mut s = branch_state();
         let b = |name: &str, remote: bool| model::Branch { name: name.into(), remote, subject: "add login".into(), ..Default::default() };
         s.rd_mut("a/b").branches = Load { data: Some(vec![b("feat-a", false), b("origin/feat-a", true)]), ..Default::default() };
-        s.route_prs.insert(("a/b".into(), "feat-a".into()), Load { data: Some(vec![]), ..Default::default() });
+        s.branch_prs.insert(("a/b".into(), "feat-a".into()), Load { data: Some(vec![]), ..Default::default() });
+        s
+    }
+
+    /// `dialog_state` plus a current branch `wip/x` and a `staging` branch on GitHub.
+    fn form_state() -> State {
+        let mut s = dialog_state();
+        let b = |name: &str, remote: bool, current: bool| model::Branch { name: name.into(), remote, current, subject: "add login".into(), ..Default::default() };
+        s.rd_mut("a/b").branches = Load {
+            data: Some(vec![b("feat-a", false, false), b("origin/feat-a", true, false), b("wip/x", false, true), b("origin/staging", true, false), b("main", false, false)]),
+            ..Default::default()
+        };
         s
     }
 
     #[test]
-    fn open_pr_dialog_starts_from_the_last_commit() {
-        let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+    fn start_values_from_selection_and_default() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
         let d = s.pr_draft.as_ref().unwrap();
-        assert_eq!((d.title.text.as_str(), d.body.text.as_str(), d.labels.text.as_str()), ("add login", "", ""));
-        assert!(!d.draft);
-        assert_eq!((d.slug.as_str(), d.head.as_str(), d.base.as_str()), ("a/b", "feat-a", "main"));
+        assert_eq!((d.from.as_str(), d.to.as_str(), d.draft), ("feat-a", "main", false));
+    }
+
+    #[test]
+    fn start_values_use_remembered() {
+        let mut s = form_state();
+        s.prefs.pr_last = vec![config::PrLast { slug: "a/b".into(), base: "staging".into(), draft: true, labels: "testing".into(), ..Default::default() }];
+        s.open_new_pr("a/b", Some("feat-a"));
+        let d = s.pr_draft.as_ref().unwrap();
+        assert_eq!((d.to.as_str(), d.draft, d.labels.text.as_str()), ("staging", true, "testing"));
+    }
+
+    #[test]
+    fn start_values_fall_back() {
+        let mut s = form_state();
+        s.prefs.pr_last = vec![config::PrLast { slug: "a/b".into(), base: "gone".into(), ..Default::default() }];
+        s.open_new_pr("a/b", Some("feat-a"));
+        assert_eq!(s.pr_draft.as_ref().unwrap().to, "main");
+    }
+
+    #[test]
+    fn start_values_current_branch() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", None);
+        assert_eq!(s.pr_draft.as_ref().unwrap().from, "wip/x");
+    }
+
+    #[test]
+    fn comparison_keyed_by_pair() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.pr_compare.insert(("a/b".into(), "feat-a".into(), "main".into()), branch_lane(branch_cell(3, 42)));
+        assert_eq!(s.pr_ahead(), Some(3));
+        s.set_pr_to("staging");
+        assert_eq!(s.pr_ahead(), None, "the main comparison isn't the staging one");
+        assert!(s.pr_compare.contains_key(&("a/b".to_string(), "feat-a".to_string(), "staging".to_string())), "the new pair is fetched");
+    }
+
+    #[test]
+    fn create_blocked_reasons() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", None);
+        s.set_pr_from("");
+        assert_eq!(s.pr_blocked().as_deref(), Some("Pick a branch to merge from"));
+        s.set_pr_from("main");
+        assert_eq!(s.pr_blocked().as_deref(), Some("From and To are the same branch"));
+        s.set_pr_from("wip/x");
+        assert_eq!(s.pr_blocked().as_deref(), Some("Push wip/x to GitHub first"));
+        s.set_pr_from("feat-a");
+        s.pr_draft.as_mut().unwrap().title.text = "t".into();
+        s.pr_compare.insert(("a/b".into(), "feat-a".into(), "main".into()), branch_lane(branch_cell(0, 0)));
+        assert_eq!(s.pr_blocked().as_deref(), Some("Nothing to merge: feat-a has no commits that main doesn't"));
+        s.pr_compare.insert(("a/b".into(), "feat-a".into(), "main".into()), branch_lane(branch_cell(2, 42)));
+        let open = route::BranchPr { number: 142, state: "OPEN".into(), is_draft: false, base_ref_name: "main".into(), created_at: String::new(), merged_at: String::new(), url: String::new() };
+        s.branch_prs.insert(("a/b".into(), "feat-a".into()), Load { data: Some(vec![open]), ..Default::default() });
+        assert!(s.pr_blocked().unwrap().contains("#142"));
+        s.branch_prs.insert(("a/b".into(), "feat-a".into()), Load { data: Some(vec![]), ..Default::default() });
+        s.pr_draft.as_mut().unwrap().title.text = "  ".into();
+        assert_eq!(s.pr_blocked().as_deref(), Some("Add a title"));
+        s.pr_draft.as_mut().unwrap().title.text = "t".into();
+        assert_eq!(s.pr_blocked(), None);
+        // A comparison that hasn't arrived doesn't block.
+        s.pr_compare.clear();
+        assert_eq!(s.pr_blocked(), None);
+    }
+
+    #[test]
+    fn fill_title_and_body() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.rd_mut("a/b").branches.data.as_mut().unwrap()[0].subject = "Add login".into();
+        s.fill_pr_title();
+        assert_eq!(s.pr_draft.as_ref().unwrap().title.text, "Add login");
+        let cell = compare::Cell::Waiting {
+            commits: 2,
+            prs: vec![compare::WaitingPr { number: 5, title: "Login form".into(), author: "a".into(), merged_at: String::new() }],
+            loose: vec![compare::LooseCommit { sha: "abc".into(), subject: "Fix typo".into(), author: "a".into() }],
+            checked: 2,
+        };
+        s.pr_compare.insert(("a/b".into(), "feat-a".into(), "main".into()), branch_lane(cell));
+        s.fill_pr_body();
+        assert_eq!(s.pr_draft.as_ref().unwrap().body.text, "- Login form\n- Fix typo");
+    }
+
+    #[test]
+    fn create_remembers_repo_values() {
+        let mut s = form_state();
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.set_pr_to("staging");
+        {
+            let d = s.pr_draft.as_mut().unwrap();
+            d.draft = true;
+            d.title.text = "t".into();
+            d.reviewers.text = "lead".into();
+        }
+        let action = submitted(&mut s);
+        s.pending = None;
+        finish_with(&mut s, action, Ok("https://github.com/a/b/pull/9".into()));
+        let last = s.prefs.pr_last.iter().find(|p| p.slug == "a/b").expect("remembered");
+        assert_eq!((last.base.as_str(), last.draft, last.reviewers.as_str()), ("staging", true, "lead"));
     }
 
     #[test]
     fn submit_requests_create_pr() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         s.submit_pr_draft();
         assert!(s.pr_draft.is_none());
         let Some(guard::Pending { action: guard::Action::CreatePr { spec }, .. }) = &s.pending else { panic!("no CreatePr pending") };
@@ -3535,7 +3765,8 @@ mod cache_tests {
     #[test]
     fn edited_fields_reach_the_spec() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
         s.submit_pr_draft();
         let Some(guard::Pending { action: guard::Action::CreatePr { spec, .. }, .. }) = &s.pending else { panic!("no CreatePr pending") };
@@ -3556,7 +3787,8 @@ mod cache_tests {
     #[test]
     fn failed_create_pr_reopens_the_dialog_with_the_edits() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
         let action = submitted(&mut s);
         assert!(s.pr_draft.is_none() && s.last_pr_draft.is_some());
@@ -3569,7 +3801,8 @@ mod cache_tests {
     #[test]
     fn cancelling_the_confirm_reopens_the_dialog_with_the_edits() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         s.pr_draft.as_mut().unwrap().title.text = "my own title".into();
         submitted(&mut s);
         s.cancel_pending();
@@ -3580,7 +3813,8 @@ mod cache_tests {
     #[test]
     fn cancelling_another_action_leaves_the_dialog_alone() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         submitted(&mut s);
         s.pending = None;
         s.request(guard::Action::Close { slug: "a/b".into(), number: 1, title: String::new() });
@@ -3591,7 +3825,8 @@ mod cache_tests {
     #[test]
     fn created_pr_clears_the_kept_draft() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         let action = submitted(&mut s);
         s.pending = None;
         finish_with(&mut s, action, Ok("https://github.com/a/b/pull/9".into()));
@@ -3602,7 +3837,8 @@ mod cache_tests {
     #[test]
     fn submit_refuses_a_blank_title() {
         let mut s = dialog_state();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         s.pr_draft.as_mut().unwrap().title.text = "   ".into();
         s.submit_pr_draft();
         assert!(s.pending.is_none() && s.pr_draft.is_some());
@@ -3611,14 +3847,14 @@ mod cache_tests {
     #[test]
     fn merge_drops_the_repos_cached_statuses() {
         let mut s = dialog_state();
-        s.route_prs.insert(("a/b".into(), "other".into()), Load { data: Some(vec![]), ..Default::default() });
-        s.route_prs.insert(("c/d".into(), "other".into()), Load { data: Some(vec![]), ..Default::default() });
+        s.branch_prs.insert(("a/b".into(), "other".into()), Load { data: Some(vec![]), ..Default::default() });
+        s.branch_prs.insert(("c/d".into(), "other".into()), Load { data: Some(vec![]), ..Default::default() });
         s.branch_lane_sel = Some(("a/b".into(), "feat-a".into()));
         let action = guard::Action::Merge { slug: "a/b".into(), number: 1, title: String::new(), method: gh::MergeMethod::Squash, delete_branch: false };
         finish_with(&mut s, action, Ok("merged".into()));
-        assert!(!s.route_prs.contains_key(&("a/b".to_string(), "other".to_string())));
-        assert!(s.route_prs.contains_key(&("c/d".to_string(), "other".to_string())), "other repos keep theirs");
-        let picked = s.route_prs.get(&("a/b".to_string(), "feat-a".to_string())).expect("the picked branch is fetched again");
+        assert!(!s.branch_prs.contains_key(&("a/b".to_string(), "other".to_string())));
+        assert!(s.branch_prs.contains_key(&("c/d".to_string(), "other".to_string())), "other repos keep theirs");
+        let picked = s.branch_prs.get(&("a/b".to_string(), "feat-a".to_string())).expect("the picked branch is fetched again");
         // Tests run jobs inline and the lookup is offline: a fetch leaves "offline" behind.
         assert!(picked.data.is_none() && picked.error.as_deref() == Some("offline"));
     }
@@ -3628,7 +3864,8 @@ mod cache_tests {
         let mut s = dialog_state();
         let b = |name: &str, remote: bool| model::Branch { name: name.into(), remote, ..Default::default() };
         s.rd_mut("a/b").branches = Load { data: Some(vec![b("feat-a", false)]), ..Default::default() };
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         s.submit_pr_draft();
         assert!(s.pending.is_none());
         assert!(s.pr_draft.is_some());
@@ -3638,7 +3875,8 @@ mod cache_tests {
     fn submit_allows_head_when_branches_not_loaded() {
         let mut s = dialog_state();
         s.rd_mut("a/b").branches = Load::default();
-        s.open_pr_dialog("a/b", "feat-a", "main");
+        s.open_new_pr("a/b", Some("feat-a"));
+        s.fill_pr_title();
         s.pr_draft.as_mut().unwrap().title.text = "add login".into(); // no branch list, so no subject to start from
         s.submit_pr_draft();
         assert!(s.pr_draft.is_none());

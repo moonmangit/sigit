@@ -364,11 +364,11 @@ impl State {
         self.after(&action);
     }
 
-    /// What to reload after an action failed: a PR that already exists changes what the route shows.
+    /// What to reload after an action failed: a PR that already exists changes what the form shows.
     pub(crate) fn action_failed(&mut self, action: &Action) {
         if let Action::CreatePr { spec, .. } = action {
             self.restore_pr_draft();
-            self.reload_route_prs(&spec.slug, &spec.head);
+            self.reload_branch_prs(&spec.slug, &spec.head);
         }
     }
 
@@ -377,17 +377,30 @@ impl State {
         match action {
             Action::Merge { slug, .. } => {
                 self.refresh_prs();
-                // A merge moves every branch's route: refetch each when it's next picked.
-                self.route_prs.retain(|(sl, _), _| sl != slug);
+                // A merge changes every branch's PRs: refetch each when it's next needed.
+                self.branch_prs.retain(|(sl, _), _| sl != slug);
                 if let Some(head) = self.branch_lane_sel.as_ref().filter(|(sl, _)| sl == slug).map(|(_, b)| b.clone()) {
-                    self.reload_route_prs(slug, &head);
+                    self.reload_branch_prs(slug, &head);
                 }
             }
             Action::Close { .. } | Action::Approve { .. } | Action::RequestChanges { .. } | Action::Comment { .. } => self.refresh_prs(),
             Action::CreatePr { spec, .. } => {
                 self.last_pr_draft = None;
+                let last = crate::config::PrLast {
+                    slug: spec.slug.clone(),
+                    base: spec.base.clone(),
+                    draft: spec.draft,
+                    reviewers: spec.reviewers.clone(),
+                    assignees: spec.assignees.clone(),
+                    labels: spec.labels.clone(),
+                };
+                match self.prefs.pr_last.iter_mut().find(|p| p.slug == spec.slug) {
+                    Some(p) => *p = last,
+                    None => self.prefs.pr_last.push(last),
+                }
+                self.save_prefs();
                 self.refresh_prs();
-                self.reload_route_prs(&spec.slug, &spec.head);
+                self.reload_branch_prs(&spec.slug, &spec.head);
             }
             Action::Rerun { .. } | Action::CancelRun { .. } => self.refresh_runs(),
             Action::Checkout { slug, name, .. } => {

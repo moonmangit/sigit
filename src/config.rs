@@ -72,6 +72,18 @@ pub struct OwnerStyle {
     pub icon: String,
 }
 
+/// What the last PR created in a repo used, so the next form starts from it.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct PrLast {
+    pub slug: String,
+    pub base: String,
+    pub draft: bool,
+    pub reviewers: String,
+    pub assignees: String,
+    pub labels: String,
+}
+
 /// Every field defaults, so an older or hand-edited file still loads.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -121,6 +133,8 @@ pub struct Prefs {
     pub comparison_overrides: Vec<crate::compare::Override>,
     /// Folders whose git clones the Dashboard scan looks through.
     pub clone_folders: Vec<PathBuf>,
+    /// Per repo, what its last new PR used (To, draft, reviewers, assignees, labels).
+    pub pr_last: Vec<PrLast>,
 }
 
 impl Default for Prefs {
@@ -150,6 +164,7 @@ impl Default for Prefs {
             comparisons: crate::compare::defaults(),
             comparison_overrides: Vec::new(),
             clone_folders: Vec::new(),
+            pr_last: Vec::new(),
         }
     }
 }
