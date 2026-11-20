@@ -1159,3 +1159,8 @@ open PRs	PR ที่เปิดอยู่
 runs passed	การรันที่ผ่าน
 {} failed · {running} running now	ล้มเหลว {} · กำลังรัน {running}
 {} opened · {} merged {label}	เปิด {} · merge {} {label}
+Open PR {head} → {base}	เปิด PR {head} → {base}
+Opened #{n} → {base}	เปิด #{n} → {base} แล้ว
+Opens a PR; you can close it	เปิด PR ใหม่ ปิดทีหลังได้
+{base} is a production branch	{base} เป็นสาขา production
+{prev} isn't merged yet	{prev} ยังไม่ถูก merge

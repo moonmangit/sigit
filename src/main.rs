@@ -1604,6 +1604,9 @@ impl State {
         jobs::spawn(self, move || git::status(&dir), move |s, r| s.rd_mut(&slug).status.finish(r));
     }
 
+    /// Stub: a later task reloads a route's PRs for this branch.
+    pub fn reload_route_prs(&mut self, _slug: &str, _head: &str) {}
+
     /// Reload the PR list (and the open PR).
     pub fn refresh_prs(&mut self) {
         self.load_prs();

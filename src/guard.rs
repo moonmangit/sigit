@@ -38,6 +38,8 @@ pub enum Action {
     /// `op`: apply, pop, drop.
     Stash { dir: PathBuf, op: &'static str, name: String },
     DeleteBranch { dir: PathBuf, name: String, sha: String, force: bool, unpushed: Vec<String> },
+    /// `after_unmerged`: the route step before this one, when it isn't merged yet.
+    CreatePr { spec: crate::route::PrSpec, after_unmerged: Option<String> },
 }
 
 impl Action {
@@ -56,6 +58,10 @@ impl Action {
             Action::Fetch { .. } => "Fetch".into(),
             Action::Stash { op, name, .. } => tf!("Stash {op} {name}"),
             Action::DeleteBranch { name, .. } => tf!("Delete branch {name}"),
+            Action::CreatePr { spec, .. } => {
+                let (head, base) = (&spec.head, &spec.base);
+                tf!("Open PR {head} → {base}")
+            }
         }
     }
 
@@ -68,6 +74,7 @@ impl Action {
             Action::PrCheckout { number, .. } => tf!("Fetch PR #{number}'s branch and switch to it"),
             Action::Pull { .. } => "Fast-forward the current branch".into(),
             Action::DeleteBranch { name, .. } => tf!("Delete local branch {name}"),
+            Action::CreatePr { spec, .. } => spec.title.clone(),
             other => other.label(),
         }
     }
@@ -83,6 +90,7 @@ impl Action {
             | Action::CancelRun { slug, .. }
             | Action::Checkout { slug, .. }
             | Action::PrCheckout { slug, .. } => slug.clone(),
+            Action::CreatePr { spec, .. } => spec.slug.clone(),
             _ => String::new(),
         }
     }
@@ -117,6 +125,7 @@ impl Action {
             Action::Fetch { .. } => vec![git::fetch_cmd()],
             Action::Stash { op, name, .. } => vec![git::stash_op_cmd(op, name)],
             Action::DeleteBranch { name, force, .. } => vec![git::delete_branch_cmd(name, *force)],
+            Action::CreatePr { spec, .. } => vec![gh::create_pr_cmd(spec)],
         }
     }
 
@@ -332,7 +341,12 @@ impl State {
                 _ => None,
             };
             let undo = undo.or_else(|| stash_first.then(|| action.local_dir().map(|d| Undo::StashPop { dir: d.clone() })).flatten());
-            s.toast_undo(crate::i18n::t(if stash_first { tf!("Stashed your changes, then: {detail}") } else { detail }) + &ran, undo);
+            let msg = match &action {
+                Action::CreatePr { spec, .. } => pr_number_from_url(&detail).map(|n| { let base = &spec.base; tf!("Opened #{n} → {base}") }),
+                _ => None,
+            };
+            let msg = msg.unwrap_or_else(|| if stash_first { tf!("Stashed your changes, then: {detail}") } else { detail });
+            s.toast_undo(crate::i18n::t(msg) + &ran, undo);
             s.after(&action);
         });
     }
@@ -341,6 +355,10 @@ impl State {
     fn after(&mut self, action: &Action) {
         match action {
             Action::Merge { .. } | Action::Close { .. } | Action::Approve { .. } | Action::RequestChanges { .. } | Action::Comment { .. } => self.refresh_prs(),
+            Action::CreatePr { spec, .. } => {
+                self.refresh_prs();
+                self.reload_route_prs(&spec.slug, &spec.head);
+            }
             Action::Rerun { .. } | Action::CancelRun { .. } => self.refresh_runs(),
             Action::Checkout { slug, name, .. } => {
                 self.refresh_page();
@@ -450,12 +468,32 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
             }
             a.word = Some(name.clone());
         }
+        Action::CreatePr { spec, after_unmerged, .. } => a.risk = create_pr_risk(&spec.base, &ctx.prefs.prod_names, after_unmerged.as_deref()),
         _ => {}
     }
     if a.risk.level == Level::High && a.word.is_none() {
         a.word = Some(repo_name(&action.slug()));
     }
     a
+}
+
+/// Opening a PR is harmless (close it again); it asks only when it targets production or
+/// the step before it isn't merged yet.
+pub(crate) fn create_pr_risk(base: &str, prod_names: &[String], after_unmerged: Option<&str>) -> Risk {
+    let mut r = Risk::new(Level::Low);
+    r.because(Level::Low, "Opens a PR; you can close it");
+    if risk::is_production(base, false, prod_names) {
+        r.because(Level::Medium, tf!("{base} is a production branch"));
+    }
+    if let Some(prev) = after_unmerged {
+        r.because(Level::Medium, tf!("{prev} isn't merged yet"));
+    }
+    r
+}
+
+/// The PR number from the URL `gh pr create` prints: the last path segment.
+pub(crate) fn pr_number_from_url(out: &str) -> Option<u64> {
+    out.trim().rsplit('/').next()?.parse().ok()
 }
 
 /// A1–A3 for a pull request, from fresh GitHub state.
@@ -542,5 +580,51 @@ fn assess_pr(r: &mut Risk, slug: &str, number: u64, ctx: &Context, merging: bool
             let what = crate::i18n::t(what);
             r.because(Level::High, tf!("Possible {what} added in {file}: {line}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::route::PrSpec;
+
+    fn spec() -> PrSpec {
+        PrSpec {
+            slug: "o/r".into(),
+            head: "feat-a".into(),
+            base: "main".into(),
+            draft: false,
+            title: "Add a".into(),
+            body: String::new(),
+            reviewers: String::new(),
+            assignees: String::new(),
+            labels: String::new(),
+        }
+    }
+
+    #[test]
+    fn create_pr_risk_levels() {
+        let names = Prefs::default().prod_names;
+        assert_eq!(create_pr_risk("staging", &names, None).level, Level::Low);
+        assert_eq!(create_pr_risk("production", &names, None).level, Level::Medium);
+        let r = create_pr_risk("staging", &names, Some("dev"));
+        assert_eq!(r.level, Level::Medium);
+        assert!(r.reasons.iter().any(|x| x.contains("dev")));
+    }
+
+    #[test]
+    fn create_pr_action_commands() {
+        let s = spec();
+        let a = Action::CreatePr { spec: s.clone(), after_unmerged: None };
+        assert_eq!(a.commands(), vec![gh::create_pr_cmd(&s)]);
+        assert_eq!(a.label(), "Open PR feat-a → main");
+        assert_eq!(a.subject(), "Add a");
+    }
+
+    #[test]
+    fn pr_number_parses_from_url() {
+        assert_eq!(pr_number_from_url("https://github.com/o/r/pull/161"), Some(161));
+        assert_eq!(pr_number_from_url("https://github.com/o/r/pull/161\n"), Some(161));
+        assert_eq!(pr_number_from_url("done"), None);
     }
 }
