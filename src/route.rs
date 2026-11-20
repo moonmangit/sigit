@@ -100,6 +100,11 @@ pub fn kept_for(prefs: &Prefs, slug: &str, head: &str, base: &str) -> Option<Str
     targets.get(i + 1).map(|t| t.base.clone())
 }
 
+/// Whether merging `head` into `base` should delete `head` by default.
+pub fn merge_deletes_branch(prefs: &Prefs, slug: &str, head: &str, base: &str) -> bool {
+    kept_for(prefs, slug, head, base).is_none()
+}
+
 /// Where one route step stands, from its newest PR alone.
 #[derive(Clone, Debug, PartialEq)]
 pub enum StepState {
@@ -298,5 +303,13 @@ mod tests {
         ];
         let (_, off) = steps(&route(), &prs);
         assert_eq!(off.iter().map(|p| p.number).collect::<Vec<_>>(), vec![180]);
+    }
+
+    #[test]
+    fn merge_keeps_branch_before_last_step() {
+        let p = prefs();
+        assert!(!merge_deletes_branch(&p, "b/y", "feat-a", "staging"));
+        assert!(merge_deletes_branch(&p, "b/y", "feat-a", "main"));
+        assert!(merge_deletes_branch(&Prefs::default(), "b/y", "feat-a", "staging"));
     }
 }

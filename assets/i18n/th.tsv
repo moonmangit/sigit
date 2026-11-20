@@ -1164,3 +1164,4 @@ Opened #{n} → {base}	เปิด #{n} → {base} แล้ว
 Opens a PR; you can close it	เปิด PR ใหม่ ปิดทีหลังได้
 {base} is a production branch	{base} เป็นสาขา production
 {prev} isn't merged yet	{prev} ยังไม่ถูก merge
+{next} comes after {base} on this route	{next} มาหลัง {base} ในเส้นทางนี้

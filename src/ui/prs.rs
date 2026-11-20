@@ -272,7 +272,8 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
         let body = s.comment.text.trim().to_owned();
         let approve = Action::Approve { slug: slug.clone(), number: n, title: String::new(), body: body.clone(), confirm: false };
         let changes = Action::RequestChanges { slug: slug.clone(), number: n, body: if body.is_empty() { "…".into() } else { body } };
-        let merge = Action::Merge { slug: slug.clone(), number: n, title: String::new(), method: MergeMethod::Squash, delete_branch: true };
+        let del = crate::route::merge_deletes_branch(&s.prefs, &slug, &pr.head_ref_name, &pr.base_ref_name);
+        let merge = Action::Merge { slug: slug.clone(), number: n, title: String::new(), method: MergeMethod::Squash, delete_branch: del };
         let close = Action::Close { slug: slug.clone(), number: n, title: String::new() };
         actions = actions
             .child(
@@ -309,7 +310,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                     .variant(ButtonVariant::Outline)
                     
                     .on_press(move |s: &mut State| {
-                        s.request(Action::Merge { slug: s3.clone(), number: n, title: t1.clone(), method: MergeMethod::Squash, delete_branch: true })
+                        s.request(Action::Merge { slug: s3.clone(), number: n, title: t1.clone(), method: MergeMethod::Squash, delete_branch: del })
                     })
                     .build(k)
                     .key("merge").cmd_tip(s, tip) },
