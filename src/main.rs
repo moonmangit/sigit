@@ -1125,7 +1125,7 @@ impl State {
         let Some(slug) = self.cur.clone() else { return };
         let branch = branch.strip_prefix("origin/").unwrap_or(branch).to_owned();
         self.branch_lane_sel = Some((slug.clone(), branch.clone()));
-        if !self.route_prs.contains_key(&(slug.clone(), branch.clone())) {
+        if self.shows_route(&slug, &branch) && !self.route_prs.contains_key(&(slug.clone(), branch.clone())) {
             self.reload_route_prs(&slug, &branch);
         }
         self.lane_view.folder = None;
@@ -1623,7 +1623,9 @@ impl State {
         entry.loading = true;
         entry.error = None;
         let (work_slug, work_head) = key.clone();
-        jobs::spawn(self, move || gh::branch_prs(&work_slug, &work_head), move |s, result| {
+        // Tests never shell out: the lookup is offline there.
+        let fetch = move || if cfg!(test) { Err("offline".to_owned()) } else { gh::branch_prs(&work_slug, &work_head) };
+        jobs::spawn(self, fetch, move |s, result| {
             if let Some(l) = s.route_prs.get_mut(&key) {
                 l.finish(result);
             }
@@ -3481,10 +3483,13 @@ mod cache_tests {
     #[test]
     fn create_pr_failure_reloads_statuses() {
         let mut s = branch_state();
-        let spec = route::PrSpec { slug: "no-such-owner/zz".into(), head: "feat".into(), base: "main".into(), draft: false, title: String::new(), body: String::new(), reviewers: String::new(), assignees: String::new(), labels: String::new() };
-        let key = ("no-such-owner/zz".to_string(), "feat".to_string());
+        let spec = route::PrSpec { slug: "a/b".into(), head: "feat".into(), base: "main".into(), draft: false, title: String::new(), body: String::new(), reviewers: String::new(), assignees: String::new(), labels: String::new() };
+        let key = ("a/b".to_string(), "feat".to_string());
         assert!(!s.route_prs.contains_key(&key));
-        s.action_failed(&guard::Action::CreatePr { spec, after_unmerged: None });
+        let action = guard::Action::CreatePr { spec, after_unmerged: None };
+        let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: false, detail: "a pull request already exists".into(), commands: vec![] };
+        // The guard's own handling of a command that failed.
+        s.action_finished(action.clone(), action.label(), None, false, (Err(entry.detail.clone()), entry, Ok(())));
         assert!(s.route_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
     }
 

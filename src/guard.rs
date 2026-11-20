@@ -319,37 +319,41 @@ impl State {
             return; // a double click doesn't run it twice
         }
         self.busy.push(label.clone());
-        jobs::spawn(self, work, move |s, (r, entry, logged)| {
-            s.busy.retain(|b| *b != label);
-            let ok = r.is_ok();
-            let detail = entry.detail.clone();
-            if let Err(e) = logged {
-                s.toast(crate::i18n::t(tf!("Couldn't write the activity log: {e}")), true);
+        jobs::spawn(self, work, move |s, done| s.action_finished(action, label, before, stash_first, done));
+    }
+
+    /// An action's command came back: log it, toast, and reload what it touched. Split from
+    /// `execute` so tests can feed it a result without running anything.
+    pub(crate) fn action_finished(&mut self, action: Action, label: String, before: Option<String>, stash_first: bool, (r, entry, logged): (Result<String, String>, activity::Entry, Result<(), String>)) {
+        self.busy.retain(|b| *b != label);
+        let ok = r.is_ok();
+        let detail = entry.detail.clone();
+        if let Err(e) = logged {
+            self.toast(crate::i18n::t(tf!("Couldn't write the activity log: {e}")), true);
+        }
+        let ran = self.ran_lines(&entry.commands);
+        self.activity.insert(0, entry);
+        if !ok {
+            self.toast(crate::i18n::t(tf!("{label} failed: {detail}")) + &ran, true);
+            self.action_failed(&action);
+            return;
+        }
+        let undo = match &action {
+            Action::Close { slug, number, .. } => Some(Undo::ReopenPr { slug: slug.clone(), number: *number }),
+            Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } => {
+                before.clone().filter(|b| !b.is_empty() && b != "(detached)").map(|branch| Undo::SwitchBack { dir: dir.clone(), branch })
             }
-            let ran = s.ran_lines(&entry.commands);
-            s.activity.insert(0, entry);
-            if !ok {
-                s.toast(crate::i18n::t(tf!("{label} failed: {detail}")) + &ran, true);
-                s.action_failed(&action);
-                return;
-            }
-            let undo = match &action {
-                Action::Close { slug, number, .. } => Some(Undo::ReopenPr { slug: slug.clone(), number: *number }),
-                Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } => {
-                    before.clone().filter(|b| !b.is_empty() && b != "(detached)").map(|branch| Undo::SwitchBack { dir: dir.clone(), branch })
-                }
-                Action::DeleteBranch { dir, name, sha, .. } => Some(Undo::RestoreBranch { dir: dir.clone(), name: name.clone(), sha: sha.clone() }),
-                _ => None,
-            };
-            let undo = undo.or_else(|| stash_first.then(|| action.local_dir().map(|d| Undo::StashPop { dir: d.clone() })).flatten());
-            let msg = match &action {
-                Action::CreatePr { spec, .. } => pr_number_from_url(&detail).map(|n| { let base = &spec.base; tf!("Opened #{n} → {base}") }),
-                _ => None,
-            };
-            let msg = msg.unwrap_or_else(|| if stash_first { tf!("Stashed your changes, then: {detail}") } else { detail });
-            s.toast_undo(crate::i18n::t(msg) + &ran, undo);
-            s.after(&action);
-        });
+            Action::DeleteBranch { dir, name, sha, .. } => Some(Undo::RestoreBranch { dir: dir.clone(), name: name.clone(), sha: sha.clone() }),
+            _ => None,
+        };
+        let undo = undo.or_else(|| stash_first.then(|| action.local_dir().map(|d| Undo::StashPop { dir: d.clone() })).flatten());
+        let msg = match &action {
+            Action::CreatePr { spec, .. } => pr_number_from_url(&detail).map(|n| { let base = &spec.base; tf!("Opened #{n} → {base}") }),
+            _ => None,
+        };
+        let msg = msg.unwrap_or_else(|| if stash_first { tf!("Stashed your changes, then: {detail}") } else { detail });
+        self.toast_undo(crate::i18n::t(msg) + &ran, undo);
+        self.after(&action);
     }
 
     /// What to reload after an action failed: a PR that already exists changes what the route shows.

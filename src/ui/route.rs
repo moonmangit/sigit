@@ -56,13 +56,8 @@ pub fn route_section(s: &State, k: &Kit, slug: &str, branch: &str) -> Option<El>
         return Some(c.child(body));
     };
     let (steps, off) = route::steps(targets, prs);
-    // The branch list says whether it's on GitHub; until it's loaded, don't claim it isn't.
-    let unpushed = s.data.get(slug).is_some_and(|d| d.branches.data.is_some()) && !s.is_pushed(slug, &head);
     for (i, step) in steps.iter().enumerate() {
-        c = c.child(step_row(s, k, slug, &head, &steps, step, i, unpushed));
-    }
-    if unpushed {
-        c = c.child(muted(k, crate::i18n::t("Push this branch to open a PR")));
+        c = c.child(step_row(s, k, slug, &head, &steps, step, i));
     }
     for p in off {
         let (slug, n) = (slug.to_owned(), p.number);
@@ -81,7 +76,7 @@ pub fn route_section(s: &State, k: &Kit, slug: &str, branch: &str) -> Option<El>
 }
 
 #[allow(clippy::too_many_arguments)]
-fn step_row(_s: &State, k: &Kit, slug: &str, head: &str, steps: &[Step], step: &Step, i: usize, unpushed: bool) -> El {
+fn step_row(_s: &State, k: &Kit, slug: &str, head: &str, steps: &[Step], step: &Step, i: usize) -> El {
     let mut r = row().key(tf!("route-step-{i}")).w_full().gap(8.0).center_y().child(chip(k, (i + 1).to_string(), None)).child(
         text(step.base.clone()).font(k.ty.ui_medium).color(k.c.text_base),
     );
@@ -113,9 +108,6 @@ fn step_row(_s: &State, k: &Kit, slug: &str, head: &str, steps: &[Step], step: &
         r = r.child(muted(k, crate::i18n::t("no PR yet")));
     }
     r = r.child(spacer());
-    if unpushed {
-        return r;
-    }
     let (slug, head) = (slug.to_owned(), head.to_owned());
     let free = matches!(step.state, StepState::None | StepState::Closed);
     if route::can_open(steps, i) {
