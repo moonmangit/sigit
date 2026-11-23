@@ -67,8 +67,17 @@ keep your local folder paths out of the binary. Official releases are built by
 | **Branches** (local clone) | Local and remote, ahead/behind, stashes, clean-up of merged or gone branches; select a branch for a side pane of what it brings to the default branch (or one you pick): PRs, contributors, modules | Checkout, fetch, fast-forward pull |
 | **Groups** | A dashboard for repos you group yourself, across owners | |
 
-The sidebar lists every repo you can reach, grouped by owner, with your **pins** and **groups**
-on top. Drag to reorder, fold sections, and give organizations your own colour and icon.
+The sidebar starts with the **Dashboard**, then your **pins**, your **groups** and, under
+**Repositories**, every repo you can reach, grouped by owner. In each group and owner the repo you
+opened last comes first, marked *recent*. Drag groups and organizations by their headers, and
+pinned repos and the repos inside a group, into your order; fold sections, and give
+organizations your own colour and icon.
+
+Pick a repo or group and a second sidebar lists its sections, each with its count (Pull
+requests, Actions, Environments, Commits, Branches; for a group, Overview and one panel at a
+time, then its repos). Drag its edge to resize it. Its **filters** (a date range, and a
+contributor you type or pick from a list with profile pictures) stay as you move around, and
+narrow pull requests, runs and commits in the query itself, so they reach past the first page.
 
 Side-by-side sections have a handle between them: drag to resize, double-click to reset.
 

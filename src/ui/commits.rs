@@ -43,6 +43,7 @@ pub fn view(s: &State, k: &Kit) -> El {
 
     let list = match s.rd().and_then(|d| pending(k, &d.graph)) {
         Some(p) => p,
+        None if graph(s).is_none_or(|g| g.commits.is_empty()) && !s.filter.is_empty() => super::filtered_empty(k, "commits-empty", &super::I_REPO),
         None if graph(s).is_none_or(|g| g.commits.is_empty()) => empty(k, "No commits"),
         None => {
             let n = graph(s).map_or(0, |g| g.commits.len());

@@ -51,7 +51,7 @@ use rune_kit::TableState;
 use rune_kit::shell::Reorder;
 use rune_kit::shell::PaneState;
 
-use model::{Branch, Cleanup, Commit, CommitDetail, Envs, Inbox, LocalStatus, Notif, Pr, PrDetail, QueueInfo, RepoMeta, Run, RunView, SearchRepo, Stash};
+use model::{Branch, Cleanup, Filter, Commit, CommitDetail, Envs, Inbox, LocalStatus, Notif, Pr, PrDetail, QueueInfo, RepoMeta, Run, RunView, SearchRepo, Stash};
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -217,6 +217,10 @@ pub struct RepoData {
     pub prs: Load<Vec<Pr>>,
     pub runs: Load<Vec<Run>>,
     pub envs: Load<Envs>,
+    /// The filter `prs`, `runs` and `graph` were loaded with (only unfiltered lists are cached).
+    pub prs_filter: Filter,
+    pub runs_filter: Filter,
+    pub graph_filter: Filter,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -230,6 +234,9 @@ pub enum Page {
     /// A dashboard for one of your groups (B5).
     Group,
 }
+
+/// A group's sections in sidebar 2 (`State::group_tab`): everything, or one panel.
+pub const GROUP_TABS: [&str; 4] = ["Overview", "Pull requests", "Actions", "Environments"];
 
 impl Page {
     pub const REPO: [Page; 5] = [Page::Pulls, Page::Actions, Page::Envs, Page::Commits, Page::Branches];
@@ -273,6 +280,30 @@ impl Place {
         }
     }
 }
+
+/// A group or owner section header being dragged to a new place (sidebar 1).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SectionDrag {
+    /// A group of yours (true) or an owner.
+    pub group: bool,
+    pub name: String,
+    /// Where it would land: its index among the groups, or among the owners.
+    pub to: usize,
+    /// It moved past the click slop (so the release isn't also a click).
+    pub moved: bool,
+}
+
+/// One person the contributor filter offers: a GitHub login (with a profile picture), or a
+/// git author name from the commit list.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Contributor {
+    pub id: String,
+    pub name: String,
+    pub login: bool,
+}
+
+/// Sidebar 2's width: its default and the range dragging its edge allows.
+pub const SUBNAV_W: (f32, f32, f32) = (196.0, 168.0, 320.0);
 
 /// What a right-click opened a menu on.
 pub enum MenuTarget {
@@ -458,6 +489,25 @@ pub struct State {
     pub expanded_orgs: HashSet<String>,
     // Inbox: 0 Activity (tracked repos over a range), 1 Needs you (queue, notifications)
     pub inbox_tab: usize,
+    /// A group's section in sidebar 2: see `GROUP_TABS`.
+    pub group_tab: usize,
+    /// Sidebar 2's filters, shared by every section of every repo and group.
+    pub filter: Filter,
+    /// The contributor box, applied to `filter` after a short pause.
+    pub filter_who: TextEdit,
+    pub filter_edit: Arc<AtomicU64>,
+    /// The date range list is open.
+    pub filter_days_open: bool,
+    /// The contributor list (above the contributor box) is open.
+    pub filter_who_open: bool,
+    /// A section header being dragged in sidebar 1, and whether the last drag moved one (its
+    /// release then isn't a click that folds the section).
+    pub section_drag: Option<SectionDrag>,
+    pub section_dragged: bool,
+    /// The repo list is loading from GitHub.
+    pub repos_loading: bool,
+    /// Each repo's commit authors, from its last commit list loaded without a contributor.
+    pub commit_authors: HashMap<String, Vec<String>>,
     pub pulse: Load<pulse::Pulse>,
     /// What the loaded / loading pulse answers (scope, range), so late answers are dropped.
     pub pulse_key: String,
@@ -650,6 +700,16 @@ impl State {
             owner_hex: TextEdit::new(""),
             expanded_orgs: HashSet::new(),
             inbox_tab: 0,
+            group_tab: 0,
+            filter: Filter::default(),
+            filter_who: TextEdit::new(""),
+            filter_edit: Arc::new(AtomicU64::new(0)),
+            filter_days_open: false,
+            filter_who_open: false,
+            section_drag: None,
+            section_dragged: false,
+            repos_loading: false,
+            commit_authors: HashMap::new(),
             pulse: Load::default(),
             pulse_key: String::new(),
             pulse_next: None,
@@ -878,6 +938,7 @@ impl State {
         }
         self.page = page;
         self.revalidate_page();
+        self.load_section_counts();
     }
 
     /// Switch page: what's cached shows at once, and is checked again (`revalidate_page`).
@@ -888,6 +949,54 @@ impl State {
         }
         self.page = page;
         self.revalidate_page();
+    }
+
+    /// Open section `tab` of the current group (`GROUP_TABS`).
+    pub fn show_group_tab(&mut self, tab: usize) {
+        self.group_tab = tab.min(GROUP_TABS.len() - 1);
+    }
+
+    /// Sidebar 2's date range: the last `days` days (0: any time).
+    pub fn set_filter_days(&mut self, days: u32) {
+        if self.filter.days != days {
+            self.filter.days = days;
+            self.filter_changed();
+        }
+    }
+
+    /// The contributor box changed: applied after a short pause, so typing a login doesn't
+    /// ask GitHub for every letter.
+    pub fn edit_filter_who(&mut self) {
+        let latest = self.filter_edit.clone();
+        jobs::debounced(self, &latest, Duration::from_millis(400), || Ok::<(), String>(()), |s, _| s.apply_filter_who());
+    }
+
+    pub fn apply_filter_who(&mut self) {
+        let who = self.filter_who.text.trim().trim_start_matches('@').to_owned();
+        if self.filter.who != who {
+            self.filter.who = who;
+            self.filter_changed();
+        }
+    }
+
+    pub fn clear_filter(&mut self) {
+        jobs::cancel(&self.filter_edit);
+        self.filter_who = TextEdit::new("");
+        if !self.filter.is_empty() {
+            self.filter = Filter::default();
+            self.filter_changed();
+        }
+    }
+
+    /// Every list reloads with the new filter as it's shown (this one now).
+    fn filter_changed(&mut self) {
+        self.pr_limit = PR_PAGE;
+        self.run_limit = RUN_PAGE;
+        self.commit_limit = COMMIT_PAGE;
+        self.search_prs();
+        self.ensure_page();
+        // The other sections' counts were loaded with the old filter.
+        self.load_section_counts();
     }
 
     /// The window lost or got focus: coming back after a while checks the page again.
@@ -953,7 +1062,7 @@ impl State {
         let d = self.rd();
         match self.page {
             Page::Pulls => {
-                let other_state = d.is_some_and(|d| d.prs_state != self.pr_state && d.prs.data.is_some() && !d.prs.loading);
+                let other_state = d.is_some_and(|d| (d.prs_state != self.pr_state || d.prs_filter != self.filter) && d.prs.data.is_some() && !d.prs.loading);
                 if other_state || ts(d, |d, t| d.prs.stale(t), ttl::GH.min(cap)) {
                     self.load_prs();
                 }
@@ -963,7 +1072,8 @@ impl State {
             }
             Page::Actions => {
                 let runs_ttl = if self.runs_running() { ttl::RUNNING.min(cap) } else { ttl::RUNS.min(cap) };
-                if ts(d, |d, t| d.runs.stale(t), runs_ttl) {
+                let other = d.is_some_and(|d| d.runs_filter != self.filter && d.runs.data.is_some() && !d.runs.loading);
+                if other || ts(d, |d, t| d.runs.stale(t), runs_ttl) {
                     self.load_runs();
                 }
                 let sel_running = self.run_sel.is_some_and(|id| self.run_running(id));
@@ -977,7 +1087,7 @@ impl State {
                 }
             }
             Page::Commits => {
-                let other = d.is_some_and(|d| !d.graph.loading && d.graph.data.as_ref().is_some_and(|g| g.all != self.all_branches));
+                let other = d.is_some_and(|d| !d.graph.loading && d.graph.data.as_ref().is_some_and(|g| g.all != self.all_branches || d.graph_filter != self.filter));
                 if other || ts(d, |d, t| d.graph.stale(t), ttl::LOCAL.min(cap)) {
                     self.refresh_graph();
                 }
@@ -1050,8 +1160,10 @@ impl State {
 
     fn refresh_repo_list(&mut self) {
         self.inbox.loading = true;
+        self.repos_loading = true;
         jobs::spawn(self, gh::all_repos, |s, r| match r {
             Ok((me, mut list)) => {
+                s.repos_loading = false;
                 s.me = me;
                 list.sort_by(|a, b| b.pushed_at.cmp(&a.pushed_at));
                 for remote in &list {
@@ -1066,6 +1178,7 @@ impl State {
                 s.refresh_pulse();
             }
             Err(e) => {
+                s.repos_loading = false;
                 s.inbox.finish(Err(e.clone()));
                 s.toast(crate::i18n::t(tf!("gh: {e}")), true);
             }
@@ -1387,6 +1500,135 @@ impl State {
                     s.avatars.insert(url, image);
                 }
             });
+        }
+    }
+
+    /// Fetch one profile picture (GitHub's avatar host only), once per session.
+    pub fn request_avatar(&mut self, url: &str) {
+        if self.images.is_none() || !url.starts_with(gh::AVATAR_HOST) || !self.avatars_asked.insert(url.to_owned()) {
+            return;
+        }
+        let (fetch, url) = (url.to_owned(), url.to_owned());
+        jobs::spawn(self, move || gh::avatar_bytes(&fetch), move |s, out| {
+            if let (Ok(bytes), Some(cache)) = (out, s.images.as_ref()) {
+                let image = cache.load(bytes);
+                s.avatars.insert(url, image);
+            }
+        });
+    }
+
+    /// Who the contributor filter offers here: you, then on a commit list its git authors, else
+    /// the PR authors already loaded and who the repo lets you assign (each once, A-Z after you).
+    pub fn contributors(&self) -> Vec<Contributor> {
+        let mut out: Vec<Contributor> = Vec::new();
+        let mut add = |id: &str, name: &str, login: bool| {
+            if !id.is_empty() && !out.iter().any(|c| c.id.eq_ignore_ascii_case(id)) {
+                out.push(Contributor { id: id.to_owned(), name: name.to_owned(), login });
+            }
+        };
+        if self.page == Page::Commits {
+            let slug = self.cur.clone().unwrap_or_default();
+            for a in self.commit_authors.get(&slug).cloned().unwrap_or_default() {
+                add(&a, "", false);
+            }
+            for c in self.rd().and_then(|d| d.graph.data.as_ref()).map(|g| g.commits.as_slice()).unwrap_or_default() {
+                add(&c.author, "", false);
+            }
+        } else {
+            if !self.me.is_empty() {
+                add(&self.me.clone(), "", true);
+            }
+            let slugs: Vec<String> = match self.page {
+                Page::Group => self.group_cur.as_ref().and_then(|g| self.prefs.groups.iter().find(|x| x.name == *g)).map(|g| g.repos.clone()).unwrap_or_default(),
+                _ => self.cur.iter().cloned().collect(),
+            };
+            for slug in &slugs {
+                let prs = match self.page {
+                    Page::Group => self.group_data.get(slug).and_then(|l| l.data.as_ref()).map(|d| d.prs.as_slice()),
+                    _ => self.data.get(slug).and_then(|d| d.prs.data.as_deref()),
+                };
+                for p in prs.unwrap_or_default() {
+                    add(&p.author.login, "", true);
+                }
+                for p in self.pr_people.get(slug).and_then(|l| l.data.as_deref()).unwrap_or_default() {
+                    add(&p.login, &p.name, true);
+                }
+            }
+        }
+        let me = out.first().filter(|c| c.login && c.id == self.me).cloned();
+        let mut rest: Vec<Contributor> = out.into_iter().filter(|c| Some(c) != me.as_ref()).collect();
+        rest.sort_by_key(|c| c.id.to_lowercase());
+        me.into_iter().chain(rest).collect()
+    }
+
+    /// Open or close the contributor list; opening loads who the repo lets you assign and the
+    /// profile pictures it shows.
+    pub fn toggle_contributors(&mut self, open: bool) {
+        self.filter_who_open = open;
+        if !open {
+            return;
+        }
+        let slugs: Vec<String> = match self.page {
+            Page::Group => self.group_cur.as_ref().and_then(|g| self.prefs.groups.iter().find(|x| x.name == *g)).map(|g| g.repos.clone()).unwrap_or_default(),
+            _ => self.cur.iter().cloned().collect(),
+        };
+        for slug in &slugs {
+            self.load_pr_people(slug, ttl::META);
+        }
+        // Pictures for the people the list shows now (what's typed narrows it), a few at a
+        // time: each is one `gh` call, and typing asks for the next matches.
+        let q = self.filter_who.text.trim().to_lowercase();
+        let everyone = q == self.filter.who.to_lowercase();
+        let shown: Vec<String> = self
+            .contributors()
+            .into_iter()
+            .filter(|c| c.login && (everyone || c.id.to_lowercase().contains(&q) || c.name.to_lowercase().contains(&q)))
+            .take(16)
+            .map(|c| c.id)
+            .collect();
+        for id in shown {
+            self.request_avatar(&gh::avatar_url(&id));
+        }
+    }
+
+    /// Pick a contributor from the list.
+    pub fn pick_contributor(&mut self, id: &str) {
+        self.filter_who_open = false;
+        self.filter_who = TextEdit::new(id);
+        self.apply_filter_who();
+    }
+
+    /// Sidebar 2 counts every section of the open repo: load the ones not loaded yet (what's
+    /// cached shows at once). Tests never shell out.
+    fn load_section_counts(&mut self) {
+        if cfg!(test) || jobs::is_inline_run() {
+            return;
+        }
+        let f = self.filter.clone();
+        let d = self.rd();
+        let missing = |need: &dyn Fn(&RepoData) -> bool| d.is_none_or(need);
+        // Not loaded, or loaded with another filter (and not loading now).
+        let prs = missing(&|d| !d.prs.loading && (d.prs.data.is_none() || d.prs_filter != f));
+        let runs = missing(&|d| !d.runs.loading && (d.runs.data.is_none() || d.runs_filter != f));
+        let envs = missing(&|d| d.envs.data.is_none() && !d.envs.loading);
+        let graph = missing(&|d| !d.graph.loading && (d.graph.data.is_none() || d.graph_filter != f));
+        let branches = missing(&|d| d.branches.data.is_none() && !d.branches.loading);
+        if prs && self.page != Page::Pulls {
+            self.load_prs();
+        }
+        if runs && self.page != Page::Actions {
+            self.load_runs();
+        }
+        if envs && self.page != Page::Envs {
+            self.refresh_envs();
+        }
+        if self.local_path().is_some() {
+            if graph && self.page != Page::Commits {
+                self.refresh_graph();
+            }
+            if branches && self.page != Page::Branches {
+                self.refresh_branches();
+            }
         }
     }
 
@@ -2064,14 +2306,20 @@ impl State {
         let Some(slug) = self.cur.clone() else { return };
         let state = PR_STATES[self.pr_state];
         let limit = self.pr_limit;
+        let filter = self.filter.clone();
         self.rd_mut(&slug).prs.loading = true;
-        let key = slug.clone();
-        jobs::spawn(self, move || gh::prs(&key, state, limit, None), move |s, r| {
+        let (key, f) = (slug.clone(), filter.clone());
+        jobs::spawn(self, move || gh::prs(&key, state, limit, None, &f), move |s, r| {
             // A late answer for a filter the user already left is dropped.
-            if PR_STATES[s.pr_state] == state {
+            if PR_STATES[s.pr_state] == state && s.filter == filter {
                 let d = s.rd_mut(&slug);
                 d.prs.finish(r);
                 d.prs_state = PR_STATES.iter().position(|x| *x == state).unwrap_or(0);
+                d.prs_filter = filter;
+            } else {
+                // Left behind by a newer state or filter: load what's asked now.
+                s.rd_mut(&slug).prs.loading = false;
+                s.ensure_page();
             }
         });
         self.search_prs();
@@ -2115,8 +2363,17 @@ impl State {
         self.rd_mut(&slug).runs.loading = true;
         let key = slug.clone();
         let limit = self.run_limit;
-        jobs::spawn(self, move || gh::runs(&key, limit), move |s, r| {
-            s.rd_mut(&slug).runs.finish(r);
+        let filter = self.filter.clone();
+        let f = filter.clone();
+        jobs::spawn(self, move || gh::runs(&key, limit, &f), move |s, r| {
+            if s.filter != filter {
+                s.rd_mut(&slug).runs.loading = false;
+                s.ensure_page();
+                return;
+            }
+            let d = s.rd_mut(&slug);
+            d.runs.finish(r);
+            d.runs_filter = filter;
             s.keep_focused_run();
         });
     }
@@ -2156,18 +2413,34 @@ impl State {
         let (Some(slug), Some(dir)) = (self.cur.clone(), self.local_path()) else { return };
         let all = self.all_branches;
         let limit = self.commit_limit;
+        let filter = self.filter.clone();
+        let f = filter.clone();
         self.rd_mut(&slug).graph.loading = true;
         jobs::spawn(
             self,
             move || {
-                git::log(&dir, all, limit).map(|commits| {
+                git::log(&dir, all, limit, &f).map(|commits| {
                     let (rows, width) = git::layout(&commits);
                     CommitGraph { all, commits, rows, width }
                 })
             },
             move |s, r| {
-                if s.all_branches == all {
-                    s.rd_mut(&slug).graph.finish(r);
+                if s.all_branches == all && s.filter == filter {
+                    // The contributor list offers every author, not just the one picked.
+                    if filter.who.is_empty()
+                        && let Ok(g) = &r
+                    {
+                        let mut names: Vec<String> = g.commits.iter().map(|c| c.author.clone()).collect();
+                        names.sort();
+                        names.dedup();
+                        s.commit_authors.insert(slug.clone(), names);
+                    }
+                    let d = s.rd_mut(&slug);
+                    d.graph.finish(r);
+                    d.graph_filter = filter;
+                } else {
+                    s.rd_mut(&slug).graph.loading = false;
+                    s.ensure_page();
                 }
             },
         );
@@ -2250,11 +2523,12 @@ impl State {
         let key = (slug.clone(), state, q.clone());
         self.pr_searching = true;
         let latest = self.pr_search.clone();
+        let filter = self.filter.clone();
         jobs::debounced(
             self,
             &latest,
             Duration::from_millis(300),
-            move || gh::prs(&slug, PR_STATES[state], 100, Some(&q)),
+            move || gh::prs(&slug, PR_STATES[state], 100, Some(&q), &filter),
             move |s, r| {
                 s.pr_searching = false;
                 match r {
@@ -2482,12 +2756,22 @@ impl State {
         }
     }
 
-    /// A repo inside group number `g` dragged from `from` to `to`.
-    pub fn move_in_group(&mut self, g: usize, from: usize, to: usize) {
+    /// A repo inside group number `g` dragged from `from` to `to`. `lead`: the repo shown
+    /// first as "recent", outside the drag: positions count the others, and it keeps its own
+    /// place in your order.
+    pub fn move_in_group(&mut self, g: usize, lead: Option<&str>, from: usize, to: usize) {
         let Some(group) = self.prefs.groups.get_mut(g) else { return };
-        if from < group.repos.len() && to < group.repos.len() && from != to {
+        let at = lead.and_then(|l| group.repos.iter().position(|r| r == l));
+        let kept = at.map(|i| group.repos.remove(i));
+        let moved = from < group.repos.len() && to < group.repos.len() && from != to;
+        if moved {
             let x = group.repos.remove(from);
             group.repos.insert(to, x);
+        }
+        if let (Some(i), Some(x)) = (at, kept) {
+            group.repos.insert(i.min(group.repos.len()), x);
+        }
+        if moved {
             self.save_prefs();
         }
     }
@@ -2502,6 +2786,40 @@ impl State {
         self.prefs.groups.swap(i, j as usize);
         // The drag slots follow their groups.
         self.group_drags.swap(i.min(MAX_DRAG_GROUPS - 1), (j as usize).min(MAX_DRAG_GROUPS - 1));
+        self.save_prefs();
+    }
+
+    /// A group header dragged to place `to` among your groups.
+    pub fn move_group_to(&mut self, name: &str, to: usize) {
+        let Some(i) = self.prefs.groups.iter().position(|g| g.name == name) else { return };
+        let to = to.min(self.prefs.groups.len() - 1);
+        if i == to {
+            return;
+        }
+        let g = self.prefs.groups.remove(i);
+        self.prefs.groups.insert(to, g);
+        // Each group keeps its own drag slot.
+        if i.max(to) < MAX_DRAG_GROUPS {
+            if i < to {
+                self.group_drags[i..=to].rotate_left(1);
+            } else {
+                self.group_drags[to..=i].rotate_right(1);
+            }
+        }
+        self.save_prefs();
+    }
+
+    /// An owner header dragged to place `to` among the owners.
+    pub fn move_owner_to(&mut self, owner: &str, to: usize) {
+        let mut order = self.owners_sorted();
+        let Some(i) = order.iter().position(|o| o == owner) else { return };
+        let to = to.min(order.len() - 1);
+        if i == to {
+            return;
+        }
+        let x = order.remove(i);
+        order.insert(to, x);
+        self.prefs.owner_order = order;
         self.save_prefs();
     }
 
@@ -3477,6 +3795,22 @@ fn main() {
                 s.prefs.groups = vec![config::Group { name: "Demo".into(), repos: vec!["anomalyco/rune".into(), "cli/cli".into()] }];
                 s.open_group("Demo");
             }),
+            // Sidebar 2 on a group's Pull requests, filtered, with the date range list open.
+            ("group-filters", |s: &mut State| {
+                s.prefs.groups = vec![config::Group { name: "Demo".into(), repos: vec!["anomalyco/rune".into(), "cli/cli".into()] }];
+                s.prefs.recent = vec!["cli/cli".into()];
+                s.open_group("Demo");
+                s.show_group_tab(1);
+                s.filter_who = TextEdit::new("kitlangton");
+                s.apply_filter_who();
+                s.set_filter_days(30);
+                s.filter_days_open = true;
+            }),
+            // Sidebar 2 on a repo's Pull requests with the contributor list open.
+            ("repo-contributors", |s: &mut State| {
+                s.select_repo("anomalyco/rune", Page::Pulls);
+                s.toggle_contributors(true);
+            }),
             ("triage", |s: &mut State| {
                 s.select_repo("anomalyco/rune", Page::Actions);
                 let failed = s.rd().and_then(|d| d.runs.data.as_ref()).and_then(|r| r.iter().find(|r| r.outcome() == model::Outcome::Failure)).map(|r| r.database_id);
@@ -3560,6 +3894,100 @@ mod cache_tests {
         assert!(State::wants_commit_fetch(Some(&errored)));
         assert!(!State::wants_commit_fetch(Some(&Load::start())));
         assert!(!State::wants_commit_fetch(Some(&loaded)));
+    }
+
+    /// A state on a page that loads nothing (no group open), so filter changes stay offline.
+    fn offline_state() -> State {
+        let mut s = State::new(config::Prefs::default());
+        s.page = Page::Group;
+        s
+    }
+
+    #[test]
+    fn groups_and_owners_move_to_a_dragged_place() {
+        let mut s = offline_state();
+        s.prefs.groups = ["a", "b", "c"].map(|n| config::Group { name: n.into(), repos: Vec::new() }).to_vec();
+        let names = |s: &State| s.prefs.groups.iter().map(|g| g.name.clone()).collect::<Vec<_>>();
+        s.move_group_to("a", 2);
+        assert_eq!(names(&s), ["b", "c", "a"]);
+        s.move_group_to("a", 0);
+        assert_eq!(names(&s), ["a", "b", "c"]);
+        s.move_group_to("c", 99);
+        assert_eq!(names(&s), ["a", "b", "c"], "past the end: stays last");
+        s.move_group_to("nope", 0);
+        assert_eq!(names(&s), ["a", "b", "c"]);
+        for slug in ["x/1", "y/1", "z/1"] {
+            s.add_repo(slug.into(), None);
+        }
+        s.move_owner_to("z", 0);
+        assert_eq!(s.owners_sorted(), ["z", "x", "y"]);
+        s.move_owner_to("z", 2);
+        assert_eq!(s.owners_sorted(), ["x", "y", "z"]);
+    }
+
+    #[test]
+    fn filter_changes_reset_pages_and_mark_lists_stale() {
+        let mut s = offline_state();
+        s.pr_limit = PR_PAGE * 3;
+        s.run_limit = RUN_PAGE * 2;
+        s.set_filter_days(30);
+        assert_eq!(s.filter.days, 30);
+        assert_eq!((s.pr_limit, s.run_limit, s.commit_limit), (PR_PAGE, RUN_PAGE, COMMIT_PAGE), "a new filter starts from the first page");
+        // The contributor box: trimmed, a leading @ dropped.
+        s.filter_who = TextEdit::new("  @octo ");
+        s.apply_filter_who();
+        assert_eq!(s.filter.who, "octo");
+        // A list loaded with the old filter no longer matches.
+        let d = s.rd_mut("o/r");
+        assert_ne!(d.prs_filter, Filter { days: 30, who: "octo".into() });
+        s.clear_filter();
+        assert!(s.filter.is_empty() && s.filter_who.text.is_empty());
+        // Picking from the list applies at once and closes it.
+        s.filter_who_open = true;
+        s.pick_contributor("ann");
+        assert_eq!(s.filter.who, "ann");
+        assert!(!s.filter_who_open);
+    }
+
+    #[test]
+    fn contributors_put_you_first_then_a_to_z() {
+        let mut s = offline_state();
+        s.me = "me".into();
+        s.page = Page::Pulls;
+        s.cur = Some("o/r".into());
+        let mut people = Load::start();
+        people.finish(Ok(vec![
+            route::Person { login: "zed".into(), name: "Zed".into() },
+            route::Person { login: "Ann".into(), name: String::new() },
+            route::Person { login: "me".into(), name: "Me".into() },
+            route::Person { login: "ann".into(), name: "dup".into() },
+        ]));
+        s.pr_people.insert("o/r".into(), people);
+        let c = s.contributors();
+        assert_eq!(c.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["me", "Ann", "zed"], "each once, case-insensitively");
+        assert!(c.iter().all(|c| c.login));
+        // Commits offer git author names (not logins), and every author seen unfiltered.
+        s.page = Page::Commits;
+        s.commit_authors.insert("o/r".into(), vec!["Bob B".into(), "Ann Lee".into()]);
+        let c = s.contributors();
+        assert_eq!(c.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["Ann Lee", "Bob B"]);
+        assert!(c.iter().all(|c| !c.login));
+    }
+
+    #[test]
+    fn group_drag_skips_the_recent_lead() {
+        let mut s = State::new(config::Prefs::default());
+        let names = |s: &State| s.prefs.groups[0].repos.clone();
+        s.prefs.groups = vec![config::Group { name: "g".into(), repos: ["a", "b", "c", "d"].map(String::from).to_vec() }];
+        // "b" leads as recent; the drag list is a, c, d: c (1) to the top (0).
+        s.move_in_group(0, Some("b"), 1, 0);
+        assert_eq!(names(&s), ["c", "b", "a", "d"]);
+        // The lead at the last place keeps it.
+        s.move_in_group(0, Some("d"), 0, 2);
+        assert_eq!(names(&s), ["b", "a", "c", "d"]);
+        // No lead: a plain move.
+        s.move_in_group(0, None, 3, 0);
+        assert_eq!(names(&s), ["d", "b", "a", "c"]);
     }
 
     #[test]

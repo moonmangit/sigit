@@ -547,9 +547,77 @@ pub fn duration(secs: i64) -> String {
     }
 }
 
+/// Unix seconds → "2026-11-14" (UTC), for date filters in `gh` and `git` queries.
+pub fn ymd(t: i64) -> String {
+    // Civil from days (Howard Hinnant's algorithm), the inverse of `parse_time`'s.
+    let z = t.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The date ranges the filters offer, in days (0: any time).
+pub const FILTER_DAYS: [u32; 4] = [0, 7, 30, 90];
+
+/// What pull requests, runs and commits are narrowed to: a date range and a contributor
+/// (sidebar 2's filters, shared by every section). Applied inside the `gh` / `git log` query,
+/// so it reaches past the first page of results.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Filter {
+    /// Created in the last this many days (0: any time).
+    pub days: u32,
+    /// GitHub login (PRs, runs) or git author name / email (commits). Empty: anyone.
+    pub who: String,
+}
+
+impl Filter {
+    pub fn is_empty(&self) -> bool {
+        self.days == 0 && self.who.is_empty()
+    }
+
+    /// The first day in range, as `gh` and `git` take it.
+    pub fn since(&self, now: i64) -> Option<String> {
+        (self.days > 0).then(|| ymd(now - i64::from(self.days) * 86_400))
+    }
+
+    /// For a list loaded without the filter (a group's open PRs): whether this item passes.
+    /// `who` is a login, matched exactly (as GitHub matches `--author`).
+    pub fn keeps(&self, who: &str, when: &str, now: i64) -> bool {
+        (self.who.is_empty() || who.eq_ignore_ascii_case(&self.who))
+            && (self.days == 0 || parse_time(when).is_some_and(|t| t >= now - i64::from(self.days) * 86_400))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_days() {
+        assert_eq!(ymd(0), "1970-01-01");
+        assert_eq!(ymd(parse_time("2026-11-14T08:36:07Z").unwrap()), "2026-11-14");
+        assert_eq!(ymd(parse_time("2024-02-29T23:59:59Z").unwrap()), "2024-02-29");
+        assert_eq!(ymd(parse_time("2000-03-01T00:00:00Z").unwrap()), "2000-03-01");
+    }
+
+    #[test]
+    fn filter_since_and_keeps() {
+        let now = parse_time("2026-11-23T12:00:00Z").unwrap();
+        assert_eq!(Filter::default().since(now), None);
+        let f = Filter { days: 7, who: "OctoCat".into() };
+        assert_eq!(f.since(now).as_deref(), Some("2026-11-16"));
+        assert!(f.keeps("octocat", "2026-11-20T00:00:00Z", now));
+        assert!(!f.keeps("octocat", "2026-11-01T00:00:00Z", now));
+        assert!(!f.keeps("someone", "2026-11-20T00:00:00Z", now));
+        assert!(!f.keeps("octocat2", "2026-11-20T00:00:00Z", now));
+        assert!(Filter::default().keeps("anyone", "", now));
+    }
 
     #[test]
     fn parses_github_times() {
