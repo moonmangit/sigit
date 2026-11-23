@@ -129,6 +129,11 @@ pub fn avatar_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 pub const AVATAR_HOST: &str = "https://avatars.githubusercontent.com/";
 
+/// A login's profile picture, small.
+pub fn avatar_url(login: &str) -> String {
+    format!("{AVATAR_HOST}{login}?s=48")
+}
+
 /// `program args` in `cwd`, without a console window flashing up on Windows.
 pub(crate) fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
     let mut cmd = Command::new(program);
@@ -240,13 +245,26 @@ const PR_FIELDS: &str =
 
 /// `state`: open, merged, closed. `search`: GitHub search syntax over the repo's PRs
 /// (title, body, author, branch...), so it finds PRs beyond the first `limit`.
-pub fn prs(slug: &str, state: &str, limit: usize, search: Option<&str>) -> Result<Vec<Pr>, String> {
-    let limit = limit.to_string();
-    let mut args = vec!["pr", "list", "-R", slug, "--state", state, "--limit", &limit, "--json", PR_FIELDS];
-    if let Some(q) = search {
-        args.extend(["--search", q]);
+/// `filter`: created since / by whom, added to the query.
+pub fn prs(slug: &str, state: &str, limit: usize, search: Option<&str>, filter: &crate::model::Filter) -> Result<Vec<Pr>, String> {
+    let args = pr_list_args(slug, state, limit, search, filter, crate::model::now());
+    gh_json(&args.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// `gh pr list`'s arguments: the date range joins the search, the contributor is `--author`.
+pub fn pr_list_args(slug: &str, state: &str, limit: usize, search: Option<&str>, filter: &crate::model::Filter, now: i64) -> Vec<String> {
+    let mut args: Vec<String> = ["pr", "list", "-R", slug, "--state", state, "--limit", &limit.to_string(), "--json", PR_FIELDS].map(String::from).to_vec();
+    let mut q = search.unwrap_or_default().trim().to_owned();
+    if let Some(d) = filter.since(now) {
+        q = format!("{q} created:>={d}").trim().to_owned();
     }
-    gh_json(&args)
+    if !q.is_empty() {
+        args.extend(["--search".into(), q]);
+    }
+    if !filter.who.is_empty() {
+        args.extend(["--author".into(), filter.who.clone()]);
+    }
+    args
 }
 
 pub fn pr_detail(slug: &str, number: u64) -> Result<PrDetail, String> {
@@ -259,11 +277,27 @@ pub fn pr_detail(slug: &str, number: u64) -> Result<PrDetail, String> {
     Ok(PrDetail { view, diff })
 }
 
-pub fn runs(slug: &str, limit: usize) -> Result<Vec<Run>, String> {
-    gh_json(&[
+/// `filter`: created since / triggered by whom, added to the query.
+pub fn runs(slug: &str, limit: usize, filter: &crate::model::Filter) -> Result<Vec<Run>, String> {
+    let args = run_list_args(slug, limit, filter, crate::model::now());
+    gh_json(&args.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// `gh run list`'s arguments: the date range is `--created >=day`, the contributor `--user`.
+pub fn run_list_args(slug: &str, limit: usize, filter: &crate::model::Filter, now: i64) -> Vec<String> {
+    let mut args: Vec<String> = [
         "run", "list", "-R", slug, "--limit", &limit.to_string(), "--json",
         "databaseId,displayTitle,workflowName,headBranch,headSha,event,status,conclusion,createdAt,startedAt,updatedAt,url,number",
-    ])
+    ]
+    .map(String::from)
+    .to_vec();
+    if let Some(d) = filter.since(now) {
+        args.extend(["--created".into(), format!(">={d}")]);
+    }
+    if !filter.who.is_empty() {
+        args.extend(["--user".into(), filter.who.clone()]);
+    }
+    args
 }
 
 pub fn run_detail(slug: &str, id: u64) -> Result<RunView, String> {
@@ -769,6 +803,38 @@ mod command_tests {
             slug: "a/x".into(), head: "feat-a".into(), base: "main".into(), draft: true,
             title: "T".into(), body: "B".into(), reviewers: "lead".into(), assignees: "".into(), labels: "release".into(),
         }
+    }
+
+    #[test]
+    fn list_args_carry_the_filters() {
+        use crate::model::{Filter, parse_time};
+        let now = parse_time("2026-11-23T12:00:00Z").unwrap();
+        let none = Filter::default();
+        let both = Filter { days: 30, who: "octo".into() };
+        let pos = |a: &[String], x: &str| a.iter().position(|y| y == x);
+        // No filter: no search, no author.
+        let a = pr_list_args("o/r", "open", 30, None, &none, now);
+        assert!(pos(&a, "--search").is_none() && pos(&a, "--author").is_none());
+        // Date range joins what was typed; the contributor is --author.
+        let a = pr_list_args("o/r", "merged", 30, Some(" fix "), &both, now);
+        assert_eq!(a[pos(&a, "--search").unwrap() + 1], "fix created:>=2026-10-24");
+        assert_eq!(a[pos(&a, "--author").unwrap() + 1], "octo");
+        assert_eq!(a[pos(&a, "--state").unwrap() + 1], "merged");
+        let a = pr_list_args("o/r", "open", 30, None, &Filter { days: 7, who: String::new() }, now);
+        assert_eq!(a[pos(&a, "--search").unwrap() + 1], "created:>=2026-11-16");
+        // Runs: --created >=day and --user.
+        let a = run_list_args("o/r", 50, &both, now);
+        assert_eq!(a[pos(&a, "--created").unwrap() + 1], ">=2026-10-24");
+        assert_eq!(a[pos(&a, "--user").unwrap() + 1], "octo");
+        assert_eq!(a[pos(&a, "--limit").unwrap() + 1], "50");
+        let a = run_list_args("o/r", 50, &none, now);
+        assert!(pos(&a, "--created").is_none() && pos(&a, "--user").is_none());
+    }
+
+    #[test]
+    fn avatar_urls_stay_on_githubs_host() {
+        assert_eq!(avatar_url("octocat"), "https://avatars.githubusercontent.com/octocat?s=48");
+        assert!(avatar_url("x").starts_with(AVATAR_HOST));
     }
 
     #[test]

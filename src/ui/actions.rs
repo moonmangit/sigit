@@ -24,6 +24,9 @@ pub fn view(s: &State, k: &Kit) -> El {
     }
     let all = runs(s);
     if all.is_empty() {
+        if !s.filter.is_empty() {
+            return super::filtered_empty(k, "runs-empty", &super::I_REFRESH);
+        }
         return super::empty_state(k, "runs-empty", &super::I_REFRESH, "No workflow runs", "GitHub Actions hasn't run anything in this repository yet. Runs show here, newest first, as soon as a workflow starts.", None);
     }
     let now = now();

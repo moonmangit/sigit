@@ -19,6 +19,7 @@ mod pulse;
 mod pr_new;
 mod settings;
 mod sidebar;
+mod subnav;
 
 use cmd::CmdTip;
 use rune::{Color, Cx, El, Icon, ScrollSpec, TextStyle, col, el, oklch, rich, row, spacer};
@@ -223,6 +224,11 @@ pub fn muted(k: &Kit, s: impl Into<String>) -> El {
     text(s.into()).font(k.ty.small).color(k.c.text_muted)
 }
 
+/// A list the shared filters (sidebar 2) left empty.
+pub fn filtered_empty(k: &Kit, key: &str, icon: &'static Icon) -> El {
+    empty_state(k, key, icon, "No matches for these filters", "Nothing here was created in that range or by that contributor. Widen the date range or clear the filters in the side menu.", None)
+}
+
 pub fn empty(k: &Kit, msg: &str) -> El {
     col().w_full().py(24.0).items_center().child(text(msg.to_owned()).font(k.ty.ui).color(k.c.text_faint))
 }
@@ -349,6 +355,11 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         Page::Group => group::view(s, &k),
         page => repo_page(s, &k, page),
     };
+    // Sidebar 2: the sections of the repo or group sidebar 1 picked, and the shared filters.
+    let body = match subnav::view(s, &k, &mut layer) {
+        Some(nav) => row().w_full().h_full().child(nav).child(col().w(0.0).grow(1.0).min_w(0.0).h_full().child(body)),
+        None => body,
+    };
     overlays::guard_dialog(s, &k, &mut layer);
     group_dialog(s, &k, &mut layer);
     org::dialog(s, &k, &mut layer);
@@ -368,6 +379,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     cx.help_look(cmd::help_look(&k));
 
     let title = match (s.page, s.cur.as_deref(), s.group_cur.as_deref()) {
+        (Page::Group, _, Some(g)) if s.group_tab > 0 => tf!("Group · {g} · {}", crate::i18n::t(crate::GROUP_TABS[s.group_tab])),
         (Page::Group, _, Some(g)) => tf!("Group · {g}"),
         (Page::Inbox, ..) | (_, None, _) => crate::i18n::t("Dashboard"),
         (p, Some(slug), _) => tf!("{slug} · {}", crate::i18n::t(p.label())),
@@ -662,11 +674,8 @@ fn freshness(s: &State) -> Option<Fresh> {
 fn repo_page(s: &State, k: &Kit, page: Page) -> El {
     let Some(repo) = s.repo() else { return empty_state(k, "no-repo", &I_REPO, "Pick a repository", "Choose one in the sidebar, or press Ctrl+K to jump to any repo by name.", None) };
     let d = s.rd();
+    // The window title names the repo and the page: this row is its state and actions.
     let mut head = row().key("repo-head").w_full().gap(10.0).center_y().flex_wrap();
-    if let Some(b) = org::badge(s, k, repo.owner(), 22.0) {
-        head = head.child(b);
-    }
-    head = head.child(text(repo.slug.clone()).font(TextStyle { size: 18.0, ..k.ty.ui_medium }).color(k.c.text_strong));
     if let Some(st) = d.and_then(|d| d.status.data.as_ref()) {
         head = head.child(branch_chip(s, k, &st.branch, hue(0)).help(crate::i18n::t("The branch your local clone is on")));
         if st.changed > 0 {
@@ -688,14 +697,6 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         .child(copy_button(k, "repo-clone", tf!("https://github.com/{}.git", repo.slug), "clone URL"))
         .child(ext_button(k, "repo-open", tf!("https://github.com/{}", repo.slug)));
 
-    let idx = Page::REPO.iter().position(|p| *p == page);
-    let tabs = SegmentedControl::new(&crate::i18n::all(&Page::REPO.map(|p| p.label())), idx)
-        .label(crate::i18n::t("Repository view"))
-        .fit()
-        .on_pick(|s: &mut State, i, _| s.show(Page::REPO[i]))
-        .build(k)
-        .key("tabs");
-
     let body = match page {
         Page::Pulls => prs::view(s, k),
         Page::Actions => actions::view(s, k),
@@ -712,7 +713,6 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         .padding(16.0)
         .gap(12.0)
         .child(head)
-        .child(row().w_full().child(tabs))
         .child(col().key(tf!("page:{page:?}")).w_full().grow(1.0).min_h(0.0).child(body))
 }
 

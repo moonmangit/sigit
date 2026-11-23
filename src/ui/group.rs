@@ -1,7 +1,7 @@
 //! A group's dashboard (B5): CI health on each repo's default branch, what's deployed on each
 //! environment, commits not yet on production, and every open PR in the group.
 
-use rune::{El, TextStyle, col, el, row, spacer};
+use rune::{El, col, el, row, spacer};
 use crate::i18n::text;
 use rune_kit::{Kit, Spinner};
 
@@ -26,11 +26,14 @@ const DRIFT_W: f32 = 200.0;
 pub fn view(s: &State, k: &Kit) -> El {
     let Some(name) = s.group_cur.as_deref() else { return empty(k, "Pick a group") };
     let Some(group) = s.prefs.groups.iter().find(|g| g.name == name) else { return empty(k, "This group no longer exists") };
+    let tab = s.group_tab;
     if group.repos.is_empty() {
         return super::empty_state(k, "group-empty", &super::I_DASH, "This group is empty", "Right-click any repository in the sidebar and choose Add to group to see its pull requests and runs here.", None);
     }
     let t = now();
     let short = |slug: &str| slug.split_once('/').map_or(slug.to_owned(), |(_, n)| n.to_owned());
+    // Sidebar 2's filters narrow the PRs loaded for each repo (its open ones, newest first).
+    let f = &s.filter;
 
     // CI health: one row per repo, a dot per workflow (latest run on the default branch).
     let mut health = col().w_full().gap(6.0);
@@ -128,7 +131,7 @@ pub fn view(s: &State, k: &Kit) -> El {
         r = r.child(row().w(DRIFT_W).min_w(0.0).child(drift_cell));
         deploy = deploy.child(r);
         // PRs.
-        for p in &d.prs {
+        for p in d.prs.iter().filter(|p| f.keeps(&p.author.login, &p.updated_at, t)) {
             pr_count += 1;
             let (slug5, n) = (slug.clone(), p.number);
             let (o, passed, total) = p.checks();
@@ -157,7 +160,7 @@ pub fn view(s: &State, k: &Kit) -> El {
         }
     }
     if pr_count == 0 {
-        prs = prs.child(muted(k, "No open pull requests in this group"));
+        prs = prs.child(muted(k, if f.is_empty() { "No open pull requests in this group" } else { "No open pull requests match the filters" }));
     }
     if env_names.is_empty() {
         deploy = col().w_full().child(muted(k, "None of these repos has environments"));
@@ -174,14 +177,13 @@ pub fn view(s: &State, k: &Kit) -> El {
                 row()
                     .gap(10.0)
                     .center_y()
-                    .child(text(name.to_owned()).font(TextStyle { size: 22.0, ..k.ty.ui_medium }).color(k.c.text_strong))
                     .child(chip(k, tf!("{} repos", group.repos.len()), None))
                     .child(spacer())
                     .child(muted(k, "refreshes every minute while open")),
             )
-            .child(panel(k, "g-health", "CI health on default branches", Some(hint(k, "gh-h", "The latest run of each workflow on each repo's default branch. Click a dot to open the run.", 8)), health))
-            .child(panel(k, "g-deploy", "Deployments", Some(hint(k, "gh-d", "What's deployed on each environment, and how many commits on the default branch aren't on production yet.", 8)), deploy))
-            .child(panel(k, "g-prs", &tf!("Open pull requests ({pr_count})"), Some(hint(k, "gh-p", "Every open PR in the group. ⚠ marks sensitive files.", 8)), prs)),
+            .children((tab == 0 || tab == 2).then(|| panel(k, "g-health", "CI health on default branches", Some(hint(k, "gh-h", "The latest run of each workflow on each repo's default branch. Click a dot to open the run.", 8)), health)))
+            .children((tab == 0 || tab == 3).then(|| panel(k, "g-deploy", "Deployments", Some(hint(k, "gh-d", "What's deployed on each environment, and how many commits on the default branch aren't on production yet.", 8)), deploy)))
+            .children((tab == 0 || tab == 1).then(|| panel(k, "g-prs", &tf!("Open pull requests ({pr_count})"), Some(hint(k, "gh-p", "Open PRs in the group (the latest 30 per repo). Filters: updated in the date range, by that exact login. ⚠ marks sensitive files.", 8)), prs))),
     )
 }
 

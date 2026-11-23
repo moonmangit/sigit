@@ -155,6 +155,9 @@ impl State {
 
     pub fn open_group(&mut self, name: &str) {
         self.remember(&crate::Place { page: Page::Group, repo: None, group: Some(name.to_owned()) });
+        if self.group_cur.as_deref() != Some(name) {
+            self.group_tab = 0; // a new group opens on its overview
+        }
         self.group_cur = Some(name.to_owned());
         self.page = Page::Group;
         self.load_group(true);
@@ -340,11 +343,14 @@ impl State {
                 meta.insert(slug.clone(), m.clone());
             }
             if d.prs_state == 0
+                && d.prs_filter.is_empty()
                 && let Some(p) = &d.prs.data
             {
                 prs.insert(slug.clone(), p.iter().take(50).cloned().collect());
             }
-            if let Some(r) = &d.runs.data {
+            if d.runs_filter.is_empty()
+                && let Some(r) = &d.runs.data
+            {
                 runs.insert(slug.clone(), r.iter().take(50).cloned().collect());
             }
         }
@@ -595,7 +601,7 @@ fn group_repo(slug: &str, prod_names: &[String]) -> Result<GroupRepo, String> {
             health.push(r);
         }
     }
-    let prs = gh::prs(slug, "open", 30, None).unwrap_or_default();
+    let prs = gh::prs(slug, "open", 30, None, &Default::default()).unwrap_or_default();
     let envs = gh::envs(slug).unwrap_or_default();
     let mut drift = Vec::new();
     for name in &envs.names {

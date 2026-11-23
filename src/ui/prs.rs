@@ -119,6 +119,9 @@ pub fn view(s: &State, k: &Kit) -> El {
         Some(p) => p,
         None if visible(s).is_empty() => {
             let filtered = !s.pr_filter.text.trim().is_empty();
+            if !filtered && !s.filter.is_empty() {
+                return super::filtered_empty(k, "prs-empty", &super::I_PR);
+            }
             let (title, body) = match (filtered, s.pr_state) {
                 (true, _) => ("No matches", "No pull request here matches that filter. Try fewer words, an author, a branch or a #number."),
                 (false, 0) => ("No open pull requests", "Nothing is waiting to be merged in this repository."),

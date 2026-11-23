@@ -1199,3 +1199,33 @@ No labels match	ไม่พบป้ายกำกับที่ตรงก�
 No people match	ไม่พบผู้ใช้ที่ตรงกัน
 Remove {value}	นำ {value} ออก
 Showing the first {n} labels	แสดงป้ายกำกับ {n} รายการแรก
+A GitHub login for pull requests and runs; a git author name or email for commits	ชื่อผู้ใช้ GitHub สำหรับ pull request และ run; ชื่อหรืออีเมลผู้เขียนใน git สำหรับ commit
+Contributor	ผู้ร่วมพัฒนา
+Created in the last	สร้างภายใน
+Make a group of repos from any owners, with its own dashboard	สร้างกลุ่ม repo จากเจ้าของใดก็ได้ พร้อมแดชบอร์ดของกลุ่ม
+Me	ฉัน
+No open pull requests match the filters	ไม่มี pull request ที่เปิดอยู่ตรงกับตัวกรอง
+Not used in this section	ส่วนนี้ไม่ใช้ตัวกรอง
+Only what was created in the last 7, 30 or 90 days	เฉพาะที่สร้างภายใน 7, 30 หรือ 90 วันล่าสุด
+Overview	ภาพรวม
+REPOSITORIES · {}	REPO · {}
+The repo you opened most recently here	repo ที่คุณเปิดล่าสุดในส่วนนี้
+needs a local clone	ต้องมี clone ในเครื่อง
+Any time	ทุกช่วงเวลา
+Last {d} days	{d} วันล่าสุด
+GROUPS	กลุ่ม
+FILTERS	ตัวกรอง
+REPOSITORIES	REPO
+recent	ล่าสุด
+No matches for these filters	ไม่มีรายการที่ตรงกับตัวกรอง
+Nothing here was created in that range or by that contributor. Widen the date range or clear the filters in the side menu.	ไม่มีรายการที่สร้างในช่วงเวลานั้นหรือโดยผู้ร่วมพัฒนาคนนั้น ลองขยายช่วงเวลาหรือล้างตัวกรองในเมนูด้านข้าง
+Open PRs in the group (the latest 30 per repo). Filters: updated in the date range, by that exact login. ⚠ marks sensitive files.	PR ที่เปิดอยู่ในกลุ่ม (ล่าสุด 30 รายการต่อ repo) ตัวกรอง: อัปเดตในช่วงเวลา โดยชื่อผู้ใช้นั้นตรงตัว ⚠ หมายถึงไฟล์ที่อ่อนไหว
+Click to fold or unfold. Drag to move it. Right-click for more.	คลิกเพื่อพับหรือกาง ลากเพื่อย้าย คลิกขวาเพื่อดูเพิ่มเติม
+Contributors	ผู้ร่วมพัฒนา
+Group · {g} · {}	กลุ่ม · {g} · {}
+Loading contributors…	กำลังโหลดผู้ร่วมพัฒนา…
+Nobody matches	ไม่มีใครตรงกัน
+Pick a contributor	เลือกผู้ร่วมพัฒนา
+{n} open pull requests	pull request ที่เปิดอยู่ {n} รายการ
+you	คุณ
+Loading your repositories from GitHub…	กำลังโหลด repository ของคุณจาก GitHub…

@@ -35,10 +35,25 @@ pub fn toplevel(dir: &Path) -> Option<std::path::PathBuf> {
     git(dir, &["rev-parse", "--show-toplevel"]).ok().map(|s| std::path::PathBuf::from(s.trim()))
 }
 
-pub fn log(dir: &Path, all: bool, limit: usize) -> Result<Vec<Commit>, String> {
+/// `git log`'s arguments for the filters: `--since=day`, `--author=who`.
+pub fn log_filter_args(filter: &crate::model::Filter, now: i64) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(d) = filter.since(now) {
+        args.push(format!("--since={d}"));
+    }
+    if !filter.who.is_empty() {
+        args.push(format!("--author={}", filter.who));
+    }
+    args
+}
+
+/// `filter`: commits since a day / by an author (name or email, as `git log --author` matches).
+pub fn log(dir: &Path, all: bool, limit: usize, filter: &crate::model::Filter) -> Result<Vec<Commit>, String> {
     let n = format!("-n{limit}");
     let fmt = format!("--format=%H{SEP}%P{SEP}%an{SEP}%at{SEP}%D{SEP}%s");
+    let narrow = log_filter_args(filter, crate::model::now());
     let mut args = vec!["log", "--date-order", n.as_str(), fmt.as_str()];
+    args.extend(narrow.iter().map(String::as_str));
     if all {
         args.insert(1, "--all");
     }
@@ -405,6 +420,14 @@ pub fn layout(commits: &[Commit]) -> (Vec<GraphRow>, usize) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn log_filter_args_since_and_author() {
+        use crate::model::{Filter, parse_time};
+        let now = parse_time("2026-11-23T12:00:00Z").unwrap();
+        assert!(super::log_filter_args(&Filter::default(), now).is_empty());
+        assert_eq!(super::log_filter_args(&Filter { days: 90, who: "Ann Lee".into() }, now), ["--since=2026-08-25", "--author=Ann Lee"]);
+    }
+
     use super::*;
 
     fn c(sha: &str, parents: &[&str]) -> Commit {
