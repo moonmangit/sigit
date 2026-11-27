@@ -17,6 +17,7 @@
 mod i18n;
 mod activity;
 mod cache;
+mod channel;
 mod crash_log;
 mod focus;
 mod onboarding;
@@ -771,6 +772,7 @@ impl State {
 }
 
 fn init() -> State {
+    config::seed_beta_folder(); // a beta's first start: the stable app's settings
     config::migrate_old_folder(); // before anything reads the folder
     update::clean_up_previous(); // the copy the last update set aside
     let mut s = State::new(config::load_prefs());
@@ -3426,6 +3428,7 @@ fn branches_fixture(s: &mut State) {
 }
 
 fn main() {
+    config::seed_beta_folder(); // a beta's first start: the stable app's settings
     config::migrate_old_folder(); // before the crash log makes the folder
     crash_log::install();
     #[cfg(target_os = "macos")]
@@ -3977,14 +3980,14 @@ fn main() {
         poll: Some(poll),
         setup: Some(|s: &mut State, waker| s.images = Some(rune::ImageCache::new(waker))),
         on_key: Some(on_key),
-        ..AppSpec::new("sigit", (1440.0, 900.0), init, view)
+        ..AppSpec::new(channel::name(), (1440.0, 900.0), init, view)
     };
     // `--frames` and `--video` dump an animation: headless too, so their scene has its data.
     let headless = std::env::args().any(|a| ["--snap", "--tree", "--script", "--frames", "--video"].contains(&a.as_str()));
     // B6: OS notifications under the app's own name; a click opens what it's about. Registering
     // writes the name under HKCU\Software\Classes\AppUserModelId, so headless runs skip it.
     if !headless {
-        let mut identity = rune_notify::Identity::new("dev.sigit.app", "sigit");
+        let mut identity = rune_notify::Identity::new(channel::app_id(), channel::name());
         // The notification icon is read from a file: keep a copy of the app icon in our folder.
         if let Some(dir) = config::dir() {
             let icon = dir.join("icon.png");

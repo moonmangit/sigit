@@ -10,29 +10,47 @@
 #ifndef SourceExe
   #define SourceExe "..\..\target\release\sigit.exe"
 #endif
+; /DChannel=beta builds "sigit beta": its own id, folder and shortcuts, so it installs beside
+; the stable app instead of replacing it.
+#ifdef Channel
+  #if Channel == "beta"
+    #define Beta
+  #endif
+#endif
+#ifdef Beta
+  #define AppTitle "sigit beta"
+  #define AppSlug "sigit-beta"
+#else
+  #define AppTitle "sigit"
+  #define AppSlug "sigit"
+#endif
 
 [Setup]
 ; Fixed for the life of the app: Windows uses it to recognise upgrades and the uninstaller.
+#ifdef Beta
+AppId={{4b9f6c2e-8d1a-4e57-9c3b-2a7e5f0d6b81}
+#else
 AppId={{76828bc8-c4d9-41d2-97df-d0ce35388fdd}
-AppName=sigit
+#endif
+AppName={#AppTitle}
 AppVersion={#AppVersion}
-AppVerName=sigit {#AppVersion}
+AppVerName={#AppTitle} {#AppVersion}
 AppPublisher=sigit contributors
 AppPublisherURL=https://github.com/moonmangit/sigit
 AppSupportURL=https://github.com/moonmangit/sigit/issues
 AppUpdatesURL=https://github.com/moonmangit/sigit/releases
-DefaultDirName={autopf}\sigit
-DefaultGroupName=sigit
+DefaultDirName={autopf}\{#AppSlug}
+DefaultGroupName={#AppTitle}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputBaseFilename=sigit-setup-windows-x64
+OutputBaseFilename={#AppSlug}-setup-windows-x64
 LicenseFile=..\..\LICENSE
 SetupIconFile=..\..\assets\icon.ico
 UninstallDisplayIcon={app}\sigit.exe
-UninstallDisplayName=sigit
+UninstallDisplayName={#AppTitle}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -52,8 +70,8 @@ Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\sigit"; Filename: "{app}\sigit.exe"
-Name: "{autodesktop}\sigit"; Filename: "{app}\sigit.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppTitle}"; Filename: "{app}\sigit.exe"
+Name: "{autodesktop}\{#AppTitle}"; Filename: "{app}\sigit.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\sigit.exe"; Description: "{cm:LaunchProgram,sigit}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\sigit.exe"; Description: "{cm:LaunchProgram,{#AppTitle}}"; Flags: nowait postinstall skipifsilent

@@ -778,7 +778,7 @@ fn titlebar(k: &Kit, insets: rune::ChromeInsets, ready: bool) -> El {
         .gap(8.0)
         .center_y()
         .child(app_mark(22.0))
-        .child(text("sigit").font(k.ty.ui_medium).color(k.c.text_base));
+        .child(text(crate::channel::name()).font(k.ty.ui_medium).color(k.c.text_base));
     let command = row()
         .key("command-bar")
         .w_full()

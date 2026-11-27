@@ -749,9 +749,9 @@ fn about(s: &State, k: &Kit) -> El {
         .gap(18.0)
         .child(group(
             k,
-            "sigit",
+            crate::channel::name(),
             vec![
-                item(k, "ver", &tf!("Version {}", env!("CARGO_PKG_VERSION")), "A fast desktop view of your pull requests, Actions, environments and commits, built with Rust and Rune.", el()),
+                item(k, "ver", &tf!("Version {}", crate::channel::version()), "A fast desktop view of your pull requests, Actions, environments and commits, built with Rust and Rune.", el()),
                 update_row(s, k),
                 item(k, "gh", "GitHub CLI", &gh, el()),
                 item(k, "git", "Git", &git, el()),

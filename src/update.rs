@@ -18,7 +18,7 @@ pub fn repo() -> &'static str {
 }
 
 pub fn current() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+    crate::channel::version()
 }
 
 /// Where updating got to.
@@ -46,18 +46,39 @@ pub fn parse(v: &str) -> Option<(u64, u64, u64)> {
     Some((parts.next()??, parts.next().unwrap_or(Some(0))?, parts.next().unwrap_or(Some(0))?))
 }
 
-/// The latest published release (not a draft or pre-release): (tag, page).
+/// A version for ordering: the x.y.z, then a pre-release number (`-beta.2` → 2) that sorts
+/// below the release itself (`0.4.0-beta.2` < `0.4.0`).
+pub fn order(v: &str) -> Option<((u64, u64, u64), u64)> {
+    let core = parse(v)?;
+    let rest = v.trim().trim_start_matches(['v', 'V']).split_once('-').map(|(_, r)| r);
+    let pre = match rest {
+        None => u64::MAX,
+        Some(r) => r.split(|c: char| !c.is_ascii_digit()).filter(|p| !p.is_empty()).last().and_then(|n| n.parse().ok()).unwrap_or(0),
+    };
+    Some((core, pre))
+}
+
+/// The latest published release: (tag, page). Stable: GitHub's latest (pre-releases left out).
+/// Beta: the newest of the recent releases, pre-releases included.
 fn latest() -> Result<(String, String), String> {
     let out = check_cmd().run(None).map_err(|e| if e.contains("404") || e.contains("Not Found") { "No releases published yet".to_owned() } else { e })?;
     let v: serde_json::Value = serde_json::from_str(&out).map_err(|e| e.to_string())?;
-    let tag = v["tag_name"].as_str().ok_or("unexpected answer from GitHub")?.to_owned();
-    let url = v["html_url"].as_str().unwrap_or_default().to_owned();
-    Ok((tag, url))
+    let pick = |r: &serde_json::Value| Some((r["tag_name"].as_str()?.to_owned(), r["html_url"].as_str().unwrap_or_default().to_owned()));
+    if crate::channel::beta() {
+        let list = v.as_array().ok_or("unexpected answer from GitHub")?;
+        return newest(list.iter().filter(|r| !r["draft"].as_bool().unwrap_or(false)).filter_map(pick)).ok_or_else(|| "No releases published yet".to_owned());
+    }
+    pick(&v).ok_or_else(|| "unexpected answer from GitHub".to_owned())
+}
+
+/// The newest of these (tag, page) by version order; tags that aren't versions are skipped.
+pub fn newest(releases: impl Iterator<Item = (String, String)>) -> Option<(String, String)> {
+    releases.filter(|(t, _)| order(t).is_some()).max_by_key(|(t, _)| order(t))
 }
 
 /// Compare a release tag with this build.
 pub fn verdict(tag: &str, url: String) -> Update {
-    match (parse(tag), parse(current())) {
+    match (order(tag), order(current())) {
         (Some(latest), Some(mine)) if latest > mine => Update::Available { tag: tag.to_owned(), version: tag.trim_start_matches('v').to_owned(), url },
         (Some(_), Some(_)) => Update::UpToDate,
         _ => Update::Failed(tf!("Couldn't read the version \"{tag}\"")),
@@ -71,7 +92,11 @@ pub fn verdict(tag: &str, url: String) -> Update {
 /// The release file for this system, if the releases have one.
 /// Asks GitHub for the newest release.
 pub fn check_cmd() -> gh::Cmd {
-    gh::Cmd::new("gh", &["api", &format!("repos/{}/releases/latest", repo())])
+    if crate::channel::beta() {
+        gh::Cmd::new("gh", &["api", &format!("repos/{}/releases?per_page=30", repo())])
+    } else {
+        gh::Cmd::new("gh", &["api", &format!("repos/{}/releases/latest", repo())])
+    }
 }
 
 /// Downloads this system's build of `tag` and the checksums into `dir`.
@@ -79,13 +104,15 @@ pub fn download_cmd(tag: &str, asset: &str, dir: &str) -> gh::Cmd {
     gh::Cmd::new("gh", &["release", "download", tag, "--repo", repo(), "--pattern", asset, "--pattern", "SHA256SUMS.txt", "--dir", dir, "--clobber"])
 }
 
+/// This system's release file: `sigit-…` for stable, `sigit-beta-…` for a beta.
 pub fn asset() -> Option<&'static str> {
+    let beta = crate::channel::beta();
     if cfg!(all(windows, target_arch = "x86_64")) {
-        Some("sigit-windows-x64.zip")
+        Some(if beta { "sigit-beta-windows-x64.zip" } else { "sigit-windows-x64.zip" })
     } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("sigit-macos-arm64.zip")
+        Some(if beta { "sigit-beta-macos-arm64.zip" } else { "sigit-macos-arm64.zip" })
     } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        Some("sigit-macos-x64.zip")
+        Some(if beta { "sigit-beta-macos-x64.zip" } else { "sigit-macos-x64.zip" })
     } else {
         None
     }
@@ -174,12 +201,14 @@ fn unzip(zip: &Path, out: &Path) -> Result<(), String> {
 /// Swap the unpacked new copy in for `target`, keeping the old one aside (and putting it back
 /// if anything fails).
 fn replace(target: &Path, unpacked: &Path) -> Result<(), String> {
+    // The beta's bundle is sigit-beta.app; the program inside is `sigit` in both.
+    let bundle = format!("{}.app", crate::channel::slug());
     let new = if target.extension().is_some_and(|e| e == "app") {
-        unpacked.join("sigit.app")
+        unpacked.join(&bundle)
     } else if cfg!(windows) {
         unpacked.join("sigit.exe")
     } else {
-        unpacked.join("sigit.app").join("Contents").join("MacOS").join("sigit")
+        unpacked.join(&bundle).join("Contents").join("MacOS").join("sigit")
     };
     if !new.exists() {
         return Err("The download didn't contain sigit".into());
@@ -375,6 +404,18 @@ mod tests {
         assert_eq!(verdict("v0.0.1", url.clone()), Update::UpToDate);
         assert!(matches!(verdict("nightly", url), Update::Failed(_)));
         assert!(!repo().is_empty() && !repo().starts_with("https://"));
+    }
+
+    #[test]
+    fn versions_order_with_pre_releases() {
+        use super::{newest, order};
+        assert!(order("v0.4.0-beta.2") > order("v0.4.0-beta.1"));
+        assert!(order("v0.4.0") > order("v0.4.0-beta.9"), "the release beats its betas");
+        assert!(order("v0.4.0-beta.1") > order("0.3.0"));
+        assert!(order("v0.4.0-beta.10") > order("v0.4.0-beta.9"));
+        let r = |t: &str| (t.to_owned(), String::new());
+        let pick = newest([r("v0.3.0"), r("v0.4.0-beta.1"), r("nightly"), r("v0.4.0-beta.2")].into_iter());
+        assert_eq!(pick.unwrap().0, "v0.4.0-beta.2");
     }
 
     #[test]

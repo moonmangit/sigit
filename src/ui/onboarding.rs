@@ -34,7 +34,7 @@ pub fn splash(k: &Kit, message: &str) -> El {
         .gap(16.0)
         .fill(k.c.page)
         .child(super::app_mark(88.0))
-        .child(text("sigit").font(TextStyle { size: 30.0, ..k.ty.ui_medium }).color(k.c.text_strong))
+        .child(text(crate::channel::name()).font(TextStyle { size: 30.0, ..k.ty.ui_medium }).color(k.c.text_strong))
         .child(row().gap(10.0).center_y().child(Spinner::new().size(14.0).build(k)).child(muted(k, message.to_owned())))
         .child(text(tf!("Version {}", crate::update::current())).font(k.ty.text_xsmall).color(k.c.text_faint))
 }

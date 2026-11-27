@@ -22,6 +22,12 @@ The builds aren't code-signed yet. On Windows, SmartScreen may warn the first ti
 → Run anyway**. On macOS (not notarized by Apple), open it the first time with **right-click →
 Open**. Uninstalling keeps your settings (`%APPDATA%\sigit` or `~/.config/sigit`).
 
+**Beta.** Pre-releases (tags like `v0.4.0-beta.1`) ship as **sigit beta**: the same files with a
+`sigit-beta-` prefix (`sigit-beta-setup-windows-x64.exe`, `sigit-beta-macos-arm64.dmg`, …). It
+installs beside sigit, not over it, keeps its own settings (`sigit-beta`; on its first start it
+copies your pins, groups and repos from sigit and never writes back), and updates to newer betas
+and releases. The stable app never offers a beta.
+
 `SHA256SUMS.txt` lists each file's checksum. On Linux, build from source (below).
 
 ## Requirements
