@@ -1243,12 +1243,12 @@ Files, old tip → new tip	ไฟล์ จาก tip เดิม → tip ใ�
 Fixup into parent	Fixup เข้ากับ commit ก่อนหน้า
 Join it with the commit before it, keeping both messages.	รวมกับ commit ก่อนหน้า โดยเก็บข้อความทั้งสอง
 Join it with the commit before it, keeping that commit's message.	รวมกับ commit ก่อนหน้า โดยเก็บข้อความของ commit นั้น
-Leave {b} ({})	ออกจาก {b} ({})
+Leave {b} ({n})	ออกจาก {b} ({n})
 Move the branch here and make your files match it.	ย้าย branch มาที่นี่ และทำให้ไฟล์ของคุณตรงกับ commit นี้
 Move the branch here; the changes after it stay in your files, unstaged.	ย้าย branch มาที่นี่ การเปลี่ยนแปลงหลังจากนี้ยังอยู่ในไฟล์ของคุณ แบบไม่ stage
 Move the branch here; the changes after it stay staged.	ย้าย branch มาที่นี่ การเปลี่ยนแปลงหลังจากนี้ยัง stage อยู่
 Moves {b} from {old} to {new}. Simulated: nothing has changed yet.	ย้าย {b} จาก {old} ไป {new} นี่คือการจำลอง: ยังไม่มีอะไรเปลี่ยน
-New on {b} ({})	ใหม่บน {b} ({})
+New on {b} ({n})	ใหม่บน {b} ({n})
 No file changes between the old and the new tip	ไม่มีไฟล์ต่างกันระหว่าง tip เดิมกับ tip ใหม่
 Put your staged changes into the last commit.	ใส่การเปลี่ยนแปลงที่ stage ไว้ลงใน commit ล่าสุด
 Remove this commit; the commits after it are made again.	ลบ commit นี้ commit ที่ตามมาจะถูกสร้างใหม่

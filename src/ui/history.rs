@@ -147,10 +147,10 @@ pub fn preview(k: &Kit, plan: &Plan) -> El {
             .child(text(tf!("{b}: {} → {}", short(&plan.snap.tip), short(&plan.new_tip))).font(k.ty.mono).color(k.c.text_muted)),
     );
     if !plan.removed.is_empty() {
-        c = c.child(commit_list(k, "h-removed", tf!("Leave {b} ({})", plan.removed.len()), &plan.removed));
+        c = c.child(commit_list(k, "h-removed", { let n = plan.removed.len(); tf!("Leave {b} ({n})") }, &plan.removed));
     }
     if !plan.added.is_empty() {
-        c = c.child(commit_list(k, "h-added", tf!("New on {b} ({})", plan.added.len()), &plan.added));
+        c = c.child(commit_list(k, "h-added", { let n = plan.added.len(); tf!("New on {b} ({n})") }, &plan.added));
     }
     if !plan.replaced_files.is_empty() {
         let list = plan.replaced_files.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
