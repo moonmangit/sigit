@@ -3602,7 +3602,16 @@ fn main() {
                     s.select_commit(&sha);
                     s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Soft });
                 }
-                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true };
+                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true, about: true };
+            }),
+            ("history-guide", |s: &mut State| {
+                // The Edit history section with its guide open: what each action does and when.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                }
+                s.history_open.help = true;
             }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;

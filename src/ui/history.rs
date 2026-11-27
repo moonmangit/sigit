@@ -27,6 +27,235 @@ pub struct Open {
     pub rows: bool,
     /// The Edit history section's explainer.
     pub help: bool,
+    /// The preview's "about this action" box.
+    pub about: bool,
+}
+
+/// Each history action, for its explanation (what it does, and when people use it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Act {
+    Soft,
+    Mixed,
+    Hard,
+    Revert,
+    Pick,
+    Reword,
+    Drop,
+    Squash,
+    Fixup,
+    Move,
+    Amend,
+}
+
+impl Act {
+    pub const ALL: [Act; 11] = [Act::Soft, Act::Mixed, Act::Hard, Act::Revert, Act::Pick, Act::Reword, Act::Drop, Act::Squash, Act::Fixup, Act::Move, Act::Amend];
+
+    pub fn of(op: &Op) -> Act {
+        match op {
+            Op::Reset { mode: ResetMode::Soft, .. } => Act::Soft,
+            Op::Reset { mode: ResetMode::Mixed, .. } => Act::Mixed,
+            Op::Reset { mode: ResetMode::Hard, .. } => Act::Hard,
+            Op::Revert { .. } => Act::Revert,
+            Op::CherryPick { .. } => Act::Pick,
+            Op::Reword { .. } => Act::Reword,
+            Op::Drop { .. } => Act::Drop,
+            Op::Squash { fixup: false, .. } => Act::Squash,
+            Op::Squash { fixup: true, .. } => Act::Fixup,
+            Op::Move { .. } => Act::Move,
+            Op::Amend => Act::Amend,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Act::Soft => "Reset (soft)",
+            Act::Mixed => "Reset (mixed)",
+            Act::Hard => "Reset (hard)",
+            Act::Revert => "Revert",
+            Act::Pick => "Cherry-pick",
+            Act::Reword => "Reword",
+            Act::Drop => "Drop",
+            Act::Squash => "Squash",
+            Act::Fixup => "Fixup",
+            Act::Move => "Move up / down",
+            Act::Amend => "Amend",
+        }
+    }
+
+    pub fn icon(self) -> &'static Icon {
+        match self {
+            Act::Soft | Act::Mixed | Act::Hard => &I_RESET,
+            Act::Revert => &I_UNDO,
+            Act::Pick => &I_ADD,
+            Act::Reword | Act::Amend => &I_EDIT,
+            Act::Drop => &I_DROP,
+            Act::Squash | Act::Fixup => &I_SQUASH,
+            Act::Move => &I_MOVE,
+        }
+    }
+
+    /// What it does.
+    pub fn what(self) -> &'static str {
+        match self {
+            Act::Soft => "Moves the branch to this commit. The changes of the commits after it stay in your files, staged.",
+            Act::Mixed => "Moves the branch to this commit. The changes of the commits after it stay in your files, not staged.",
+            Act::Hard => "Moves the branch to this commit and makes your files match it. The commits after it leave the branch. sigit stashes your uncommitted changes first.",
+            Act::Revert => "Adds a new commit that undoes the changes of this commit. The history before it does not change.",
+            Act::Pick => "Copies this commit from another branch onto your branch, as a new commit on top.",
+            Act::Reword => "Changes the message of this commit. The files do not change. This commit and the commits after it get new SHAs.",
+            Act::Drop => "Removes this commit from the branch. The commits after it are made again without its changes.",
+            Act::Squash => "Joins this commit into the commit before it. The new commit keeps both messages.",
+            Act::Fixup => "Joins this commit into the commit before it. The new commit keeps only the message of the commit before it.",
+            Act::Move => "Swaps this commit with the newer commit after it (up) or the older commit before it (down).",
+            Act::Amend => "Puts your staged changes into the last commit. The message stays the same.",
+        }
+    }
+
+    /// When people commonly use it.
+    pub fn when(self) -> &'static str {
+        match self {
+            Act::Soft => "To join the last few commits into one: reset soft, then make one new commit.",
+            Act::Mixed => "To undo the last commits but keep the work, and then commit it again in a different way.",
+            Act::Hard => "To throw away local experiments and go back to a known good commit.",
+            Act::Revert => "To undo a change that is already pushed or shared. It is the safe undo for a shared branch.",
+            Act::Pick => "To bring one fix from another branch, for example a hotfix, without merging the whole branch.",
+            Act::Reword => "To fix a typo, add a ticket number, or follow the message rules of the team before you push.",
+            Act::Drop => "To remove a debug commit or a change you do not want, before you push.",
+            Act::Squash => "To clean up many small \"work in progress\" commits into one before a review.",
+            Act::Fixup => "To put a small correction (a typo, a review change) into the commit it belongs to.",
+            Act::Move => "To put related commits next to each other before a squash, or to make the history easy to read.",
+            Act::Amend => "To add a file you forgot, or to fix a small mistake in the commit you just made.",
+        }
+    }
+
+    /// Both, for a button's hover help.
+    pub fn help(self) -> String {
+        tf!("{} Common use: {}", crate::i18n::t(self.what()), crate::i18n::t(self.when()))
+    }
+}
+
+/// How a commit dot looks in a before / after diagram.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Dot {
+    /// Not touched.
+    Kept,
+    /// The commit you picked.
+    Picked,
+    /// New on the branch.
+    New,
+    /// Made again with a new SHA.
+    Again,
+    /// Leaves the branch.
+    Gone,
+}
+
+/// A diagram: the commits before and after (oldest first, letters as names), and what happens
+/// to the changes of the commits that leave (resets).
+struct Picture {
+    before: &'static [(&'static str, Dot)],
+    after: &'static [(&'static str, Dot)],
+    note: Option<&'static str>,
+}
+
+impl Act {
+    /// The before / after picture. B is the commit you picked (C for squash and fixup).
+    fn picture(self) -> Picture {
+        use Dot::*;
+        const ABCD: &[(&str, Dot)] = &[("A", Kept), ("B", Picked), ("C", Kept), ("D", Kept)];
+        match self {
+            Act::Soft => Picture { before: ABCD, after: &[("A", Kept), ("B", Picked), ("C", Gone), ("D", Gone)], note: Some("C + D changes: staged") },
+            Act::Mixed => Picture { before: ABCD, after: &[("A", Kept), ("B", Picked), ("C", Gone), ("D", Gone)], note: Some("C + D changes: in files") },
+            Act::Hard => Picture { before: ABCD, after: &[("A", Kept), ("B", Picked), ("C", Gone), ("D", Gone)], note: Some("C + D changes: gone") },
+            Act::Revert => Picture { before: ABCD, after: &[("A", Kept), ("B", Picked), ("C", Kept), ("D", Kept), ("−B", New)], note: None },
+            Act::Pick => Picture { before: &[("A", Kept), ("C", Kept), ("D", Kept), ("B", Picked)], after: &[("A", Kept), ("C", Kept), ("D", Kept), ("B′", New)], note: Some("B is on another branch") },
+            Act::Reword => Picture { before: ABCD, after: &[("A", Kept), ("B′", Again), ("C′", Again), ("D′", Again)], note: Some("B′: new message") },
+            Act::Drop => Picture { before: ABCD, after: &[("A", Kept), ("B", Gone), ("C′", Again), ("D′", Again)], note: None },
+            Act::Squash => Picture { before: &[("A", Kept), ("B", Kept), ("C", Picked), ("D", Kept)], after: &[("A", Kept), ("BC", Again), ("D′", Again)], note: Some("BC: both messages") },
+            Act::Fixup => Picture { before: &[("A", Kept), ("B", Kept), ("C", Picked), ("D", Kept)], after: &[("A", Kept), ("BC", Again), ("D′", Again)], note: Some("BC: B's message") },
+            Act::Move => Picture { before: ABCD, after: &[("A", Kept), ("C′", Again), ("B′", Again), ("D′", Again)], note: Some("B moved up") },
+            Act::Amend => Picture { before: &[("A", Kept), ("B", Kept), ("C", Kept), ("D", Picked)], after: &[("A", Kept), ("B", Kept), ("C", Kept), ("D′", Again)], note: Some("D′ = D + staged") },
+        }
+    }
+}
+
+/// One dot with its letter.
+fn dot(k: &Kit, label: &str, d: Dot) -> El {
+    let (fill, border, fg) = match d {
+        Dot::Kept => (k.c.surface_base, k.c.border_strong, k.c.text_muted),
+        Dot::Picked => (k.c.surface_base, k.c.text_strong, k.c.text_strong),
+        Dot::New => (k.c.success.bg, k.c.success.icon, k.c.success.fg),
+        Dot::Again => (k.c.warning.bg, k.c.warning.icon, k.c.warning.fg),
+        Dot::Gone => (k.c.bg_base, k.c.danger.icon, k.c.danger.fg),
+    };
+    row()
+        .size(26.0, 22.0)
+        .radius(11.0)
+        .center()
+        .fill(fill)
+        .border(if d == Dot::Picked { 2.0 } else { 1.2 }, border)
+        .child(text(label.to_owned()).font(k.ty.text_xsmall_medium).color(fg))
+}
+
+/// A chain of dots, oldest left. Commits that leave sit after a gap, crossed out by colour.
+fn chain(k: &Kit, title: &str, nodes: &[(&str, Dot)]) -> El {
+    let mut r = row().gap(0.0).center_y().child(text(crate::i18n::t(title)).font(k.ty.small).color(k.c.text_faint).w(50.0));
+    let mut first = true;
+    let link = || el().size(10.0, 1.5).fill(k.c.border_strong);
+    for (label, d) in nodes.iter().filter(|(_, d)| *d != Dot::Gone) {
+        if !first {
+            r = r.child(link());
+        }
+        r = r.child(dot(k, label, *d));
+        first = false;
+    }
+    let gone: Vec<_> = nodes.iter().filter(|(_, d)| *d == Dot::Gone).collect();
+    if !gone.is_empty() {
+        r = r.child(el().w(12.0)).child(text("✕").font(k.ty.small).color(k.c.danger.fg)).child(el().w(4.0));
+        for (i, (label, d)) in gone.iter().enumerate() {
+            if i > 0 {
+                r = r.child(el().w(3.0));
+            }
+            r = r.child(dot(k, label, *d));
+        }
+    }
+    r
+}
+
+/// The before / after diagram of an action, with its note.
+fn picture(k: &Kit, key: &str, act: Act) -> El {
+    let p = act.picture();
+    let mut c = col().key(key.to_owned()).gap(5.0).padding(8.0).radius(k.radius.md).border(1.0, k.c.border_weak).child(chain(k, "Before", p.before)).child(chain(k, "After", p.after));
+    if let Some(n) = p.note {
+        c = c.child(text(crate::i18n::t(n)).font(k.ty.small).color(k.c.text_muted).pl(50.0));
+    }
+    c
+}
+
+/// The colours of the diagrams, once.
+fn legend(k: &Kit) -> El {
+    [(Dot::Picked, "your commit"), (Dot::New, "new"), (Dot::Again, "made again"), (Dot::Gone, "leaves")]
+        .into_iter()
+        .fold(row().gap(10.0).center_y().flex_wrap(), |r, (d, t)| r.child(row().gap(4.0).center_y().child(dot(k, "", d).size(14.0, 12.0)).child(text(crate::i18n::t(t)).font(k.ty.small).color(k.c.text_muted))))
+}
+
+/// An action's name, what it does and its common use, as a block.
+fn about_block(k: &Kit, key: &str, act: Act) -> El {
+    col()
+        .key(key.to_owned())
+        .w_full()
+        .gap(3.0)
+        .child(row().gap(6.0).center_y().child(rune::icon(act.icon(), 13.0).color(k.c.icon_base)).child(text(crate::i18n::t(act.name())).font(k.ty.small_medium).color(k.c.text_base)))
+        .child(row().w_full().pl(19.0).child(picture(k, &format!("{key}-pic"), act)))
+        .child(text(crate::i18n::t(act.what())).font(k.ty.small).color(k.c.text_base).wrap().pl(19.0))
+        .child(
+            row()
+                .w_full()
+                .gap(5.0)
+                .items_start()
+                .pl(19.0)
+                .child(text(crate::i18n::t("Common use:")).font(k.ty.small_medium).color(k.c.text_muted))
+                .child(text(crate::i18n::t(act.when())).font(k.ty.small).color(k.c.text_muted).wrap().shrink()),
+        )
 }
 
 macro_rules! glyph {
@@ -45,6 +274,7 @@ glyph!(I_PUSHED, "h-pushed", r#"<path d="M4.5 12.5H11.5C13 12.5 14 11.4 14 10C14
 glyph!(I_STAR, "h-star", r#"<path d="M8 2.5L9.6 6L13.3 6.3L10.5 8.8L11.3 12.5L8 10.6L4.7 12.5L5.5 8.8L2.7 6.3L6.4 6Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"#);
 glyph!(I_FILE, "h-file", r#"<path d="M4 2.5H9.5L12 5V13.5H4Z M9.5 2.5V5H12" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"#);
 glyph!(I_WARN, "h-warn", r#"<path d="M8 2.5L14 13H2Z M8 6.5V9.5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" fill="none"/><circle cx="8" cy="11.3" r="0.8" fill="currentColor"/>"#);
+glyph!(I_MOVE, "h-move", r#"<path d="M5 13V3 M2.5 5.5L5 3L7.5 5.5 M11 3V13 M8.5 10.5L11 13L13.5 10.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 glyph!(I_INFO, "h-info", r#"<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M8 7.2V11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="5" r="0.8" fill="currentColor"/>"#);
 
 /// Whether `sha` is on the current branch, from the loaded graph: walk the parents from the
@@ -76,13 +306,13 @@ fn any_busy(s: &State) -> bool {
     s.busy.iter().any(|b| b.starts_with("Simulating: "))
 }
 
-/// One button that simulates `op`. `help`: what it does, in a sentence (on hover).
-fn op_button(s: &State, k: &Kit, key: &str, icon: Option<&'static Icon>, label: &str, help: &str, op: Op) -> El {
+/// One button that simulates `op`. On hover: what it does and its common use.
+fn op_button(s: &State, k: &Kit, key: &str, icon: Option<&'static Icon>, label: &str, op: Op) -> El {
     let busy = s.busy.contains(&history::sim_label(&op));
     let mut b = Button::new(crate::i18n::t(if busy { "Simulating…" } else { label }))
         .variant(ButtonVariant::Outline)
         .disabled(any_busy(s) || s.pending.is_some())
-        .help(crate::i18n::t(tf!("{} Simulates it first: nothing changes until you confirm.", crate::i18n::t(help))))
+        .help(Act::of(&op).help())
         .on_press(move |s: &mut State| s.simulate_history(op.clone()));
     if let Some(i) = icon {
         b = b.icon(i);
@@ -95,7 +325,7 @@ fn op_icon(s: &State, k: &Kit, key: &str, icon: &'static Icon, label: &str, op: 
     IconButton::new(icon)
         .variant(IconButtonVariant::GhostMuted)
         .label(crate::i18n::t(label))
-        .help(crate::i18n::t(tf!("{}: simulated first", crate::i18n::t(label))))
+        .help(tf!("{}. {}", crate::i18n::t(label), Act::of(&op).help()))
         .disabled(any_busy(s) || s.pending.is_some())
         .on_press(move |s: &mut State| s.simulate_history(op.clone()))
         .build(k)
@@ -145,8 +375,8 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
             .child(
                 IconButton::new(&I_INFO)
                     .variant(IconButtonVariant::GhostMuted)
-                    .label(crate::i18n::t("How editing history works"))
-                    .help(crate::i18n::t(if open { "Hide" } else { "How editing history works" }))
+                    .label(crate::i18n::t("What each action does"))
+                    .help(crate::i18n::t(if open { "Hide" } else { "What each action does, and when to use it" }))
                     .on_press(|s: &mut State| s.history_open.help ^= true)
                     .build(k)
                     .key("h-help"),
@@ -165,23 +395,26 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
                 .child(line(&I_STAR, "Each button simulates first: you see the new history before anything changes."))
                 .child(line(&I_SHIELD, "Before it runs, a preflight checks that the branch, its upstream and the remote didn't change."))
                 .child(line(&I_UNDO, "Undo (10 s) puts the branch back. sigit never pushes."))
-                .child(line(&I_FILE, "Your uncommitted changes stay; a hard reset stashes them first.")),
+                .child(line(&I_FILE, "Your uncommitted changes stay; a hard reset stashes them first."))
+                .child(el().w_full().h(1.0).fill(k.c.border_weak))
+                .child(legend(k))
+                .children(Act::ALL.iter().enumerate().map(|(i, a)| about_block(k, &tf!("h-guide-{i}"), *a)).collect::<Vec<_>>()),
         );
     }
 
     if !is_head {
-        let modes = [(ResetMode::Soft, "Soft", "Move the branch here; the changes after it stay staged."), (ResetMode::Mixed, "Mixed", "Move the branch here; the changes after it stay in your files, unstaged."), (ResetMode::Hard, "Hard", "Move the branch here and make your files match it.")];
-        let buttons = modes.into_iter().fold(row().gap(6.0).flex_wrap(), |r, (mode, label, help)| r.child(op_button(s, k, &tf!("h-reset-{}", mode.word()), None, label, help, Op::Reset { to: sha.clone(), mode })));
+        let modes = [(ResetMode::Soft, "Soft"), (ResetMode::Mixed, "Mixed"), (ResetMode::Hard, "Hard")];
+        let buttons = modes.into_iter().fold(row().gap(6.0).flex_wrap(), |r, (mode, label)| r.child(op_button(s, k, &tf!("h-reset-{}", mode.word()), None, label, Op::Reset { to: sha.clone(), mode })));
         out = out.child(group(k, "h-g-reset", &I_RESET, "Reset here", buttons));
     }
     let mut add = row().gap(6.0).flex_wrap();
     let mut has_add = false;
     if here && !root {
-        add = add.child(op_button(s, k, "h-revert", Some(&I_UNDO), "Revert", "A new commit on top that undoes this one.", Op::Revert { sha: sha.clone() }));
+        add = add.child(op_button(s, k, "h-revert", Some(&I_UNDO), "Revert", Op::Revert { sha: sha.clone() }));
         has_add = true;
     }
     if !here && !merge && !root {
-        add = add.child(op_button(s, k, "h-pick", Some(&I_ADD), &tf!("Cherry-pick onto {branch}"), "A copy of this commit on top of your branch.", Op::CherryPick { sha: sha.clone() }));
+        add = add.child(op_button(s, k, "h-pick", Some(&I_ADD), &tf!("Cherry-pick onto {branch}"), Op::CherryPick { sha: sha.clone() }));
         has_add = true;
     }
     if has_add {
@@ -198,15 +431,15 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
                 .variant(ButtonVariant::Outline)
                 .icon(&I_EDIT)
                 .disabled(s.pending.is_some() || !loaded)
-                .help(crate::i18n::t("Change this commit's message; the commits after it are made again."))
+                .help(Act::Reword.help())
                 .on_press(move |s: &mut State| s.start_reword(id.clone(), message.clone()))
                 .build(k)
                 .key("h-reword"),
         );
         rw = rw
-            .child(op_button(s, k, "h-drop", Some(&I_DROP), "Drop", "Remove this commit; the commits after it are made again.", Op::Drop { sha: sha.clone() }))
-            .child(op_button(s, k, "h-squash", Some(&I_SQUASH), "Squash", "Join it with the commit before it, keeping both messages.", Op::Squash { sha: sha.clone(), fixup: false }))
-            .child(op_button(s, k, "h-fixup", Some(&I_SQUASH), "Fixup", "Join it with the commit before it, keeping that commit's message.", Op::Squash { sha: sha.clone(), fixup: true }));
+            .child(op_button(s, k, "h-drop", Some(&I_DROP), "Drop", Op::Drop { sha: sha.clone() }))
+            .child(op_button(s, k, "h-squash", Some(&I_SQUASH), "Squash", Op::Squash { sha: sha.clone(), fixup: false }))
+            .child(op_button(s, k, "h-fixup", Some(&I_SQUASH), "Fixup", Op::Squash { sha: sha.clone(), fixup: true }));
         // Move up / down stay side by side when the row wraps.
         let mut moves = row().gap(2.0).center_y().radius(k.radius.md).border(1.0, k.c.border_weak);
         if !is_head {
@@ -222,7 +455,7 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
 /// Amend, for the Commits toolbar: put the staged changes into the last commit.
 pub fn amend_button(s: &State, k: &Kit) -> Option<El> {
     s.local_path()?;
-    Some(op_button(s, k, "h-amend", Some(&I_EDIT), "Amend last commit", "Put your staged changes into the last commit.", Op::Amend))
+    Some(op_button(s, k, "h-amend", Some(&I_EDIT), "Amend last commit", Op::Amend))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -355,6 +588,15 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
         .child(sha_text(k, &short(&plan.snap.tip), k.c.text_muted))
         .child(text("→").font(k.ty.small).color(k.c.text_faint))
         .child(sha_text(k, &short(&plan.new_tip), k.c.text_base))
+        .child(
+            IconButton::new(&I_INFO)
+                .variant(IconButtonVariant::GhostMuted)
+                .label(crate::i18n::t(tf!("About {}", crate::i18n::t(Act::of(&plan.op).name()))))
+                .help(crate::i18n::t(if open.about { "Hide" } else { "What this action does, and when to use it" }))
+                .on_press(|s: &mut State| s.history_open.about ^= true)
+                .build(k)
+                .key("h-about"),
+        )
         .child(spacer());
     for (kind, help) in [(Kind::Leaves, "Commits that leave the branch"), (Kind::New, "New commits"), (Kind::Rewritten, "Commits made again with new SHAs"), (Kind::Joined, "Commits joined into the one above")] {
         let n = count(kind);
@@ -363,6 +605,9 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
         }
     }
     c = c.child(head);
+    if open.about {
+        c = c.child(col().w_full().gap(8.0).padding(10.0).radius(k.radius.md).fill(k.c.surface_base).child(legend(k)).child(about_block(k, "h-about-box", Act::of(&plan.op))));
+    }
 
     // The graph, newest first.
     const ROWS: usize = 6;

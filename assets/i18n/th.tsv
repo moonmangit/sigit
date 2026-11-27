@@ -1384,3 +1384,48 @@ a remote	remote
 {} file(s)	{} ไฟล์
 {}: simulated first	{}: จำลองก่อน
 +{hidden} more	+อีก {hidden}
+About {}	เกี่ยวกับ {}
+Adds a new commit that undoes the changes of this commit. The history before it does not change.	เพิ่ม commit ใหม่ที่ยกเลิกการเปลี่ยนแปลงของ commit นี้ ประวัติก่อนหน้าไม่เปลี่ยน
+After	หลัง
+Amend	Amend
+B is on another branch	B อยู่บน branch อื่น
+B moved up	B ย้ายขึ้น
+BC: B's message	BC: ข้อความของ B
+BC: both messages	BC: ข้อความทั้งสอง
+Before	ก่อน
+B′: new message	B′: ข้อความใหม่
+C + D changes: gone	การเปลี่ยนแปลงของ C + D: หายไป
+C + D changes: in files	การเปลี่ยนแปลงของ C + D: อยู่ในไฟล์
+C + D changes: staged	การเปลี่ยนแปลงของ C + D: stage ไว้
+Changes the message of this commit. The files do not change. This commit and the commits after it get new SHAs.	เปลี่ยนข้อความของ commit นี้ ไฟล์ไม่เปลี่ยน commit นี้และ commit ที่ตามมาจะได้ SHA ใหม่
+Cherry-pick	Cherry-pick
+Common use:	ใช้บ่อยเพื่อ:
+Copies this commit from another branch onto your branch, as a new commit on top.	คัดลอก commit นี้จาก branch อื่นมาไว้บน branch ของคุณ เป็น commit ใหม่ด้านบน
+D′ = D + staged	D′ = D + ส่วนที่ stage ไว้
+Joins this commit into the commit before it. The new commit keeps both messages.	รวม commit นี้เข้ากับ commit ก่อนหน้า commit ใหม่เก็บข้อความทั้งสอง
+Joins this commit into the commit before it. The new commit keeps only the message of the commit before it.	รวม commit นี้เข้ากับ commit ก่อนหน้า commit ใหม่เก็บเฉพาะข้อความของ commit ก่อนหน้า
+Move up / down	ย้ายขึ้น / ลง
+Moves the branch to this commit and makes your files match it. The commits after it leave the branch. sigit stashes your uncommitted changes first.	ย้าย branch มาที่ commit นี้ และทำให้ไฟล์ตรงกับ commit นี้ commit ที่ตามมาออกจาก branch sigit จะ stash การเปลี่ยนแปลงที่ยังไม่ commit ไว้ก่อน
+Moves the branch to this commit. The changes of the commits after it stay in your files, not staged.	ย้าย branch มาที่ commit นี้ การเปลี่ยนแปลงของ commit ที่ตามมายังอยู่ในไฟล์ แบบไม่ stage
+Moves the branch to this commit. The changes of the commits after it stay in your files, staged.	ย้าย branch มาที่ commit นี้ การเปลี่ยนแปลงของ commit ที่ตามมายังอยู่ในไฟล์ แบบ stage ไว้
+Puts your staged changes into the last commit. The message stays the same.	ใส่การเปลี่ยนแปลงที่ stage ไว้ลงใน commit ล่าสุด ข้อความเหมือนเดิม
+Removes this commit from the branch. The commits after it are made again without its changes.	ลบ commit นี้ออกจาก branch commit ที่ตามมาจะถูกสร้างใหม่โดยไม่มีการเปลี่ยนแปลงของมัน
+Reword	Reword
+Swaps this commit with the newer commit after it (up) or the older commit before it (down).	สลับ commit นี้กับ commit ที่ใหม่กว่าถัดไป (ขึ้น) หรือ commit ที่เก่ากว่าก่อนหน้า (ลง)
+To add a file you forgot, or to fix a small mistake in the commit you just made.	เพิ่มไฟล์ที่ลืม หรือแก้ข้อผิดพลาดเล็กน้อยใน commit ที่เพิ่งทำ
+To bring one fix from another branch, for example a hotfix, without merging the whole branch.	นำการแก้ไขหนึ่งรายการจาก branch อื่น เช่น hotfix โดยไม่ merge ทั้ง branch
+To clean up many small "work in progress" commits into one before a review.	รวม commit เล็ก ๆ แบบ "work in progress" หลายรายการเป็นหนึ่งเดียวก่อนรีวิว
+To fix a typo, add a ticket number, or follow the message rules of the team before you push.	แก้คำผิด เพิ่มเลข ticket หรือทำตามกฎข้อความของทีมก่อน push
+To join the last few commits into one: reset soft, then make one new commit.	รวม commit ล่าสุดหลายรายการเป็นหนึ่ง: reset soft แล้วสร้าง commit ใหม่หนึ่งรายการ
+To put a small correction (a typo, a review change) into the commit it belongs to.	ใส่การแก้ไขเล็กน้อย (คำผิด การแก้จากรีวิว) ลงใน commit ที่มันควรอยู่
+To put related commits next to each other before a squash, or to make the history easy to read.	จัด commit ที่เกี่ยวข้องให้อยู่ติดกันก่อน squash หรือทำให้ประวัติอ่านง่าย
+To remove a debug commit or a change you do not want, before you push.	ลบ commit สำหรับ debug หรือการเปลี่ยนแปลงที่ไม่ต้องการ ก่อน push
+To throw away local experiments and go back to a known good commit.	ทิ้งการทดลองในเครื่อง แล้วกลับไปที่ commit ที่รู้ว่าใช้ได้
+To undo a change that is already pushed or shared. It is the safe undo for a shared branch.	ยกเลิกการเปลี่ยนแปลงที่ push หรือแชร์ไปแล้ว เป็นวิธียกเลิกที่ปลอดภัยสำหรับ branch ที่ใช้ร่วมกัน
+To undo the last commits but keep the work, and then commit it again in a different way.	ยกเลิก commit ล่าสุดแต่เก็บงานไว้ แล้ว commit ใหม่ในแบบอื่น
+What each action does	แต่ละคำสั่งทำอะไร
+What each action does, and when to use it	แต่ละคำสั่งทำอะไร และใช้เมื่อไร
+What this action does, and when to use it	คำสั่งนี้ทำอะไร และใช้เมื่อไร
+made again	สร้างใหม่
+your commit	commit ของคุณ
+{} Common use: {}	{} ใช้บ่อยเพื่อ: {}
