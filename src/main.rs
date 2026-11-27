@@ -3568,6 +3568,34 @@ fn main() {
                     s.simulate_history(history::Op::Reword { sha, message: "A better message\n\nWith a body.".into() });
                 }
             }),
+            ("history-reword", |s: &mut State| {
+                // The Reword… dialog, before anything is simulated.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    let body = s.commit_detail.data.as_ref().map(|d| d.body.clone()).unwrap_or_default();
+                    s.start_reword(sha, body);
+                }
+            }),
+            ("history-risk", |s: &mut State| {
+                // A simulated hard reset past pushed commits: the high-risk dialog. Nothing runs.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(4)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Hard });
+                }
+            }),
+            ("light-history-edit", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(2)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Squash { sha, fixup: false });
+                }
+            }),
             ("branches", |s: &mut State| {
                 s.branch_view = 1;
                 let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());

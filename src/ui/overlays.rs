@@ -225,7 +225,11 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                 .key("yes"),
         );
     }
-    body = body.child(buttons);
+    // A long dialog (a history edit's preview, many reasons) scrolls; the buttons stay in view.
+    let body = col()
+        .w_full()
+        .child(col().w_full().max_h(560.0).child(body).scroll(rune::ScrollSpec { stick_bottom: false }))
+        .child(row().w_full().px(16.0).pt(8.0).pb(16.0).child(buttons));
     let title = match level {
         _ if p.checking => tf!("{}?", p.action.label()),
         Level::High => tf!("⚠ {}?", p.action.label()),
