@@ -1063,7 +1063,7 @@ mod command_tests {
             (Undo::ReopenPr { slug: s(), number: 1 }, "gh pr reopen 1 -R o/r"),
             (Undo::SwitchBack { dir: dir.clone(), branch: "main".into() }, "git switch main"),
             (Undo::RestoreBranch { dir: dir.clone(), name: "x".into(), sha: "abc".into() }, "git branch x abc"),
-            (Undo::StashPop { dir }, "git stash pop stash@{0}"),
+            (Undo::StashPop { dir, sha: "s".repeat(40) }, "git stash pop stash@{0}"),
         ];
         for (u, want) in undos {
             assert_eq!(u.command_lines(), [want]);

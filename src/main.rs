@@ -2945,6 +2945,20 @@ impl State {
         next != a
     }
 
+    /// A branch moved (an edit, its Undo, a checkout, a pull): which commits are on the current
+    /// branch, and which is HEAD, changed. Cached commit details carry that, so they go, and
+    /// the selected commit's detail loads again.
+    pub fn refs_moved(&mut self) {
+        self.commit_memo.clear();
+        if let Some(sha) = self.commit_sel.take() {
+            self.select_commit(&sha);
+            // No clone to read it from: keep the selection as it was.
+            if self.commit_sel.is_none() {
+                self.commit_sel = Some(sha);
+            }
+        }
+    }
+
     /// Reword…: opens the message editor with the commit's full message.
     pub fn start_reword(&mut self, sha: String, message: String) {
         self.reword = Some((sha, TextEdit::new(&message)));
@@ -4464,7 +4478,7 @@ mod cache_tests {
         let action = guard::Action::CreatePr { spec };
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: false, detail: "a pull request already exists".into(), commands: vec![] };
         // The guard's own handling of a command that failed.
-        s.action_finished(action.clone(), action.label(), None, false, (Err(entry.detail.clone()), entry, Ok(())));
+        s.action_finished(action.clone(), action.label(), None, None, (Err(entry.detail.clone()), entry, Ok(())));
         assert!(s.branch_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
     }
 
@@ -4730,7 +4744,7 @@ mod cache_tests {
 
     fn finish_with(s: &mut State, action: guard::Action, r: Result<String, String>) {
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: r.is_ok(), detail: r.clone().unwrap_or_else(|e| e), commands: vec![] };
-        s.action_finished(action.clone(), action.label(), None, false, (r, entry, Ok(())));
+        s.action_finished(action.clone(), action.label(), None, None, (r, entry, Ok(())));
     }
 
     /// History editing end to end through `State`: simulate, apply (the worker's half), the
@@ -4773,6 +4787,62 @@ mod cache_tests {
         let toast = s.toasts.last().expect("a toast");
         assert!(toast.error && toast.text.contains("put back"), "{}", toast.text);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_apply_never_pops_an_older_stash() {
+        let dir = history_repo("old-stash");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        // The user's own stash, from before.
+        std::fs::write(dir.join("a.txt"), "older work").unwrap();
+        git(&["stash", "push", "-q", "-m", "mine"]);
+        let one = git(&["rev-parse", "HEAD~2"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reset { to: one, mode: history::ResetMode::Hard }).unwrap();
+        // The tree is clean when "Stash and continue" runs (nothing to stash), and the branch
+        // moved, so the apply fails.
+        std::fs::write(dir.join("d.txt"), "four").unwrap();
+        git(&["add", "d.txt"]);
+        git(&["commit", "-q", "-m", "four"]);
+        let mut s = dialog_state();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        s.pending = Some(guard::Pending { action, checking: false, risk: risk::Risk::new(risk::Level::Low), blocked: None, dirty: vec!["a.txt".into()], word: None });
+        s.confirm(true);
+        assert!(git(&["stash", "list"]).contains("mine"), "the older stash is still there");
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "one", "and was not popped into the files");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stash_and_continue_still_needs_the_typed_name_for_high_risk() {
+        let dir = history_repo("typed");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let before = git(&["rev-parse", "HEAD"]);
+        let one = git(&["rev-parse", "HEAD~2"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reset { to: one, mode: history::ResetMode::Hard }).unwrap();
+        std::fs::write(dir.join("a.txt"), "my work").unwrap();
+        let mut s = dialog_state();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        s.pending = Some(guard::Pending { action, checking: false, risk: risk::Risk::new(risk::Level::High), blocked: None, dirty: vec!["a.txt".into()], word: Some("main".into()) });
+        assert!(!s.can_stash_confirm());
+        s.confirm(true);
+        assert!(s.pending.is_some(), "nothing ran without the name");
+        assert_eq!(git(&["rev-parse", "HEAD"]), before);
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "my work");
+        s.typed = rune::TextEdit::new("main");
+        assert!(s.can_stash_confirm());
+        s.confirm(true);
+        assert_ne!(git(&["rev-parse", "HEAD"]), before, "with the name it runs");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn moving_a_ref_drops_cached_commit_details() {
+        let mut s = dialog_state();
+        s.commit_sel = Some("abc".into());
+        s.commit_memo.insert(("a/b".into(), "def".into()), Load { data: Some(model::CommitDetail { on_head: Some(true), is_head: true, ..Default::default() }), ..Default::default() });
+        s.refs_moved();
+        assert!(s.commit_memo.is_empty(), "no detail says which commit is HEAD from before");
+        assert_eq!(s.commit_sel.as_deref(), Some("abc"), "the selection stays");
     }
 
     #[test]
@@ -4851,7 +4921,7 @@ mod cache_tests {
         let r = history::apply(&dir, &plan);
         assert!(r.is_ok(), "{r:?}");
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: true, detail: r.clone().unwrap(), commands: vec![] };
-        s.action_finished(action.clone(), action.label(), None, false, (r, entry, Ok(())));
+        s.action_finished(action.clone(), action.label(), None, None, (r, entry, Ok(())));
         assert_eq!(head(&git), plan.new_tip);
         assert!(!dir.join("b.txt").exists());
         let toast = s.toasts.iter().find(|t| t.undo.is_some()).expect("a toast with Undo");

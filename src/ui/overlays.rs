@@ -213,8 +213,8 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     if !p.dirty.is_empty() && p.blocked.is_none() {
         buttons = buttons.child(
             { let tip = s.with_commands(crate::i18n::t("Stashes your changes first, then runs it. Undo pops the stash back."), &p.action.command_lines(true)); Button::new(crate::i18n::t("Stash and continue"))
-                .variant(ButtonVariant::Submit)
-                
+                .variant(if level == Level::High { ButtonVariant::Danger } else { ButtonVariant::Submit })
+                .disabled(!s.can_stash_confirm())
                 .on_press(|s: &mut State| s.confirm(true))
                 .build(k)
                 .key("stash-go").cmd_tip(s, tip) },

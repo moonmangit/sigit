@@ -1043,6 +1043,7 @@ mod tests {
         gh::run("git", &["clone", "-q", up.0.to_str().unwrap(), r.0.to_str().unwrap()], None).unwrap();
         r.git(&["config", "user.name", "Test"]);
         r.git(&["config", "user.email", "t@example.com"]);
+        r.git(&["config", "commit.gpgsign", "false"]);
         r.commit("b.txt", "b\n", "local");
         // Rewriting the pushed "one" counts as pushed.
         let pushed = simulate(&r.0, &Op::Reword { sha: r.head(), message: "local!".into() }).unwrap();
@@ -1163,6 +1164,7 @@ mod tests {
         gh::run("git", &["clone", "-q", up.0.to_str().unwrap(), r.0.to_str().unwrap()], None).unwrap();
         r.git(&["config", "user.name", "Test"]);
         r.git(&["config", "user.email", "t@example.com"]);
+        r.git(&["config", "commit.gpgsign", "false"]);
         // On the upstream: rewriting "two" needs a force-push.
         let plan = simulate(&r.0, &Op::Reword { sha: r.head(), message: "two!".into() }).unwrap();
         assert_eq!(plan.pushed_rewritten, 1);
