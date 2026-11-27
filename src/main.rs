@@ -34,6 +34,7 @@ mod history;
 mod jobs;
 mod lane;
 mod lane_model;
+mod managed;
 mod modules;
 mod model;
 mod pulse;
@@ -3058,6 +3059,45 @@ impl State {
         self.rescan_folders(true);
     }
 
+    /// Where "Clone for me" puts clones: the folder set in Settings → Git, or ~/sigit/repos.
+    pub fn clone_home(&self) -> Option<PathBuf> {
+        self.prefs.clone_home.clone().or_else(managed::default_home)
+    }
+
+    /// "Clone for me": clone the open repo into the managed folder (or use the clone already
+    /// there), add it, and open Commits. The folder joins the scanned clone folders, so the
+    /// clone is found again even if the repo list is lost.
+    pub fn clone_for_me(&mut self) {
+        let Some(slug) = self.cur.clone() else { return };
+        let Some(home) = self.clone_home() else {
+            self.toast(crate::i18n::t("No home folder to put clones in: pick one in Settings → Git"), true);
+            return;
+        };
+        let label = format!("Clone {slug}");
+        if self.busy.contains(&label) {
+            return;
+        }
+        self.busy.push(label.clone());
+        let s2 = slug.clone();
+        jobs::spawn(self, move || gh::recording(|| managed::clone(&home, &s2)).0.map(|dir| (dir, home)), move |s, r| {
+            s.busy.retain(|b| *b != label);
+            match r {
+                Ok((dir, home)) => {
+                    s.add_repo(slug.clone(), Some(dir.clone()));
+                    s.save_repo_list();
+                    if !s.prefs.clone_folders.contains(&home) {
+                        s.prefs.clone_folders.push(home);
+                        s.save_prefs();
+                    }
+                    s.toast(crate::i18n::t(tf!("{slug} is cloned in {}", dir.display())), false);
+                    s.select_repo(&slug, if matches!(s.page, Page::Branches) { Page::Branches } else { Page::Commits });
+                    s.refresh_page();
+                }
+                Err(e) => s.toast(crate::i18n::t(tf!("Couldn't clone {slug}: {e}")), true),
+            }
+        });
+    }
+
     fn add_local_repo(&mut self, dir: PathBuf) {
         let Some(top) = git::toplevel(&dir) else {
             self.toast(crate::i18n::t(tf!("{} isn't a git repository", dir.display())), true);
@@ -3078,6 +3118,19 @@ pub fn ask_local_repo(s: &mut State, tx: &mut Tx) {
     let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.local_path(), ..Default::default() };
     tx.open_folder(options, |s: &mut State, r, _| match r {
         Ok(Some(dir)) => s.add_local_repo(dir),
+        Ok(None) => {}
+        Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
+    });
+}
+
+/// Settings → Git "Clones sigit makes" → Change…: the OS folder picker.
+pub fn ask_clone_home(s: &mut State, tx: &mut Tx) {
+    let options = FileDialogOptions { title: "Choose where sigit puts the clones it makes".into(), directory: s.clone_home(), ..Default::default() };
+    tx.open_folder(options, |s: &mut State, r, _| match r {
+        Ok(Some(dir)) => {
+            s.prefs.clone_home = Some(dir);
+            s.save_prefs();
+        }
         Ok(None) => {}
         Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
     });
@@ -3721,6 +3774,11 @@ fn main() {
                 };
                 s.simulate_history(op);
                 s.play_history_anim();
+            }),
+            ("clone-for-me", |s: &mut State| {
+                // A repo with no local clone: Commits offers "Clone for me". Nothing runs.
+                let remote = s.repos.iter().find(|r| r.path.is_none()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&remote, Page::Commits);
             }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;

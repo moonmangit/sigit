@@ -1475,3 +1475,25 @@ staged changes	การเปลี่ยนแปลงที่ stage ไว�
 {t} joins the commit before it; only that commit's message stays.	{t} รวมเข้ากับ commit ก่อนหน้า เหลือเฉพาะข้อความของ commit นั้น
 {t} leaves {b}. The commits after it are made again without its changes.	{t} ออกจาก {b} commit ที่ตามมาถูกสร้างใหม่โดยไม่มีการเปลี่ยนแปลงของมัน
 {t} on {from} is copied.	{t} บน {from} ถูกคัดลอก
+(no home folder found)	(ไม่พบโฟลเดอร์ home)
+Change…	เปลี่ยน…
+Choose where sigit puts the clones it makes	เลือกที่ที่ sigit จะเก็บ clone ที่สร้างให้
+Clone for me	Clone ให้ฉัน
+Clones sigit makes	Clone ที่ sigit สร้าง
+Cloning…	กำลัง clone…
+Commits, branches and history editing read a local copy of {slug}. sigit can clone it for you, or you can point it at a clone you already have.	Commit, branch และการแก้ไขประวัติใช้สำเนาในเครื่องของ {slug} sigit clone ให้ได้ หรือคุณชี้ไปที่ clone ที่มีอยู่แล้ว
+Couldn't clone {slug}: {e}	clone {slug} ไม่ได้: {e}
+Downloading… large repos can take a minute	กำลังดาวน์โหลด… repo ใหญ่อาจใช้เวลาสักนาที
+Downloads {slug} into {}, then opens it here. A clone already there is used as it is.	ดาวน์โหลด {slug} ไปที่ {} แล้วเปิดที่นี่ ถ้ามี clone อยู่แล้วจะใช้อันนั้น
+It goes in {} (change the folder in Settings → Git)	จะอยู่ใน {} (เปลี่ยนโฟลเดอร์ได้ที่ การตั้งค่า → Git)
+No home folder to put clones in: pick one in Settings → Git	ไม่มีโฟลเดอร์สำหรับเก็บ clone: เลือกได้ที่ การตั้งค่า → Git
+Use default	ใช้ค่าเริ่มต้น
+{slug} is cloned in {}	clone {slug} ไว้ที่ {} แล้ว
+"Clone for me" downloads a repo here, in owner/name folders. Clones already made stay where they are.	"Clone ให้ฉัน" ดาวน์โหลด repo มาไว้ที่นี่ ในโฟลเดอร์ owner/name clone ที่สร้างไว้แล้วยังอยู่ที่เดิม
+"{slug}" isn't owner/name	"{slug}" ไม่ใช่รูปแบบ owner/name
+Couldn't make {}: {e}	สร้าง {} ไม่ได้: {e}
+The clone in {} didn't come out as {slug}	clone ใน {} ไม่ได้เป็น {slug}
+{why}. Move it, or pick another folder for clones in Settings → Git.	{why} ย้ายออก หรือเลือกโฟลเดอร์อื่นสำหรับ clone ที่ การตั้งค่า → Git
+{} already exists and isn't a clone of {slug}	{} มีอยู่แล้วและไม่ใช่ clone ของ {slug}
+{} already holds a clone of {s}	{} มี clone ของ {s} อยู่แล้ว
+{} already holds a git repository that isn't {slug}	{} มี git repository ที่ไม่ใช่ {slug} อยู่แล้ว

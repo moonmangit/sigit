@@ -133,6 +133,8 @@ pub struct Prefs {
     pub comparison_overrides: Vec<crate::compare::Override>,
     /// Folders whose git clones the Dashboard scan looks through.
     pub clone_folders: Vec<PathBuf>,
+    /// Where "Clone for me" puts clones (`None`: ~/sigit/repos).
+    pub clone_home: Option<PathBuf>,
     /// Per repo, what its last new PR used (To, draft, reviewers, assignees, labels).
     pub pr_last: Vec<PrLast>,
 }
@@ -164,6 +166,7 @@ impl Default for Prefs {
             comparisons: crate::compare::defaults(),
             comparison_overrides: Vec::new(),
             clone_folders: Vec::new(),
+            clone_home: None,
             pr_last: Vec::new(),
         }
     }

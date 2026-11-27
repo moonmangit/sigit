@@ -227,6 +227,13 @@ commits it shows the `git push --force-with-lease` command for you to run. Confl
 inside the edited range and the first commit of a history are refused. Needs git 2.40 or newer
 (Reset and Amend work with any git).
 
+**Clone for me.** A repo with no local clone shows **Clone for me** on its Commits and Branches
+pages: sigit runs `gh repo clone owner/name` into `~/sigit/repos/owner/name` (change the folder in
+Settings → Git, "Clones sigit makes"), adds the clone and opens it, so you can browse commits and
+edit history without cloning first. A clone already in that folder is used as it is; a folder that
+holds something else is left alone. The folder joins your scanned clone folders. sigit still never
+pushes: after editing history in such a clone, push it yourself (the preview shows the command).
+
 **Clone folders.** Add folders in Settings → Git; they're scanned at launch and on Rescan now,
 5 levels deep, skipping hidden folders, `node_modules`, `target`, `vendor`, `dist` and `build`.
 Clones found are added to your repos. Scanning never writes to a clone.
@@ -246,6 +253,7 @@ every English string it actually shows that the catalog lacks.
 | `src/compare.rs` | branch-comparison settings and the batched GitHub query |
 | `src/lane.rs` | grouping a lane's PRs by folder and by author |
 | `src/scan.rs` | finding clones inside a folder |
+| `src/managed.rs` | "Clone for me": the clones sigit makes |
 | `src/ui/compare.rs` | the Comparisons tab and the per-repo dialog |
 | `src/guard.rs` / `src/risk.rs` | risk checks, confirmations, undo |
 | `src/history.rs`, `src/ui/history.rs` | history editing: simulate, preflight, apply, undo; its buttons and preview |
