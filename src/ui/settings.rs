@@ -59,7 +59,7 @@ pub fn dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     let content = match s.settings_sec {
         0 => appearance(s, k),
         1 => accounts(s, k),
-        2 => col().w_full().gap(18.0).child(git_identity(s, k)).child(clone_folders(s, k)).child(comparisons(s, k)),
+        2 => col().w_full().gap(18.0).child(git_identity(s, k)).child(clone_home(s, k)).child(clone_folders(s, k)).child(comparisons(s, k)),
         3 => safety(s, k),
         4 => notifications(s, k),
         5 => data(s, k),
@@ -349,6 +349,29 @@ fn git_identity(s: &State, k: &Kit) -> El {
 }
 
 /// Folders sigit searches for git clones at launch, and the buttons to add, rescan or drop one.
+/// Where "Clone for me" puts clones.
+fn clone_home(s: &State, k: &Kit) -> El {
+    let shown = s.clone_home().map_or_else(|| crate::i18n::t("(no home folder found)"), |p| p.display().to_string());
+    let mut buttons = row().gap(8.0).child(Button::new(crate::i18n::t("Change…")).variant(ButtonVariant::Outline).on_press_tx(crate::ask_clone_home).build(k).key("clone-home-change"));
+    if s.prefs.clone_home.is_some() {
+        buttons = buttons.child(
+            Button::new(crate::i18n::t("Use default"))
+                .variant(ButtonVariant::GhostMuted)
+                .on_press(|s: &mut State| {
+                    s.prefs.clone_home = None;
+                    s.save_prefs();
+                })
+                .build(k)
+                .key("clone-home-default"),
+        );
+    }
+    group(
+        k,
+        "Clones sigit makes",
+        vec![item(k, "clone-home", &shown, "\"Clone for me\" downloads a repo here, in owner/name folders. Clones already made stay where they are.", buttons)],
+    )
+}
+
 fn clone_folders(s: &State, k: &Kit) -> El {
     let mut list = col().w_full().gap(6.0);
     if s.prefs.clone_folders.is_empty() {
@@ -749,9 +772,9 @@ fn about(s: &State, k: &Kit) -> El {
         .gap(18.0)
         .child(group(
             k,
-            "sigit",
+            crate::channel::name(),
             vec![
-                item(k, "ver", &tf!("Version {}", env!("CARGO_PKG_VERSION")), "A fast desktop view of your pull requests, Actions, environments and commits, built with Rust and Rune.", el()),
+                item(k, "ver", &tf!("Version {}", crate::channel::version()), "A fast desktop view of your pull requests, Actions, environments and commits, built with Rust and Rune.", el()),
                 update_row(s, k),
                 item(k, "gh", "GitHub CLI", &gh, el()),
                 item(k, "git", "Git", &git, el()),

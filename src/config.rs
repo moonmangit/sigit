@@ -133,6 +133,8 @@ pub struct Prefs {
     pub comparison_overrides: Vec<crate::compare::Override>,
     /// Folders whose git clones the Dashboard scan looks through.
     pub clone_folders: Vec<PathBuf>,
+    /// Where "Clone for me" puts clones (`None`: ~/sigit/repos).
+    pub clone_home: Option<PathBuf>,
     /// Per repo, what its last new PR used (To, draft, reviewers, assignees, labels).
     pub pr_last: Vec<PrLast>,
 }
@@ -164,6 +166,7 @@ impl Default for Prefs {
             comparisons: crate::compare::defaults(),
             comparison_overrides: Vec::new(),
             clone_folders: Vec::new(),
+            clone_home: None,
             pr_last: Vec::new(),
         }
     }
@@ -176,7 +179,26 @@ pub fn dir() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("sigit"))
+    Some(base.join(crate::channel::slug()))
+}
+
+/// A beta keeps its own settings folder (it must not change the stable app's pins, groups or
+/// cache). On its first start it copies the stable app's settings and repo list, so it opens
+/// with what you already set up. The stable folder is only read.
+pub fn seed_beta_folder() {
+    if !crate::channel::beta() {
+        return;
+    }
+    let (Some(beta), Some(stable)) = (dir(), dir().and_then(|d| d.parent().map(|p| p.join("sigit")))) else { return };
+    if beta.exists() || !stable.exists() {
+        return;
+    }
+    if std::fs::create_dir_all(&beta).is_err() {
+        return;
+    }
+    for f in ["prefs.json", "repos.json"] {
+        let _ = std::fs::copy(stable.join(f), beta.join(f));
+    }
 }
 
 /// The app was called Rune Git (folder `rune-git`) before it became sigit. On the first launch

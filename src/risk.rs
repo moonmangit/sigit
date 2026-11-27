@@ -28,11 +28,27 @@ impl Level {
 pub struct Risk {
     pub level: Level,
     pub reasons: Vec<String>,
+    /// Short labels for chips (an icon per kind), when a dialog draws the risk as a graphic.
+    /// The reasons stay the full explanation.
+    pub tags: Vec<(Tag, String)>,
+}
+
+/// What a chip's icon shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tag {
+    /// Commits a remote already has.
+    Pushed,
+    /// The default, a protected, or a main/release branch.
+    Important,
+    /// Files replaced.
+    Files,
+    /// Something couldn't be checked.
+    Warn,
 }
 
 impl Risk {
     pub fn new(level: Level) -> Risk {
-        Risk { level, reasons: Vec::new() }
+        Risk { level, reasons: Vec::new(), tags: Vec::new() }
     }
     /// Add a reason, raising the level to at least `at_least`.
     pub fn because(&mut self, at_least: Level, reason: impl Into<String>) {

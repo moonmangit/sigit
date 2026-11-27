@@ -63,6 +63,31 @@ thread_local! {
     static RECORD: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
 }
 
+thread_local! {
+    /// While [`unrecorded`] runs on this thread: commands aren't added to the recording.
+    static PAUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `f` without recording its commands: reads that only check state (a preflight's
+/// snapshot) and would bury the commands that change something in the toast and the log.
+pub fn unrecorded<R>(f: impl FnOnce() -> R) -> R {
+    let was = PAUSED.with(|p| p.replace(true));
+    let out = f();
+    PAUSED.with(|p| p.set(was));
+    out
+}
+
+fn record(program: &str, args: &[&str]) {
+    if PAUSED.with(std::cell::Cell::get) {
+        return;
+    }
+    RECORD.with(|r| {
+        if let Some(v) = r.borrow_mut().as_mut() {
+            v.push(line(program, args));
+        }
+    });
+}
+
 /// Runs `f` and returns what it returned with every gh / git command it started, in order.
 pub fn recording<R>(f: impl FnOnce() -> R) -> (R, Vec<String>) {
     RECORD.with(|r| *r.borrow_mut() = Some(Vec::new()));
@@ -220,12 +245,83 @@ fn registry_path(machine: bool) -> Option<String> {
     }
 }
 
+/// What [`run_full`] got back: the exit status's success, stdout and stderr.
+pub struct Output {
+    pub ok: bool,
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Like [`run`], but a failing exit status is not an error (`git merge-tree` exits 1 for a
+/// conflict and still prints the result), with `stdin` fed in and extra environment variables.
+/// Only "couldn't start it" is an `Err`. Recorded like `run`.
+pub fn run_full(program: &str, args: &[&str], cwd: Option<&Path>, stdin: Option<&str>, env: &[(&str, &str)]) -> Result<Output, String> {
+    run_full_within(program, args, cwd, stdin, env, None)
+}
+
+/// [`run_full`] that gives up after `limit`: the process is killed and the result is an `Err`
+/// ("took longer than…"). For a network call that could wait on a prompt or a dead link.
+pub fn run_full_within(program: &str, args: &[&str], cwd: Option<&Path>, stdin: Option<&str>, env: &[(&str, &str)], limit: Option<std::time::Duration>) -> Result<Output, String> {
+    use std::io::{Read, Write};
+    use std::process::Stdio;
+    record(program, args);
+    let mut cmd = command(program, args, cwd);
+    // Nothing here may wait for a person: no editor, no password prompt.
+    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GIT_EDITOR", "true").env("GIT_SEQUENCE_EDITOR", "true");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("couldn't start `{program}`: {e}"))?;
+    if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        pipe.write_all(input.as_bytes()).map_err(|e| format!("couldn't write to `{program}`: {e}"))?;
+    }
+    if let Some(limit) = limit {
+        // Read the pipes on their own threads, so a chatty process can't fill one and stall.
+        let mut so = child.stdout.take();
+        let mut se = child.stderr.take();
+        let out_t = std::thread::spawn(move || {
+            let mut b = Vec::new();
+            if let Some(p) = so.as_mut() {
+                let _ = p.read_to_end(&mut b);
+            }
+            b
+        });
+        let err_t = std::thread::spawn(move || {
+            let mut b = Vec::new();
+            if let Some(p) = se.as_mut() {
+                let _ = p.read_to_end(&mut b);
+            }
+            b
+        });
+        let start = std::time::Instant::now();
+        let status = loop {
+            if let Some(st) = child.try_wait().map_err(|e| format!("`{program}` failed: {e}"))? {
+                break st;
+            }
+            if start.elapsed() >= limit {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("`{program}` took longer than {} s, so it was stopped", limit.as_secs()));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        let stdout = out_t.join().unwrap_or_default();
+        let stderr = err_t.join().unwrap_or_default();
+        return Ok(Output { ok: status.success(), code: status.code(), stdout: String::from_utf8_lossy(&stdout).into_owned(), stderr: String::from_utf8_lossy(&stderr).trim().to_owned() });
+    }
+    let out = child.wait_with_output().map_err(|e| format!("`{program}` failed: {e}"))?;
+    Ok(Output {
+        ok: out.status.success(),
+        code: out.status.code(),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+    })
+}
+
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
-    RECORD.with(|r| {
-        if let Some(v) = r.borrow_mut().as_mut() {
-            v.push(line(program, args));
-        }
-    });
+    record(program, args);
     let out = command(program, args, cwd).output().map_err(|e| format!("couldn't start `{program}`: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -967,7 +1063,7 @@ mod command_tests {
             (Undo::ReopenPr { slug: s(), number: 1 }, "gh pr reopen 1 -R o/r"),
             (Undo::SwitchBack { dir: dir.clone(), branch: "main".into() }, "git switch main"),
             (Undo::RestoreBranch { dir: dir.clone(), name: "x".into(), sha: "abc".into() }, "git branch x abc"),
-            (Undo::StashPop { dir }, "git stash pop stash@{0}"),
+            (Undo::StashPop { dir, sha: "s".repeat(40) }, "git stash pop stash@{0}"),
         ];
         for (u, want) in undos {
             assert_eq!(u.command_lines(), [want]);

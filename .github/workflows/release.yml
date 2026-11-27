@@ -2,12 +2,20 @@
 # (Linux builds from source: see the README.)
 # Runs when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0), or by hand
 # (Actions → Release → Run workflow), which builds without publishing.
+# A tag with "-beta" (v0.4.0-beta.1) builds "sigit beta" (src/channel.rs): its own name, app id,
+# settings folder and files (sigit-beta-…), installed beside the stable app, and publishes a
+# pre-release, which the stable app's "Check for updates" never offers.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Publish as this tag (made on the commit that was built), e.g. v0.4.0-beta.1. Empty: build only."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -23,15 +31,15 @@ jobs:
           - name: Windows x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            asset: sigit-windows-x64.zip
+            platform: windows-x64
           - name: macOS Apple Silicon
             os: macos-latest
             target: aarch64-apple-darwin
-            asset: sigit-macos-arm64.zip
+            platform: macos-arm64
           - name: macOS Intel
             os: macos-latest
             target: x86_64-apple-darwin
-            asset: sigit-macos-x64.zip
+            platform: macos-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +57,27 @@ jobs:
           key: ${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: ${{ matrix.target }}-
 
+      # Stable or beta, from the tag; the version from the tag too (a beta knows it's a beta).
+      - name: Channel
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          case "$version" in [0-9]*) ;; *) version="" ;; esac
+          case "$TAG" in
+            *-beta*) channel=beta; slug=sigit-beta; title="sigit beta"; bundle_id=dev.sigit.beta ;;
+            *) channel=stable; slug=sigit; title=sigit; bundle_id=dev.sigit.app ;;
+          esac
+          {
+            echo "SIGIT_CHANNEL=$channel"
+            echo "SIGIT_VERSION=$version"
+            echo "SLUG=$slug"
+            echo "TITLE=$title"
+            echo "BUNDLE_ID=$bundle_id"
+            echo "ASSET=$slug-${{ matrix.platform }}.zip"
+          } >> "$GITHUB_ENV"
+
       - name: Build
         shell: bash
         run: cargo build --release --locked --target ${{ matrix.target }}
@@ -59,7 +88,7 @@ jobs:
         run: |
           New-Item -ItemType Directory dist/sigit | Out-Null
           Copy-Item target/${{ matrix.target }}/release/sigit.exe, README.md, LICENSE dist/sigit/
-          Compress-Archive -Path dist/sigit/* -DestinationPath dist/${{ matrix.asset }}
+          Compress-Archive -Path dist/sigit/* -DestinationPath "dist/$env:ASSET"
 
       - name: Installer (Windows)
         if: runner.os == 'Windows'
@@ -67,10 +96,10 @@ jobs:
         run: |
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $version = $env:SIGIT_VERSION
           if ($version -notmatch '^[0-9]') { $version = '0.0.0' }
           $exe = (Resolve-Path target/${{ matrix.target }}/release/sigit.exe).Path
-          & $iscc /Q "/DAppVersion=$version" "/DSourceExe=$exe" "/O$((Resolve-Path dist).Path)" installer/windows/sigit.iss
+          & $iscc /Q "/DAppVersion=$version" "/DSourceExe=$exe" "/DChannel=$env:SIGIT_CHANNEL" "/O$((Resolve-Path dist).Path)" installer/windows/sigit.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem dist/sigit-setup-*.exe
 
@@ -78,9 +107,9 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="$SIGIT_VERSION"
           case "$version" in [0-9]*) ;; *) version="0.0.0" ;; esac
-          app=dist/sigit.app
+          app="dist/$SLUG.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp target/${{ matrix.target }}/release/sigit "$app/Contents/MacOS/sigit"
           cp assets/icon.icns "$app/Contents/Resources/sigit.icns"
@@ -88,9 +117,9 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
-            <key>CFBundleName</key><string>sigit</string>
-            <key>CFBundleDisplayName</key><string>sigit</string>
-            <key>CFBundleIdentifier</key><string>dev.sigit.app</string>
+            <key>CFBundleName</key><string>$TITLE</string>
+            <key>CFBundleDisplayName</key><string>$TITLE</string>
+            <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
             <key>CFBundleExecutable</key><string>sigit</string>
             <key>CFBundleIconFile</key><string>sigit</string>
             <key>CFBundlePackageType</key><string>APPL</string>
@@ -103,7 +132,7 @@ jobs:
           # Ad-hoc signature: required to run on Apple Silicon. Not notarized (see README).
           codesign --force --deep --sign - "$app"
           cp README.md LICENSE dist/
-          (cd dist && ditto -c -k --keepParent sigit.app ${{ matrix.asset }} && zip -q ${{ matrix.asset }} README.md LICENSE)
+          (cd dist && ditto -c -k --keepParent "$SLUG.app" "$ASSET" && zip -q "$ASSET" README.md LICENSE)
 
       - name: Installer (macOS disk image)
         if: runner.os == 'macOS'
@@ -111,14 +140,13 @@ jobs:
         run: |
           # Open it, drag sigit into Applications.
           mkdir -p dist/dmg
-          cp -R dist/sigit.app dist/dmg/
+          cp -R "dist/$SLUG.app" dist/dmg/
           ln -s /Applications dist/dmg/Applications
-          asset="${{ matrix.asset }}"
-          hdiutil create -volname sigit -srcfolder dist/dmg -fs HFS+ -format UDZO -ov "dist/${asset%.zip}.dmg"
+          hdiutil create -volname "$TITLE" -srcfolder dist/dmg -fs HFS+ -format UDZO -ov "dist/${ASSET%.zip}.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
+          name: ${{ matrix.platform }}
           # The zip, plus the installer (sigit-setup-*.exe or *.dmg).
           path: |
             dist/sigit-*.zip
@@ -129,7 +157,8 @@ jobs:
   release:
     name: Publish release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    # A pushed v* tag, or a run by hand with a tag to publish as.
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,8 +172,15 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          # A beta tag is a pre-release: GitHub's "latest" (what stable updates from) skips it.
+          pre=""
+          title="sigit $TAG"
+          case "$TAG" in *-beta*) pre="--prerelease"; title="sigit beta $TAG" ;; esac
+          # --target: a run by hand makes the tag on the commit it built.
+          gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "sigit $GITHUB_REF_NAME" \
-            --generate-notes
+            --target "$GITHUB_SHA" \
+            --title "$title" \
+            --generate-notes $pre

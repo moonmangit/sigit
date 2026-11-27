@@ -229,7 +229,7 @@ fn values<'a>(template: &'a str, english: &str) -> Option<Vec<(&'a str, String)>
 }
 
 /// `thai` with its placeholders replaced: `{name}` by the value of that name, `{N}` by the
-/// Nth value, `{}` by the next value not yet used by position.
+/// Nth value, `{}` by the next unnamed value not yet used.
 fn fill(thai: &str, vals: &[(&str, String)]) -> String {
     let mut out = String::new();
     let mut next = 0;
@@ -238,8 +238,10 @@ fn fill(thai: &str, vals: &[(&str, String)]) -> String {
             Piece::Lit(l) => out.push_str(&l),
             Piece::Hole(h) => {
                 let h = h.split(':').next().unwrap_or("");
+                // `{}` takes the next unnamed value: in "{failing} of {} checks" it is the
+                // count, not `failing`.
                 let v = if h.is_empty() {
-                    let v = vals.get(next);
+                    let v = vals.iter().filter(|(name, _)| name.is_empty()).nth(next);
                     next += 1;
                     v
                 } else if let Ok(n) = h.parse::<usize>() {
@@ -300,6 +302,14 @@ fn note_miss(s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unnamed_holes_skip_named_values() {
+        let v = values("{failing} of {} checks are failing", "2 of 5 checks are failing").unwrap();
+        assert_eq!(fill("{failing} จาก {} check ล้มเหลว", &v), "2 จาก 5 check ล้มเหลว");
+        let v = values("{what} would conflict in: {}", "Reverting abc would conflict in: a.txt").unwrap();
+        assert_eq!(fill("{what} จะ conflict ใน: {}", &v), "Reverting abc จะ conflict ใน: a.txt");
+    }
 
     #[test]
     fn reads_values_back_and_reorders_them() {

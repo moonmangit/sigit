@@ -1,5 +1,5 @@
 //! Local git: log, branches, status, and the safe everyday actions (fetch, fast-forward pull,
-//! checkout). Nothing here commits or pushes. Also the commit graph's lane layout.
+//! checkout). Nothing here commits or pushes (history edits are in `history.rs`). Also the commit graph's lane layout.
 
 use std::path::Path;
 
@@ -88,7 +88,15 @@ pub fn commit_detail(dir: &Path, sha: &str) -> Result<CommitDetail, String> {
         .collect();
     let mut diff = git(dir, &["show", "--format=", "--patch", sha])?;
     cap(&mut diff, 400_000);
-    Ok(CommitDetail { body: body.trim().to_owned(), files, diff })
+    // Exit status 0: an ancestor of HEAD; 1: not; anything else (no HEAD yet): unknown.
+    let on_head = crate::gh::run_full("git", &["merge-base", "--is-ancestor", sha, "HEAD"], Some(dir), None, &[]).ok().and_then(|o| match o.code {
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    });
+    let head = git(dir, &["rev-parse", "HEAD"]).map(|h| h.trim().to_owned()).unwrap_or_default();
+    let full = git(dir, &["rev-parse", "--verify", sha]).map(|h| h.trim().to_owned()).unwrap_or_default();
+    Ok(CommitDetail { on_head, is_head: !head.is_empty() && head == full, body: body.trim().to_owned(), files, diff })
 }
 
 pub fn branches(dir: &Path) -> Result<Vec<Branch>, String> {
@@ -253,6 +261,28 @@ fn porcelain_path(l: &str) -> Option<&str> {
 
 pub fn stash_push_cmd(message: &str) -> Cmd {
     Cmd::new("git", &["stash", "push", "--include-untracked", "-m", message])
+}
+
+/// The newest stash's SHA, if there is one.
+pub fn stash_top(dir: &Path) -> Option<String> {
+    git(dir, &["rev-parse", "-q", "--verify", "refs/stash"]).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+}
+
+/// Stash, and say which stash this made: `None` when there was nothing to stash (git then
+/// exits 0 and makes none), so nobody later pops an older stash by mistake.
+pub fn stash_push_made(dir: &Path, message: &str) -> Result<Option<String>, String> {
+    let before = stash_top(dir);
+    stash_push(dir, message)?;
+    let after = stash_top(dir);
+    Ok(after.filter(|a| Some(a) != before.as_ref()))
+}
+
+/// Pop the stash with this SHA, wherever it is in the list now (git pops by `stash@{n}`,
+/// not by SHA, and newer stashes move it down).
+pub fn stash_pop_sha(dir: &Path, sha: &str) -> Result<String, String> {
+    let list = git(dir, &["stash", "list", "--format=%H"])?;
+    let i = list.lines().position(|l| l.trim() == sha).ok_or_else(|| crate::i18n::t("That stash is no longer there (popped or dropped meanwhile)"))?;
+    stash_op(dir, "pop", &format!("stash@{{{i}}}"))
 }
 
 pub fn stash_push(dir: &Path, message: &str) -> Result<String, String> {

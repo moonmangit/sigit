@@ -1229,3 +1229,271 @@ Pick a contributor	เลือกผู้ร่วมพัฒนา
 {n} open pull requests	pull request ที่เปิดอยู่ {n} รายการ
 you	คุณ
 Loading your repositories from GitHub…	กำลังโหลด repository ของคุณจาก GitHub…
+  • sigit doesn't push. To share it: {cmd}	  • sigit ไม่ push ให้ หากจะแชร์ ให้รัน: {cmd}
+A copy of this commit on top of your branch.	สำเนาของ commit นี้ บน branch ของคุณ
+A hard reset replaces your files with the target commit's	hard reset จะแทนที่ไฟล์ของคุณด้วยไฟล์ของ commit เป้าหมาย
+A new commit on top that undoes this one.	commit ใหม่ด้านบนที่ยกเลิกการเปลี่ยนแปลงของ commit นี้
+Amend last commit	Amend commit ล่าสุด
+Before it runs, sigit checks again that the branch, its upstream and the remote didn't change (preflight). If one did, nothing changes.	ก่อนรัน sigit ตรวจอีกครั้งว่า branch, upstream และ remote ไม่เปลี่ยน (preflight) ถ้าอย่างใดเปลี่ยน จะไม่มีอะไรเปลี่ยนแปลง
+Can't do that: {e}	ทำไม่ได้: {e}
+Change this commit's message; the commits after it are made again.	เปลี่ยนข้อความของ commit นี้ commit ที่ตามมาจะถูกสร้างใหม่
+Cherry-pick onto {branch}	Cherry-pick ลงบน {branch}
+Edit history of {branch}	แก้ไขประวัติของ {branch}
+Files, old tip → new tip	ไฟล์ จาก tip เดิม → tip ใหม่
+Fixup into parent	Fixup เข้ากับ commit ก่อนหน้า
+Join it with the commit before it, keeping both messages.	รวมกับ commit ก่อนหน้า โดยเก็บข้อความทั้งสอง
+Join it with the commit before it, keeping that commit's message.	รวมกับ commit ก่อนหน้า โดยเก็บข้อความของ commit นั้น
+Leave {b} ({n})	ออกจาก {b} ({n})
+Move the branch here and make your files match it.	ย้าย branch มาที่นี่ และทำให้ไฟล์ของคุณตรงกับ commit นี้
+Move the branch here; the changes after it stay in your files, unstaged.	ย้าย branch มาที่นี่ การเปลี่ยนแปลงหลังจากนี้ยังอยู่ในไฟล์ของคุณ แบบไม่ stage
+Move the branch here; the changes after it stay staged.	ย้าย branch มาที่นี่ การเปลี่ยนแปลงหลังจากนี้ยัง stage อยู่
+Moves {b} from {old} to {new}. Simulated: nothing has changed yet.	ย้าย {b} จาก {old} ไป {new} นี่คือการจำลอง: ยังไม่มีอะไรเปลี่ยน
+New on {b} ({n})	ใหม่บน {b} ({n})
+No file changes between the old and the new tip	ไม่มีไฟล์ต่างกันระหว่าง tip เดิมกับ tip ใหม่
+Put your staged changes into the last commit.	ใส่การเปลี่ยนแปลงที่ stage ไว้ลงใน commit ล่าสุด
+Remove this commit; the commits after it are made again.	ลบ commit นี้ commit ที่ตามมาจะถูกสร้างใหม่
+Reset (hard)	Reset (hard)
+Reset (mixed)	Reset (mixed)
+Reset (soft)	Reset (soft)
+Reword {}	Reword {}
+Reword…	Reword…
+Shows the outcome first: nothing changes until you confirm	แสดงผลลัพธ์ก่อน: ไม่มีอะไรเปลี่ยนจนกว่าคุณยืนยัน
+Simulate	จำลอง
+Simulated first · Undo · never pushes	จำลองก่อน · เลิกทำได้ · ไม่ push
+Simulated outcome	ผลลัพธ์จากการจำลอง
+Simulated: {} new commit(s), {} leave {b}. Undo (10 s) or the reflog brings the old tip back.	จำลองแล้ว: commit ใหม่ {} รายการ, {} รายการออกจาก {b} เลิกทำ (10 วินาที) หรือ reflog นำ tip เดิมกลับมาได้
+Simulating…	กำลังจำลอง…
+Squash into parent	Squash เข้ากับ commit ก่อนหน้า
+Swap it with the newer commit after it.	สลับกับ commit ที่ใหม่กว่าถัดไป
+Swap it with the older commit before it.	สลับกับ commit ที่เก่ากว่าก่อนหน้า
+The first line is the subject. The commits after this one are made again with new SHAs.	บรรทัดแรกคือหัวเรื่อง commit ที่ตามมาจะถูกสร้างใหม่ด้วย SHA ใหม่
+Uncommitted files replaced: {list}	ไฟล์ที่ยังไม่ commit ที่จะถูกแทนที่: {list}
+Undo the edit on {branch}	เลิกทำการแก้ไขบน {branch}
+{b} is an important branch (default, protected, or a main/release name): rewriting its history affects everyone	{b} เป็น branch สำคัญ (ค่าเริ่มต้น, ถูกป้องกัน หรือชื่อแบบ main/release): การเขียนประวัติใหม่มีผลกับทุกคน
+{b} is an important branch: you'll push this new commit to it yourself	{b} เป็น branch สำคัญ: คุณจะ push commit ใหม่นี้เอง
+{gone} commit(s) leave {b}	{gone} commit ออกจาก {b}
+{} Simulates it first: nothing changes until you confirm.	{} จำลองก่อน: ไม่มีอะไรเปลี่ยนจนกว่าคุณยืนยัน
+{} of them are already on {up}: sharing this needs a force-push, and anyone who pulled them must fix their copy	{} รายการอยู่บน {up} แล้ว: การแชร์ต้อง force-push และทุกคนที่ pull ไปแล้วต้องแก้สำเนาของตน
+{} uncommitted file(s) would be replaced (sigit stashes them first)	ไฟล์ที่ยังไม่ commit {} ไฟล์จะถูกแทนที่ (sigit จะ stash ไว้ก่อน)
+ (and {} more)	 (และอีก {})
+(none)	(ไม่มี)
+. Nothing was changed. Resolve it in your terminal, or pick another edit.	 ไม่มีอะไรเปลี่ยน แก้ใน terminal หรือเลือกการแก้ไขอื่น
+. To share it: {cmd}	 หากจะแชร์ ให้รัน: {cmd}
+A {what} is half done in this working copy. Finish or abort it first.	มี {what} ทำค้างอยู่ใน working copy นี้ ทำให้เสร็จหรือยกเลิกก่อน
+A {what} started in this working copy. {again}	มี {what} เริ่มขึ้นใน working copy นี้ {again}
+Amend the last commit	Amend commit ล่าสุด
+Can't move it: {e}	ย้ายไม่ได้: {e}
+Can't squash into the commit before it: {e}	squash เข้ากับ commit ก่อนหน้าไม่ได้: {e}
+Cherry-pick {}	Cherry-pick {}
+Cherry-picking {}	การ cherry-pick {}
+Couldn't reach {remote} to check for new commits ({e}). This edit rewrites pushed commits, so it waits until the check works.	ติดต่อ {remote} เพื่อตรวจ commit ใหม่ไม่ได้ ({e}) การแก้ไขนี้เขียน commit ที่ push แล้วใหม่ จึงต้องรอจนตรวจได้
+Couldn't reach {remote} to check for new commits: {e}	ติดต่อ {remote} เพื่อตรวจ commit ใหม่ไม่ได้: {e}
+Couldn't read commit {}	อ่าน commit {} ไม่ได้
+Couldn't read the staged changes (is a merge half done?)	อ่านการเปลี่ยนแปลงที่ stage ไว้ไม่ได้ (มี merge ค้างอยู่หรือไม่?)
+Drop {}	Drop {}
+Fixup {} into its parent	Fixup {} เข้ากับ commit ก่อนหน้า
+HEAD isn't on a local branch	HEAD ไม่ได้อยู่บน branch ในเครื่อง
+It's already the newest commit	เป็น commit ใหม่สุดอยู่แล้ว
+It's already the oldest commit	เป็น commit เก่าสุดอยู่แล้ว
+Making {} again	การสร้าง {} ใหม่
+Move {} down	ย้าย {} ลง
+Move {} up	ย้าย {} ขึ้น
+Nothing is staged: stage the changes to put into the last commit first (git add)	ไม่มีอะไร stage ไว้: stage การเปลี่ยนแปลงที่จะใส่ใน commit ล่าสุดก่อน (git add)
+Nothing to squash into	ไม่มี commit ให้ squash เข้า
+Nothing was changed: simulate it again.	ไม่มีอะไรเปลี่ยน: จำลองอีกครั้ง
+Reset to {} ({})	Reset ไปที่ {} ({})
+Revert {}	Revert {}
+Reverting {}	การ revert {}
+Set your commit name and email first (Settings → Git)	ตั้งชื่อและอีเมลสำหรับ commit ก่อน (การตั้งค่า → Git)
+Squash {} into its parent	Squash {} เข้ากับ commit ก่อนหน้า
+Squashing {}	การ squash {}
+The branch moved meanwhile, so nothing was changed ({e})	branch ถูกย้ายระหว่างนั้น จึงไม่มีอะไรเปลี่ยน ({e})
+The first commit of a history can't be cherry-picked here	cherry-pick commit แรกของประวัติที่นี่ไม่ได้
+The first commit of the history can't be reverted	revert commit แรกของประวัติไม่ได้
+The message is empty	ข้อความว่างเปล่า
+The staged changes changed since the simulation. {again}	การเปลี่ยนแปลงที่ stage ไว้เปลี่ยนไปหลังการจำลอง {again}
+The upstream	upstream
+There's a merge commit between {} and the tip: editing would flatten it. Use Revert or Reset instead.	มี merge commit ระหว่าง {} กับ tip: การแก้ไขจะทำให้มันหายไป ใช้ Revert หรือ Reset แทน
+This branch has no commits yet	branch นี้ยังไม่มี commit
+This is a merge commit: cherry-pick needs a single-parent commit	นี่คือ merge commit: cherry-pick ต้องใช้ commit ที่มี parent เดียว
+This is a merge commit: only Revert and Reset work on merges	นี่คือ merge commit: ใช้ได้เฉพาะ Revert และ Reset
+This is the first commit of the history: it can't be edited here	นี่คือ commit แรกของประวัติ: แก้ไขที่นี่ไม่ได้
+This needs git {}.{} or newer (you have: {})	ต้องใช้ git {}.{} ขึ้นไป (ของคุณ: {})
+You're on a detached HEAD: switch to a branch to edit its history	คุณอยู่บน detached HEAD: สลับไปที่ branch ก่อนแก้ไขประวัติ
+You're on {} now, not {branch}: switch back to undo	ตอนนี้คุณอยู่บน {} ไม่ใช่ {branch}: สลับกลับก่อนเลิกทำ
+You're on {} now, not {}. {again}	ตอนนี้คุณอยู่บน {} ไม่ใช่ {} {again}
+Your files couldn't follow ({e}), and putting the branch back failed too ({b}). Run: git update-ref {r} {old}	ไฟล์ของคุณตามไม่ได้ ({e}) และการคืน branch ก็ล้มเหลวด้วย ({b}) ให้รัน: git update-ref {r} {old}
+Your files couldn't follow ({e}), so the branch was put back. Nothing was changed.	ไฟล์ของคุณตามไม่ได้ ({e}) จึงคืน branch กลับแล้ว ไม่มีอะไรเปลี่ยน
+{branch} is back at {}	{branch} กลับไปที่ {} แล้ว
+{remote} has {} on {r}, but your {up} is at {}: someone pushed. Fetch, then simulate again.	{remote} มี {} บน {r} แต่ {up} ของคุณอยู่ที่ {}: มีคน push เข้ามา ให้ fetch แล้วจำลองอีกครั้ง
+{r} is gone from {remote}. Fetch, then simulate again.	{r} หายไปจาก {remote} ให้ fetch แล้วจำลองอีกครั้ง
+{spec} isn't a commit here	{spec} ไม่ใช่ commit ในที่นี้
+{what} would conflict in: {}	{what} จะ conflict ใน: {}
+{} changed since the simulation (a fetch?). {again}	{} เปลี่ยนไปหลังการจำลอง (มีการ fetch?) {again}
+{} is already at {}	{} อยู่ที่ {} อยู่แล้ว
+{} is already on {}	{} อยู่บน {} แล้ว
+{} isn't on this branch	{} ไม่ได้อยู่บน branch นี้
+{} isn't on this branch: nothing to revert	{} ไม่ได้อยู่บน branch นี้: ไม่มีอะไรให้ revert
+{} moved since the simulation ({} → {}). {again}	{} ถูกย้ายหลังการจำลอง ({} → {}) {again}
+{}'s changes are already on {}: nothing to pick	การเปลี่ยนแปลงของ {} อยู่บน {} แล้ว: ไม่มีอะไรให้ pick
+{}: {} is now at {}	{}: ตอนนี้ {} อยู่ที่ {}
+Your uncommitted changes to {} are in files this edit changes. Commit or stash them first.	การเปลี่ยนแปลงที่ยังไม่ commit ใน {} อยู่ในไฟล์ที่การแก้ไขนี้เปลี่ยน ให้ commit หรือ stash ก่อน
+Commits made again with new SHAs	commit ที่สร้างใหม่ด้วย SHA ใหม่
+Commits that leave the branch	commit ที่ออกจาก branch
+Commits joined into the one above	commit ที่รวมเข้ากับรายการด้านบน
+Each button simulates first: you see the new history before anything changes.	ทุกปุ่มจำลองก่อน: คุณเห็นประวัติใหม่ก่อนที่อะไรจะเปลี่ยน
+Files in your working copy are replaced	ไฟล์ใน working copy ของคุณจะถูกแทนที่
+Fixup	Fixup
+Hard	Hard
+Hide	ซ่อน
+Hide the reasons	ซ่อนเหตุผล
+How careful sigit is before running it	sigit ระวังแค่ไหนก่อนรัน
+How editing history works	การแก้ไขประวัติทำงานอย่างไร
+Important branch	branch สำคัญ
+Mixed	Mixed
+New commits	commit ใหม่
+Nothing has changed yet: these commits exist only as objects until you confirm.	ยังไม่มีอะไรเปลี่ยน: commit เหล่านี้เป็นเพียง object จนกว่าคุณยืนยัน
+Preflight	Preflight
+Remote not checked	ยังไม่ได้ตรวจ remote
+Replaced: {list}	ถูกแทนที่: {list}
+Replaces files	แทนที่ไฟล์
+Reset here	Reset ที่นี่
+Rewrite	เขียนใหม่
+Same files: only the history changes	ไฟล์เหมือนเดิม: เปลี่ยนเฉพาะประวัติ
+Show fewer	แสดงน้อยลง
+Show the reasons	แสดงเหตุผล
+Simulated	จำลองแล้ว
+Soft	Soft
+Some of these commits are already on a remote: sharing the edit needs a force-push	บาง commit อยู่บน remote แล้ว: การแชร์การแก้ไขต้อง force-push
+The default, a protected, or a main/release branch	branch ค่าเริ่มต้น, ถูกป้องกัน หรือ main/release
+The remote couldn't be checked for new commits	ตรวจ commit ใหม่บน remote ไม่ได้
+Undo (10 s) puts the branch back. sigit never pushes.	เลิกทำ (10 วินาที) คืน branch กลับ sigit ไม่ push
+Undo 10 s	เลิกทำ 10 วิ
+Undo puts the branch back for 10 seconds after; the reflog keeps the old tip longer	เลิกทำคืน branch ได้ภายใน 10 วินาที reflog เก็บ tip เดิมไว้นานกว่านั้น
+Was: {}	เดิม: {}
+Your uncommitted changes stay; a hard reset stashes them first.	การเปลี่ยนแปลงที่ยังไม่ commit ยังอยู่ hard reset จะ stash ไว้ก่อน
+Your uncommitted changes are stashed first; Undo brings them back.	การเปลี่ยนแปลงที่ยังไม่ commit จะถูก stash ก่อน เลิกทำนำกลับมาได้
+Before it runs, a preflight checks that the branch, its upstream and the remote didn't change.	ก่อนรัน preflight ตรวจว่า branch, upstream และ remote ไม่เปลี่ยน
+Before it runs, sigit checks again that the branch, its upstream and the remote didn't change. If one did, nothing changes.	ก่อนรัน sigit ตรวจอีกครั้งว่า branch, upstream และ remote ไม่เปลี่ยน ถ้าอย่างใดเปลี่ยน จะไม่มีอะไรเปลี่ยน
+Add a commit	เพิ่ม commit
+a remote	remote
+{n} of them are already on {up}: sharing this needs a force-push, and anyone who pulled them must fix their copy	{n} รายการอยู่บน {up} แล้ว: การแชร์ต้อง force-push และทุกคนที่ pull ไปแล้วต้องแก้สำเนาของตน
+{n} pushed	push แล้ว {n}
+{n} uncommitted	ยังไม่ commit {n}
+{n} uncommitted file(s) would be replaced (sigit stashes them first)	ไฟล์ที่ยังไม่ commit {n} ไฟล์จะถูกแทนที่ (sigit จะ stash ไว้ก่อน)
+{} file(s)	{} ไฟล์
+{}: simulated first	{}: จำลองก่อน
++{hidden} more	+อีก {hidden}
+About {}	เกี่ยวกับ {}
+Adds a new commit that undoes the changes of this commit. The history before it does not change.	เพิ่ม commit ใหม่ที่ยกเลิกการเปลี่ยนแปลงของ commit นี้ ประวัติก่อนหน้าไม่เปลี่ยน
+After	หลัง
+Amend	Amend
+B is on another branch	B อยู่บน branch อื่น
+B moved up	B ย้ายขึ้น
+BC: B's message	BC: ข้อความของ B
+BC: both messages	BC: ข้อความทั้งสอง
+Before	ก่อน
+B′: new message	B′: ข้อความใหม่
+C + D changes: gone	การเปลี่ยนแปลงของ C + D: หายไป
+C + D changes: in files	การเปลี่ยนแปลงของ C + D: อยู่ในไฟล์
+C + D changes: staged	การเปลี่ยนแปลงของ C + D: stage ไว้
+Changes the message of this commit. The files do not change. This commit and the commits after it get new SHAs.	เปลี่ยนข้อความของ commit นี้ ไฟล์ไม่เปลี่ยน commit นี้และ commit ที่ตามมาจะได้ SHA ใหม่
+Cherry-pick	Cherry-pick
+Common use:	ใช้บ่อยเพื่อ:
+Copies this commit from another branch onto your branch, as a new commit on top.	คัดลอก commit นี้จาก branch อื่นมาไว้บน branch ของคุณ เป็น commit ใหม่ด้านบน
+D′ = D + staged	D′ = D + ส่วนที่ stage ไว้
+Joins this commit into the commit before it. The new commit keeps both messages.	รวม commit นี้เข้ากับ commit ก่อนหน้า commit ใหม่เก็บข้อความทั้งสอง
+Joins this commit into the commit before it. The new commit keeps only the message of the commit before it.	รวม commit นี้เข้ากับ commit ก่อนหน้า commit ใหม่เก็บเฉพาะข้อความของ commit ก่อนหน้า
+Move up / down	ย้ายขึ้น / ลง
+Moves the branch to this commit and makes your files match it. The commits after it leave the branch. sigit stashes your uncommitted changes first.	ย้าย branch มาที่ commit นี้ และทำให้ไฟล์ตรงกับ commit นี้ commit ที่ตามมาออกจาก branch sigit จะ stash การเปลี่ยนแปลงที่ยังไม่ commit ไว้ก่อน
+Moves the branch to this commit. The changes of the commits after it stay in your files, not staged.	ย้าย branch มาที่ commit นี้ การเปลี่ยนแปลงของ commit ที่ตามมายังอยู่ในไฟล์ แบบไม่ stage
+Moves the branch to this commit. The changes of the commits after it stay in your files, staged.	ย้าย branch มาที่ commit นี้ การเปลี่ยนแปลงของ commit ที่ตามมายังอยู่ในไฟล์ แบบ stage ไว้
+Puts your staged changes into the last commit. The message stays the same.	ใส่การเปลี่ยนแปลงที่ stage ไว้ลงใน commit ล่าสุด ข้อความเหมือนเดิม
+Removes this commit from the branch. The commits after it are made again without its changes.	ลบ commit นี้ออกจาก branch commit ที่ตามมาจะถูกสร้างใหม่โดยไม่มีการเปลี่ยนแปลงของมัน
+Reword	Reword
+Swaps this commit with the newer commit after it (up) or the older commit before it (down).	สลับ commit นี้กับ commit ที่ใหม่กว่าถัดไป (ขึ้น) หรือ commit ที่เก่ากว่าก่อนหน้า (ลง)
+To add a file you forgot, or to fix a small mistake in the commit you just made.	เพิ่มไฟล์ที่ลืม หรือแก้ข้อผิดพลาดเล็กน้อยใน commit ที่เพิ่งทำ
+To bring one fix from another branch, for example a hotfix, without merging the whole branch.	นำการแก้ไขหนึ่งรายการจาก branch อื่น เช่น hotfix โดยไม่ merge ทั้ง branch
+To clean up many small "work in progress" commits into one before a review.	รวม commit เล็ก ๆ แบบ "work in progress" หลายรายการเป็นหนึ่งเดียวก่อนรีวิว
+To fix a typo, add a ticket number, or follow the message rules of the team before you push.	แก้คำผิด เพิ่มเลข ticket หรือทำตามกฎข้อความของทีมก่อน push
+To join the last few commits into one: reset soft, then make one new commit.	รวม commit ล่าสุดหลายรายการเป็นหนึ่ง: reset soft แล้วสร้าง commit ใหม่หนึ่งรายการ
+To put a small correction (a typo, a review change) into the commit it belongs to.	ใส่การแก้ไขเล็กน้อย (คำผิด การแก้จากรีวิว) ลงใน commit ที่มันควรอยู่
+To put related commits next to each other before a squash, or to make the history easy to read.	จัด commit ที่เกี่ยวข้องให้อยู่ติดกันก่อน squash หรือทำให้ประวัติอ่านง่าย
+To remove a debug commit or a change you do not want, before you push.	ลบ commit สำหรับ debug หรือการเปลี่ยนแปลงที่ไม่ต้องการ ก่อน push
+To throw away local experiments and go back to a known good commit.	ทิ้งการทดลองในเครื่อง แล้วกลับไปที่ commit ที่รู้ว่าใช้ได้
+To undo a change that is already pushed or shared. It is the safe undo for a shared branch.	ยกเลิกการเปลี่ยนแปลงที่ push หรือแชร์ไปแล้ว เป็นวิธียกเลิกที่ปลอดภัยสำหรับ branch ที่ใช้ร่วมกัน
+To undo the last commits but keep the work, and then commit it again in a different way.	ยกเลิก commit ล่าสุดแต่เก็บงานไว้ แล้ว commit ใหม่ในแบบอื่น
+What each action does	แต่ละคำสั่งทำอะไร
+What each action does, and when to use it	แต่ละคำสั่งทำอะไร และใช้เมื่อไร
+What this action does, and when to use it	คำสั่งนี้ทำอะไร และใช้เมื่อไร
+made again	สร้างใหม่
+your commit	commit ของคุณ
+{} Common use: {}	{} ใช้บ่อยเพื่อ: {}
+new	ใหม่
+leaves	ออกไป
+How it works	ทำงานอย่างไร
+Change this commit	แก้ไข commit นี้
+Copy to {branch}	คัดลอกไปที่ {branch}
+Edit history	แก้ไขประวัติ
+Go back to here	ย้อนกลับมาที่นี่
+Undo this commit	ยกเลิก commit นี้
+Close the animation	ปิดภาพเคลื่อนไหว
+Play	เล่น
+Red commits leave the branch, amber ones are made again, green ones are new.	commit สีแดงออกจาก branch สีเหลืองถูกสร้างใหม่ สีเขียวเป็น commit ใหม่
+Replay	เล่นอีกครั้ง
+The new history. The commits under the edit stay as they are.	ประวัติใหม่ commit ที่อยู่ใต้การแก้ไขยังเหมือนเดิม
+Watch the edit happen on your real commits, step by step	ดูการแก้ไขเกิดขึ้นบน commit จริงของคุณทีละขั้น
+What changes	สิ่งที่เปลี่ยน
+Your branch now, with the commits under the edit.	branch ของคุณตอนนี้ พร้อม commit ที่อยู่ใต้การแก้ไข
+Your uncommitted changes are stashed first; Undo or Branches → Stashes brings them back.	การเปลี่ยนแปลงที่ยังไม่ commit จะถูก stash ก่อน เลิกทำ หรือ Branch → Stash นำกลับมาได้
+{e} Your uncommitted changes were put back.	{e} การเปลี่ยนแปลงที่ยังไม่ commit ถูกนำกลับมาแล้ว
+{e} Your uncommitted changes are still in the stash (Branches → Stashes): putting them back failed ({p}).	{e} การเปลี่ยนแปลงที่ยังไม่ commit ยังอยู่ใน stash (Branch → Stash): นำกลับไม่สำเร็จ ({p})
+That stash is no longer there (popped or dropped meanwhile)	stash นั้นไม่อยู่แล้ว (ถูก pop หรือ drop ไประหว่างนั้น)
+A new commit {new_tip} on top undoes {t}. Nothing leaves {b}.	commit ใหม่ {new_tip} ด้านบนยกเลิก {t} ไม่มีอะไรออกจาก {b}
+Dimmed on the right: old commits that {holder} still has. They stay there until you force-push.	สีจางทางขวา: commit เดิมที่ {holder} ยังมีอยู่ จะอยู่ที่นั่นจนกว่าคุณจะ force-push
+One commit now holds both changes and both messages.	ตอนนี้ commit เดียวมีทั้งสองการเปลี่ยนแปลงและทั้งสองข้อความ
+One commit now holds both changes, with the older message.	ตอนนี้ commit เดียวมีทั้งสองการเปลี่ยนแปลง พร้อมข้อความของ commit เก่ากว่า
+The copy {new_tip} is the new tip of {b}. The original stays where it was.	สำเนา {new_tip} เป็น tip ใหม่ของ {b} ต้นฉบับยังอยู่ที่เดิม
+The same changes in a new order, with new SHAs; {b} points at {new_tip}.	การเปลี่ยนแปลงเหมือนเดิมในลำดับใหม่ ด้วย SHA ใหม่ {b} ชี้ที่ {new_tip}
+The same files with new SHAs from {t} up; {b} points at {new_tip}.	ไฟล์เหมือนเดิม SHA ใหม่ตั้งแต่ {t} ขึ้นไป {b} ชี้ที่ {new_tip}
+Where {} points: it moves to the new tip	ตำแหน่งที่ {} ชี้: จะย้ายไปที่ tip ใหม่
+Your branch now: the {b} label is at its tip. The ringed commit is the one you picked; the grey ones under the edit stay as they are.	branch ของคุณตอนนี้: ป้าย {b} อยู่ที่ tip commit ที่มีวงคือ commit ที่คุณเลือก commit สีเทาใต้การแก้ไขยังเหมือนเดิม
+Your staged changes go into {t}, the last commit.	การเปลี่ยนแปลงที่ stage ไว้จะเข้าไปใน {t} ซึ่งเป็น commit ล่าสุด
+another branch	branch อื่น
+staged changes	การเปลี่ยนแปลงที่ stage ไว้
+{b} now points at {t}, and your files match it. Your uncommitted work was stashed first.	ตอนนี้ {b} ชี้ที่ {t} และไฟล์ของคุณตรงกับมัน งานที่ยังไม่ commit ถูก stash ไว้ก่อน
+{b} now points at {t}. The changes of the commits that left stay in your files, not staged.	ตอนนี้ {b} ชี้ที่ {t} การเปลี่ยนแปลงของ commit ที่ออกไปยังอยู่ในไฟล์ แบบไม่ stage
+{b} now points at {t}. The changes of the commits that left stay in your files, staged.	ตอนนี้ {b} ชี้ที่ {t} การเปลี่ยนแปลงของ commit ที่ออกไปยังอยู่ในไฟล์ แบบ stage ไว้
+{b} will point at {t}: the red commits above it leave {b}.	{b} จะชี้ที่ {t}: commit สีแดงด้านบนจะออกจาก {b}
+{t} and the newer commit after it swap places.	{t} สลับที่กับ commit ที่ใหม่กว่าถัดไป
+{t} and the older commit before it swap places.	{t} สลับที่กับ commit ที่เก่ากว่าก่อนหน้า
+{t} gets a new message. The commits after it are made again (amber).	{t} ได้ข้อความใหม่ commit ที่ตามมาถูกสร้างใหม่ (สีเหลือง)
+{t} is gone from {b}, and the commits after it moved down into its place.	{t} ออกจาก {b} แล้ว และ commit ที่ตามมาเลื่อนลงมาแทนที่
+{t} is made again as {new_tip}, with your staged changes and the same message.	{t} ถูกสร้างใหม่เป็น {new_tip} พร้อมการเปลี่ยนแปลงที่ stage ไว้และข้อความเดิม
+{t} is the commit to undo. It stays in the history.	{t} คือ commit ที่จะยกเลิก มันยังอยู่ในประวัติ
+{t} joins the commit before it.	{t} รวมเข้ากับ commit ก่อนหน้า
+{t} joins the commit before it; only that commit's message stays.	{t} รวมเข้ากับ commit ก่อนหน้า เหลือเฉพาะข้อความของ commit นั้น
+{t} leaves {b}. The commits after it are made again without its changes.	{t} ออกจาก {b} commit ที่ตามมาถูกสร้างใหม่โดยไม่มีการเปลี่ยนแปลงของมัน
+{t} on {from} is copied.	{t} บน {from} ถูกคัดลอก
+(no home folder found)	(ไม่พบโฟลเดอร์ home)
+Change…	เปลี่ยน…
+Choose where sigit puts the clones it makes	เลือกที่ที่ sigit จะเก็บ clone ที่สร้างให้
+Clone for me	Clone ให้ฉัน
+Clones sigit makes	Clone ที่ sigit สร้าง
+Cloning…	กำลัง clone…
+Commits, branches and history editing read a local copy of {slug}. sigit can clone it for you, or you can point it at a clone you already have.	Commit, branch และการแก้ไขประวัติใช้สำเนาในเครื่องของ {slug} sigit clone ให้ได้ หรือคุณชี้ไปที่ clone ที่มีอยู่แล้ว
+Couldn't clone {slug}: {e}	clone {slug} ไม่ได้: {e}
+Downloading… large repos can take a minute	กำลังดาวน์โหลด… repo ใหญ่อาจใช้เวลาสักนาที
+Downloads {slug} into {}, then opens it here. A clone already there is used as it is.	ดาวน์โหลด {slug} ไปที่ {} แล้วเปิดที่นี่ ถ้ามี clone อยู่แล้วจะใช้อันนั้น
+It goes in {} (change the folder in Settings → Git)	จะอยู่ใน {} (เปลี่ยนโฟลเดอร์ได้ที่ การตั้งค่า → Git)
+No home folder to put clones in: pick one in Settings → Git	ไม่มีโฟลเดอร์สำหรับเก็บ clone: เลือกได้ที่ การตั้งค่า → Git
+Use default	ใช้ค่าเริ่มต้น
+{slug} is cloned in {}	clone {slug} ไว้ที่ {} แล้ว
+"Clone for me" downloads a repo here, in owner/name folders. Clones already made stay where they are.	"Clone ให้ฉัน" ดาวน์โหลด repo มาไว้ที่นี่ ในโฟลเดอร์ owner/name clone ที่สร้างไว้แล้วยังอยู่ที่เดิม
+"{slug}" isn't owner/name	"{slug}" ไม่ใช่รูปแบบ owner/name
+Couldn't make {}: {e}	สร้าง {} ไม่ได้: {e}
+The clone in {} didn't come out as {slug}	clone ใน {} ไม่ได้เป็น {slug}
+{why}. Move it, or pick another folder for clones in Settings → Git.	{why} ย้ายออก หรือเลือกโฟลเดอร์อื่นสำหรับ clone ที่ การตั้งค่า → Git
+{} already exists and isn't a clone of {slug}	{} มีอยู่แล้วและไม่ใช่ clone ของ {slug}
+{} already holds a clone of {s}	{} มี clone ของ {s} อยู่แล้ว
+{} already holds a git repository that isn't {slug}	{} มี git repository ที่ไม่ใช่ {slug} อยู่แล้ว

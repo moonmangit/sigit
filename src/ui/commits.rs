@@ -39,6 +39,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .key("c-scope"),
         )
         .child(spacer())
+        .child(super::history::amend_button(s, k).unwrap_or_else(row))
         .child(muted(k, graph(s).map_or(String::new(), |g| tf!("{} commit{} · {} lane{}", g.commits.len(), if g.commits.len() == 1 { "" } else { "s" }, g.width, if g.width == 1 { "" } else { "s" }))));
 
     let list = match s.rd().and_then(|d| pending(k, &d.graph)) {
@@ -220,13 +221,16 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
         }
         col_ = col_.child(actions);
     }
+    if let Some(h) = graph(s).and_then(|g| super::history::actions(s, k, g, c)) {
+        col_ = col_.child(h);
+    }
     if let Some(p) = pending(k, &s.commit_detail) {
         return Some(side_pane(k, "c-pane", col_.child(p)));
     }
     let d = s.commit_detail.data.as_ref()?;
     let body = d.body.split_once('\n').map_or("", |(_, rest)| rest).trim();
     if !body.is_empty() {
-        col_ = col_.child(
+        col_ = col_.child(super::history::section(k, "c-sec-msg", &super::history::I_MESSAGE, "Message", None)).child(
             text(reflow(body))
                 .font(TextStyle { size: 13.0, line_height: 20.0, ..k.ty.ui })
                 .color(k.c.text_base)
@@ -250,8 +254,9 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                 .child(diffstat(k, *a, *r)),
         )
     });
+    let total = row().gap(6.0).center_y().child(text(tf!("{} file{} changed", d.files.len(), if d.files.len() == 1 { "" } else { "s" })).font(k.ty.small).color(k.c.text_faint)).child(diffstat(k, add, del));
     col_ = col_
-        .child(row().w_full().gap(8.0).center_y().child(text(tf!("{} file{} changed", d.files.len(), if d.files.len() == 1 { "" } else { "s" })).font(k.ty.small_medium).color(k.c.text_muted)).child(diffstat(k, add, del)))
+        .child(super::history::section(k, "c-sec-changes", &super::history::I_CHANGES, "Changes", Some(total)))
         .child(files)
         .child(diff_view(k, &tf!("cdiff-{sha}"), &d.diff));
     Some(side_pane(k, "c-pane", col_))

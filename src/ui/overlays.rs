@@ -85,6 +85,11 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     };
     let mut body = col().w_full().px(16.0).pb(16.0).gap(12.0);
 
+    // A history edit: the simulated outcome first.
+    if let Action::History { plan, .. } = &p.action {
+        body = body.child(super::history::preview(s, k, plan));
+    }
+
     // Merge options live in the dialog.
     if let Action::Merge { method, delete_branch, .. } = &p.action {
         let i = MergeMethod::ALL.iter().position(|m| m == method);
@@ -122,7 +127,10 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     }
 
     // Risk level + reasons.
-    if p.checking {
+    let history = matches!(p.action, Action::History { .. });
+    if history && !p.checking {
+        body = body.child(super::history::risk_strip(s, k, p));
+    } else if p.checking {
         body = body.child(row().gap(8.0).center_y().child(Spinner::new().size(14.0).build(k)).child(muted(k, "Checking GitHub and your working copy…")));
     } else {
         let mut box_ = col().w_full().gap(6.0).padding(12.0).radius(k.radius.md).fill(tone_bg).child(
@@ -147,7 +155,10 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     if let Some(b) = &p.blocked {
         body = body.child(col().w_full().gap(6.0).padding(12.0).radius(k.radius.md).fill(k.c.danger.bg).child(text("Can't do this right now").font(k.ty.ui_medium).color(k.c.danger.fg)).child(text(b.clone()).font(k.ty.small).color(k.c.text_base).wrap()));
     }
-    if !p.dirty.is_empty() {
+    if !p.dirty.is_empty() && history {
+        // The preview already names the files and the chip counts them: one short line.
+        body = body.child(muted(k, "Your uncommitted changes are stashed first; Undo or Branches → Stashes brings them back.").wrap());
+    } else if !p.dirty.is_empty() {
         let mut list = col().w_full().gap(2.0).padding(10.0).radius(k.radius.md).fill(k.c.bg_base);
         for f in p.dirty.iter().take(20) {
             list = list.child(text(f.clone()).font(k.ty.mono).color(k.c.text_muted).truncate());
@@ -194,14 +205,16 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         Action::Rerun { .. } => "Re-run".into(),
         Action::DeleteBranch { .. } => "Delete branch".into(),
         Action::Stash { op, .. } => tf!("{}{} stash", op[..1].to_uppercase(), &op[1..]),
+        // The branch is in the title and the field above: the button says only what it does.
+        Action::History { plan, .. } => plan.op.label(),
         other => other.label(),
     };
     let mut buttons = row().w_full().gap(8.0).child(spacer()).child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.cancel_pending()).build(k).key("no"));
     if !p.dirty.is_empty() && p.blocked.is_none() {
         buttons = buttons.child(
             { let tip = s.with_commands(crate::i18n::t("Stashes your changes first, then runs it. Undo pops the stash back."), &p.action.command_lines(true)); Button::new(crate::i18n::t("Stash and continue"))
-                .variant(ButtonVariant::Submit)
-                
+                .variant(if level == Level::High { ButtonVariant::Danger } else { ButtonVariant::Submit })
+                .disabled(!s.can_stash_confirm())
                 .on_press(|s: &mut State| s.confirm(true))
                 .build(k)
                 .key("stash-go").cmd_tip(s, tip) },
@@ -220,13 +233,22 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
                 .key("yes"),
         );
     }
-    body = body.child(buttons);
+    // A long dialog (a history edit's preview, many reasons) scrolls; the buttons stay in view.
+    let body = col()
+        .w_full()
+        .child(col().w_full().max_h(560.0).child(body).scroll(rune::ScrollSpec { stick_bottom: false }))
+        .child(row().w_full().px(16.0).pt(8.0).pb(16.0).child(buttons));
     let title = match level {
         _ if p.checking => tf!("{}?", p.action.label()),
         Level::High => tf!("⚠ {}?", p.action.label()),
         _ => tf!("{}?", p.action.label()),
     };
-    Dialog::new("guard", crate::i18n::t(title)).description(crate::i18n::t(p.action.subject())).open(true).fit().width(560.0).on_close(|s: &mut State| s.cancel_pending()).child(body).build(k, layer);
+    // A history edit's preview already says what moves where.
+    let mut dialog = Dialog::new("guard", crate::i18n::t(title));
+    if !history {
+        dialog = dialog.description(crate::i18n::t(p.action.subject()));
+    }
+    dialog.open(true).fit().width(560.0).on_close(|s: &mut State| s.cancel_pending()).child(body).build(k, layer);
 }
 
 // ---------------------------------------------------------------------------------------------

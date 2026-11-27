@@ -8,6 +8,8 @@ mod commits;
 mod compare;
 mod envs;
 mod group;
+mod history;
+pub use history::{Act as HistoryAct, Anim as HistoryAnim, Open as HistoryOpen, on_head};
 mod inbox;
 mod org;
 mod onboarding;
@@ -360,6 +362,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         Some(nav) => row().w_full().h_full().child(nav).child(col().w(0.0).grow(1.0).min_w(0.0).h_full().child(body)),
         None => body,
     };
+    history::reword_dialog(s, &k, &mut layer);
     overlays::guard_dialog(s, &k, &mut layer);
     group_dialog(s, &k, &mut layer);
     org::dialog(s, &k, &mut layer);
@@ -701,7 +704,7 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         Page::Pulls => prs::view(s, k),
         Page::Actions => actions::view(s, k),
         Page::Envs => envs::view(s, k),
-        Page::Commits | Page::Branches if repo.path.is_none() => no_clone(k, &repo.slug),
+        Page::Commits | Page::Branches if repo.path.is_none() => no_clone(s, k, &repo.slug),
         Page::Commits => commits::view(s, k),
         Page::Branches => branches::view(s, k),
         Page::Inbox | Page::Group => unreachable!(),
@@ -716,15 +719,40 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         .child(col().key(tf!("page:{page:?}")).w_full().grow(1.0).min_h(0.0).child(body))
 }
 
-fn no_clone(k: &Kit, slug: &str) -> El {
-    empty_state(
+fn no_clone(s: &State, k: &Kit, slug: &str) -> El {
+    // Clone for me: into the managed folder; or point at a clone you already have.
+    let busy = s.busy.contains(&format!("Clone {slug}"));
+    let target = s.clone_home().and_then(|h| crate::managed::dir_for(&h, slug));
+    let mut actions = row().gap(8.0);
+    if let Some(dir) = &target {
+        let line = crate::managed::clone_cmd(slug, dir).line();
+        let tip = s.with_commands(crate::i18n::t(tf!("Downloads {slug} into {}, then opens it here. A clone already there is used as it is.", dir.display())), &[line]);
+        actions = actions.child(
+            Button::new(crate::i18n::t(if busy { "Cloning…" } else { "Clone for me" }))
+                .variant(ButtonVariant::Contrast)
+                .disabled(busy)
+                .on_press(|s: &mut State| s.clone_for_me())
+                .build(k)
+                .key("clone-for-me")
+                .cmd_tip(s, tip),
+        );
+    }
+    actions = actions.child(Button::new(crate::i18n::t("Locate local clone…")).variant(ButtonVariant::Outline).on_press_tx(crate::ask_local_repo).build(k).key("locate"));
+    let mut c = empty_state(
         k,
         "no-clone",
         &I_REPO,
         "No local clone",
-        &tf!("Commits and branches read a local copy of {slug}. Point sigit at a folder where you already cloned it; nothing is downloaded or changed."),
-        Some(Button::new(crate::i18n::t("Locate local clone…")).variant(ButtonVariant::Contrast).on_press_tx(crate::ask_local_repo).build(k).key("locate")),
-    )
+        &tf!("Commits, branches and history editing read a local copy of {slug}. sigit can clone it for you, or you can point it at a clone you already have."),
+        Some(actions),
+    );
+    if let Some(dir) = target {
+        c = c.child(muted(k, tf!("It goes in {} (change the folder in Settings → Git)", dir.display())).pt(4.0));
+    }
+    if busy {
+        c = c.child(row().gap(8.0).center_y().child(Spinner::new().size(14.0).build(k)).child(muted(k, "Downloading… large repos can take a minute")));
+    }
+    c
 }
 
 /// A page or panel with nothing to show yet: an icon on a soft tile, a title, one or two
@@ -775,7 +803,7 @@ fn titlebar(k: &Kit, insets: rune::ChromeInsets, ready: bool) -> El {
         .gap(8.0)
         .center_y()
         .child(app_mark(22.0))
-        .child(text("sigit").font(k.ty.ui_medium).color(k.c.text_base));
+        .child(text(crate::channel::name()).font(k.ty.ui_medium).color(k.c.text_base));
     let command = row()
         .key("command-bar")
         .w_full()

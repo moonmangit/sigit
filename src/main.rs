@@ -17,6 +17,7 @@
 mod i18n;
 mod activity;
 mod cache;
+mod channel;
 mod crash_log;
 mod focus;
 mod onboarding;
@@ -29,9 +30,11 @@ mod daily;
 mod gh;
 mod git;
 mod guard;
+mod history;
 mod jobs;
 mod lane;
 mod lane_model;
+mod managed;
 mod modules;
 mod model;
 mod pulse;
@@ -590,6 +593,10 @@ pub struct State {
     pub repo_scope: Option<RepoScope>,
     pub compare_edit: Option<CompareEdit>,
     pub pr_draft: Option<PrDraft>,
+    /// Commits → Reword…: the commit and its new message, before the simulation.
+    pub reword: Option<(String, TextEdit)>,
+    /// What's open in the history preview and the Edit history section.
+    pub history_open: ui::HistoryOpen,
     /// The draft last handed to the guard: it comes back if the PR isn't opened.
     pub last_pr_draft: Option<PrDraft>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
@@ -754,6 +761,8 @@ impl State {
             repo_scope: None,
             compare_edit: None,
             pr_draft: None,
+            reword: None,
+            history_open: Default::default(),
             last_pr_draft: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
@@ -764,6 +773,7 @@ impl State {
 }
 
 fn init() -> State {
+    config::seed_beta_folder(); // a beta's first start: the stable app's settings
     config::migrate_old_folder(); // before anything reads the folder
     update::clean_up_previous(); // the copy the last update set aside
     let mut s = State::new(config::load_prefs());
@@ -2888,6 +2898,80 @@ impl State {
         self.request(guard::Action::Pull { dir });
     }
 
+    /// History editing: simulate `op` on a worker (nothing changes), then open the guard's
+    /// dialog with the preview. The dialog's preflight and the apply happen in `guard`.
+    pub fn simulate_history(&mut self, op: history::Op) {
+        let (Some(dir), Some(slug)) = (self.local_path(), self.cur.clone()) else { return };
+        let label = history::sim_label(&op);
+        if self.busy.contains(&label) {
+            return;
+        }
+        self.busy.push(label.clone());
+        let d = dir.clone();
+        jobs::spawn(self, move || history::simulate(&d, &op), move |s, r| {
+            s.busy.retain(|b| *b != label);
+            match r {
+                Ok(plan) => {
+                    // A new preview starts folded (the help box keeps its state).
+                    let o = s.history_open;
+                    s.history_open = ui::HistoryOpen { help: o.help, how: o.how, act: o.act, ..Default::default() };
+                    s.request(guard::Action::History { dir, slug, plan: Box::new(plan) })
+                }
+                Err(e) => s.toast(crate::i18n::t(tf!("Can't do that: {e}")), true),
+            }
+        });
+    }
+
+    /// The preview's animation: play it from the start.
+    pub fn play_history_anim(&mut self) {
+        self.history_open.anim = Some(ui::HistoryAnim::start(self.clock));
+    }
+
+    /// From `poll`: the animation's next step when it's due; it closes with its dialog. One wake
+    /// per step: Rune draws the frames in between.
+    fn tick_history_anim(&mut self, tx: &mut Tx) -> bool {
+        let Some(a) = self.history_open.anim else { return false };
+        if !self.pending.as_ref().is_some_and(|p| matches!(p.action, guard::Action::History { .. })) {
+            self.history_open.anim = None;
+            return true;
+        }
+        let next = a.advance(self.clock);
+        if let Some(w) = next.wait(self.clock) {
+            tx.wake_after(Duration::from_secs_f64(w.max(0.05)));
+        }
+        self.history_open.anim = Some(next);
+        if next != a {
+            // A timer, not the pointer, moves it on: ask Rune to animate this change (it lands
+            // changes no input caused at once otherwise).
+            tx.animated();
+        }
+        next != a
+    }
+
+    /// A branch moved (an edit, its Undo, a checkout, a pull): which commits are on the current
+    /// branch, and which is HEAD, changed. Cached commit details carry that, so they go, and
+    /// the selected commit's detail loads again.
+    pub fn refs_moved(&mut self) {
+        self.commit_memo.clear();
+        if let Some(sha) = self.commit_sel.take() {
+            self.select_commit(&sha);
+            // No clone to read it from: keep the selection as it was.
+            if self.commit_sel.is_none() {
+                self.commit_sel = Some(sha);
+            }
+        }
+    }
+
+    /// Reword…: opens the message editor with the commit's full message.
+    pub fn start_reword(&mut self, sha: String, message: String) {
+        self.reword = Some((sha, TextEdit::new(&message)));
+    }
+
+    pub fn submit_reword(&mut self) {
+        let Some((sha, msg)) = self.reword.take() else { return };
+        self.simulate_history(history::Op::Reword { sha, message: msg.text.clone() });
+    }
+
     pub fn checkout_branch(&mut self, name: String, remote: bool) {
         let (Some(dir), Some(slug)) = (self.local_path(), self.cur.clone()) else { return };
         self.request(guard::Action::Checkout { dir, slug, name, remote });
@@ -2975,6 +3059,45 @@ impl State {
         self.rescan_folders(true);
     }
 
+    /// Where "Clone for me" puts clones: the folder set in Settings → Git, or ~/sigit/repos.
+    pub fn clone_home(&self) -> Option<PathBuf> {
+        self.prefs.clone_home.clone().or_else(managed::default_home)
+    }
+
+    /// "Clone for me": clone the open repo into the managed folder (or use the clone already
+    /// there), add it, and open Commits. The folder joins the scanned clone folders, so the
+    /// clone is found again even if the repo list is lost.
+    pub fn clone_for_me(&mut self) {
+        let Some(slug) = self.cur.clone() else { return };
+        let Some(home) = self.clone_home() else {
+            self.toast(crate::i18n::t("No home folder to put clones in: pick one in Settings → Git"), true);
+            return;
+        };
+        let label = format!("Clone {slug}");
+        if self.busy.contains(&label) {
+            return;
+        }
+        self.busy.push(label.clone());
+        let s2 = slug.clone();
+        jobs::spawn(self, move || gh::recording(|| managed::clone(&home, &s2)).0.map(|dir| (dir, home)), move |s, r| {
+            s.busy.retain(|b| *b != label);
+            match r {
+                Ok((dir, home)) => {
+                    s.add_repo(slug.clone(), Some(dir.clone()));
+                    s.save_repo_list();
+                    if !s.prefs.clone_folders.contains(&home) {
+                        s.prefs.clone_folders.push(home);
+                        s.save_prefs();
+                    }
+                    s.toast(crate::i18n::t(tf!("{slug} is cloned in {}", dir.display())), false);
+                    s.select_repo(&slug, if matches!(s.page, Page::Branches) { Page::Branches } else { Page::Commits });
+                    s.refresh_page();
+                }
+                Err(e) => s.toast(crate::i18n::t(tf!("Couldn't clone {slug}: {e}")), true),
+            }
+        });
+    }
+
     fn add_local_repo(&mut self, dir: PathBuf) {
         let Some(top) = git::toplevel(&dir) else {
             self.toast(crate::i18n::t(tf!("{} isn't a git repository", dir.display())), true);
@@ -2995,6 +3118,19 @@ pub fn ask_local_repo(s: &mut State, tx: &mut Tx) {
     let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.local_path(), ..Default::default() };
     tx.open_folder(options, |s: &mut State, r, _| match r {
         Ok(Some(dir)) => s.add_local_repo(dir),
+        Ok(None) => {}
+        Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
+    });
+}
+
+/// Settings → Git "Clones sigit makes" → Change…: the OS folder picker.
+pub fn ask_clone_home(s: &mut State, tx: &mut Tx) {
+    let options = FileDialogOptions { title: "Choose where sigit puts the clones it makes".into(), directory: s.clone_home(), ..Default::default() };
+    tx.open_folder(options, |s: &mut State, r, _| match r {
+        Ok(Some(dir)) => {
+            s.prefs.clone_home = Some(dir);
+            s.save_prefs();
+        }
         Ok(None) => {}
         Err(e) => s.toast(crate::i18n::t(e.to_string()), true),
     });
@@ -3070,6 +3206,7 @@ fn poll_inner(s: &mut State, clock: f64, tx: &mut Tx) -> bool {
     if !s.window_icon_set {
         s.window_icon_set = window_icon::apply();
     }
+    changed |= s.tick_history_anim(tx);
     changed |= s.poll_setup();
     if s.reveal.is_some() || s.want_failed.is_some() {
         changed |= s.poll_focus(tx);
@@ -3344,6 +3481,7 @@ fn branches_fixture(s: &mut State) {
 }
 
 fn main() {
+    config::seed_beta_folder(); // a beta's first start: the stable app's settings
     config::migrate_old_folder(); // before the crash log makes the folder
     crash_log::install();
     #[cfg(target_os = "macos")]
@@ -3523,6 +3661,132 @@ fn main() {
                 s.select_repo(&local, Page::Commits);
                 if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
                     s.select_commit(&sha);
+                }
+            }),
+            ("history-edit", |s: &mut State| {
+                // A simulated edit: commit objects only, no ref or file changes; the dialog's
+                // preflight is read-only and nothing is confirmed.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reword { sha, message: "A better message\n\nWith a body.".into() });
+                }
+            }),
+            ("history-reword", |s: &mut State| {
+                // The Reword… dialog, before anything is simulated.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    let body = s.commit_detail.data.as_ref().map(|d| d.body.clone()).unwrap_or_default();
+                    s.start_reword(sha, body);
+                }
+            }),
+            ("history-risk", |s: &mut State| {
+                // A simulated hard reset past pushed commits: the high-risk dialog. Nothing runs.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(4)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Hard });
+                }
+            }),
+            ("history-open", |s: &mut State| {
+                // The high-risk preview with its details open: every row, every file, the reasons.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(8)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Soft });
+                }
+                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true, about: true, how: true, act: Some(ui::HistoryAct::Revert), anim: None };
+            }),
+            ("history-guide", |s: &mut State| {
+                // The Edit history section with its guide open: what each action does and when.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                }
+                s.history_open.help = true;
+                s.history_open.act = Some(ui::HistoryAct::Squash);
+            }),
+            ("history-anim", |s: &mut State| {
+                // The preview's animation, playing: squash the third commit into the fourth, so two
+                // commits join and the ones above are made again, over their neighbours. A squash
+                // can't conflict. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(2)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Squash { sha, fixup: false });
+                }
+                s.play_history_anim();
+            }),
+            ("history-anim-pick", |s: &mut State| {
+                // A cherry-pick, animated: the first single-parent commit that isn't on the
+                // current branch is copied on top. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                let pick = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.iter().find(|c| c.parents.len() == 1 && !ui::on_head(g, &c.sha)).map(|c| c.sha.clone()));
+                if let Some(sha) = pick {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::CherryPick { sha });
+                }
+                s.play_history_anim();
+            }),
+            ("history-anim-reset", |s: &mut State| {
+                // A soft reset five commits back, animated: the branch label moves down, and
+                // commits a remote still has step aside instead of vanishing. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(5)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Soft });
+                }
+                s.play_history_anim();
+            }),
+            ("history-anim-op", |s: &mut State| {
+                // Any action, animated, for checking them all: SIGIT_ANIM_OP (reset-soft,
+                // reset-mixed, reset-hard, revert, pick, reword, drop, squash, fixup, up, down,
+                // amend) on the commit at row SIGIT_ANIM_AT of the Commits list. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                let at: usize = std::env::var("SIGIT_ANIM_AT").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+                let what = std::env::var("SIGIT_ANIM_OP").unwrap_or_else(|_| "revert".into());
+                let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(at)).map(|c| c.sha.clone()) else { return };
+                s.select_commit(&sha);
+                use history::{Op, ResetMode};
+                let op = match what.as_str() {
+                    "reset-soft" => Op::Reset { to: sha, mode: ResetMode::Soft },
+                    "reset-mixed" => Op::Reset { to: sha, mode: ResetMode::Mixed },
+                    "reset-hard" => Op::Reset { to: sha, mode: ResetMode::Hard },
+                    "pick" => Op::CherryPick { sha },
+                    "reword" => Op::Reword { sha, message: "A clearer message".into() },
+                    "drop" => Op::Drop { sha },
+                    "squash" => Op::Squash { sha, fixup: false },
+                    "fixup" => Op::Squash { sha, fixup: true },
+                    "up" => Op::Move { sha, up: true },
+                    "down" => Op::Move { sha, up: false },
+                    "amend" => Op::Amend,
+                    _ => Op::Revert { sha },
+                };
+                s.simulate_history(op);
+                s.play_history_anim();
+            }),
+            ("clone-for-me", |s: &mut State| {
+                // A repo with no local clone: Commits offers "Clone for me". Nothing runs.
+                let remote = s.repos.iter().find(|r| r.path.is_none()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&remote, Page::Commits);
+            }),
+            ("light-history-edit", |s: &mut State| {
+                s.prefs.theme = config::Theme::Light;
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(2)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Squash { sha, fixup: false });
                 }
             }),
             ("branches", |s: &mut State| {
@@ -3825,13 +4089,14 @@ fn main() {
         poll: Some(poll),
         setup: Some(|s: &mut State, waker| s.images = Some(rune::ImageCache::new(waker))),
         on_key: Some(on_key),
-        ..AppSpec::new("sigit", (1440.0, 900.0), init, view)
+        ..AppSpec::new(channel::name(), (1440.0, 900.0), init, view)
     };
-    let headless = std::env::args().any(|a| a == "--snap" || a == "--tree" || a == "--script");
+    // `--frames` and `--video` dump an animation: headless too, so their scene has its data.
+    let headless = std::env::args().any(|a| ["--snap", "--tree", "--script", "--frames", "--video"].contains(&a.as_str()));
     // B6: OS notifications under the app's own name; a click opens what it's about. Registering
     // writes the name under HKCU\Software\Classes\AppUserModelId, so headless runs skip it.
     if !headless {
-        let mut identity = rune_notify::Identity::new("dev.sigit.app", "sigit");
+        let mut identity = rune_notify::Identity::new(channel::app_id(), channel::name());
         // The notification icon is read from a file: keep a copy of the app icon in our folder.
         if let Some(dir) = config::dir() {
             let icon = dir.join("icon.png");
@@ -4325,7 +4590,7 @@ mod cache_tests {
         let action = guard::Action::CreatePr { spec };
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: false, detail: "a pull request already exists".into(), commands: vec![] };
         // The guard's own handling of a command that failed.
-        s.action_finished(action.clone(), action.label(), None, false, (Err(entry.detail.clone()), entry, Ok(())));
+        s.action_finished(action.clone(), action.label(), None, None, (Err(entry.detail.clone()), entry, Ok(())));
         assert!(s.branch_prs.contains_key(&key), "a failed CreatePr asks for the statuses again");
     }
 
@@ -4591,7 +4856,193 @@ mod cache_tests {
 
     fn finish_with(s: &mut State, action: guard::Action, r: Result<String, String>) {
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: r.is_ok(), detail: r.clone().unwrap_or_else(|e| e), commands: vec![] };
-        s.action_finished(action.clone(), action.label(), None, false, (r, entry, Ok(())));
+        s.action_finished(action.clone(), action.label(), None, None, (r, entry, Ok(())));
+    }
+
+    /// History editing end to end through `State`: simulate, apply (the worker's half), the
+    /// result toast with Undo, then Undo puts the branch back.
+    /// A temporary repository with three commits (a.txt, b.txt, c.txt), for State-level tests.
+    fn history_repo(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sigit-state-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        for (f, msg) in [("a.txt", "one"), ("b.txt", "two"), ("c.txt", "three")] {
+            std::fs::write(dir.join(f), msg).unwrap();
+            git(&["add", f]);
+            git(&["commit", "-q", "-m", msg]);
+        }
+        dir
+    }
+
+    #[test]
+    fn failed_history_apply_puts_the_stash_back() {
+        let dir = history_repo("stash-back");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let one = git(&["rev-parse", "HEAD~2"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reset { to: one, mode: history::ResetMode::Hard }).unwrap();
+        // The branch moves after the simulation, so the apply's preflight refuses.
+        std::fs::write(dir.join("d.txt"), "four").unwrap();
+        git(&["add", "d.txt"]);
+        git(&["commit", "-q", "-m", "four"]);
+        std::fs::write(dir.join("a.txt"), "my work").unwrap();
+        let mut s = dialog_state();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        s.pending = Some(guard::Pending { action, checking: false, risk: risk::Risk::new(risk::Level::Low), blocked: None, dirty: vec!["a.txt".into()], word: None });
+        s.confirm(true);
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "my work", "the work is back in the file");
+        assert_eq!(git(&["stash", "list"]), "", "and not left in a stash");
+        let toast = s.toasts.last().expect("a toast");
+        assert!(toast.error && toast.text.contains("put back"), "{}", toast.text);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_apply_never_pops_an_older_stash() {
+        let dir = history_repo("old-stash");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        // The user's own stash, from before.
+        std::fs::write(dir.join("a.txt"), "older work").unwrap();
+        git(&["stash", "push", "-q", "-m", "mine"]);
+        let one = git(&["rev-parse", "HEAD~2"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reset { to: one, mode: history::ResetMode::Hard }).unwrap();
+        // The tree is clean when "Stash and continue" runs (nothing to stash), and the branch
+        // moved, so the apply fails.
+        std::fs::write(dir.join("d.txt"), "four").unwrap();
+        git(&["add", "d.txt"]);
+        git(&["commit", "-q", "-m", "four"]);
+        let mut s = dialog_state();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        s.pending = Some(guard::Pending { action, checking: false, risk: risk::Risk::new(risk::Level::Low), blocked: None, dirty: vec!["a.txt".into()], word: None });
+        s.confirm(true);
+        assert!(git(&["stash", "list"]).contains("mine"), "the older stash is still there");
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "one", "and was not popped into the files");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stash_and_continue_still_needs_the_typed_name_for_high_risk() {
+        let dir = history_repo("typed");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let before = git(&["rev-parse", "HEAD"]);
+        let one = git(&["rev-parse", "HEAD~2"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reset { to: one, mode: history::ResetMode::Hard }).unwrap();
+        std::fs::write(dir.join("a.txt"), "my work").unwrap();
+        let mut s = dialog_state();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        s.pending = Some(guard::Pending { action, checking: false, risk: risk::Risk::new(risk::Level::High), blocked: None, dirty: vec!["a.txt".into()], word: Some("main".into()) });
+        assert!(!s.can_stash_confirm());
+        s.confirm(true);
+        assert!(s.pending.is_some(), "nothing ran without the name");
+        assert_eq!(git(&["rev-parse", "HEAD"]), before);
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "my work");
+        s.typed = rune::TextEdit::new("main");
+        assert!(s.can_stash_confirm());
+        s.confirm(true);
+        assert_ne!(git(&["rev-parse", "HEAD"]), before, "with the name it runs");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn moving_a_ref_drops_cached_commit_details() {
+        let mut s = dialog_state();
+        s.commit_sel = Some("abc".into());
+        s.commit_memo.insert(("a/b".into(), "def".into()), Load { data: Some(model::CommitDetail { on_head: Some(true), is_head: true, ..Default::default() }), ..Default::default() });
+        s.refs_moved();
+        assert!(s.commit_memo.is_empty(), "no detail says which commit is HEAD from before");
+        assert_eq!(s.commit_sel.as_deref(), Some("abc"), "the selection stays");
+    }
+
+    #[test]
+    fn commit_detail_knows_the_current_branch() {
+        let dir = history_repo("detail");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let head = git(&["rev-parse", "HEAD"]).trim().to_owned();
+        let two = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+        git(&["switch", "-q", "-c", "side", &two]);
+        std::fs::write(dir.join("s.txt"), "side").unwrap();
+        git(&["add", "s.txt"]);
+        git(&["commit", "-q", "-m", "side"]);
+        let side = git(&["rev-parse", "HEAD"]).trim().to_owned();
+        git(&["switch", "-q", "main"]);
+        let d = |sha: &str| git::commit_detail(&dir, sha).unwrap();
+        assert_eq!((d(&head).on_head, d(&head).is_head), (Some(true), true));
+        assert_eq!((d(&two).on_head, d(&two).is_head), (Some(true), false));
+        assert_eq!(d(&side).on_head, Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unrecorded_reads_stay_out_of_the_log() {
+        let ((), lines) = gh::recording(|| {
+            let _ = gh::unrecorded(|| gh::run("git", &["--version"], None));
+            let _ = gh::run("git", &["--version"], None);
+        });
+        assert_eq!(lines, ["git --version"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_command_is_stopped_at_its_limit() {
+        let t = Instant::now();
+        let r = gh::run_full_within("sleep", &["5"], None, None, &[], Some(Duration::from_millis(300)));
+        assert!(r.is_err_and(|e| e.contains("longer than")));
+        assert!(t.elapsed() < Duration::from_secs(3));
+        let ok = gh::run_full_within("echo", &["hi"], None, None, &[], Some(Duration::from_secs(5))).unwrap();
+        assert_eq!(ok.stdout.trim(), "hi");
+    }
+
+    #[test]
+    fn history_animation_steps_on_the_clock() {
+        let a = ui::HistoryAnim::start(10.0);
+        assert_eq!(a.advance(10.5), a, "too early: same step");
+        let b = a.advance(10.0 + ui::HistoryAnim::STEP_SECS);
+        assert_eq!((b.step, b.playing), (1, true));
+        let c = b.advance(b.at + ui::HistoryAnim::STEP_SECS);
+        assert_eq!((c.step, c.playing), (2, false), "stops at the last step");
+        assert_eq!(c.advance(100.0), c);
+        assert!(c.wait(100.0).is_none() && a.wait(10.5).is_some());
+    }
+
+    #[test]
+    fn history_edit_apply_then_undo_through_state() {
+        let dir = std::env::temp_dir().join(format!("sigit-state-history-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        for (f, msg) in [("a.txt", "one"), ("b.txt", "two"), ("c.txt", "three")] {
+            std::fs::write(dir.join(f), msg).unwrap();
+            git(&["add", f]);
+            git(&["commit", "-q", "-m", msg]);
+        }
+        let head = |g: &dyn Fn(&[&str]) -> String| g(&["rev-parse", "HEAD"]).trim().to_owned();
+        let before = head(&git);
+        let two = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Drop { sha: two }).unwrap();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan.clone()) };
+        let mut s = dialog_state();
+        // The worker's half of `execute`, then the UI's.
+        let r = history::apply(&dir, &plan);
+        assert!(r.is_ok(), "{r:?}");
+        let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: true, detail: r.clone().unwrap(), commands: vec![] };
+        s.action_finished(action.clone(), action.label(), None, None, (r, entry, Ok(())));
+        assert_eq!(head(&git), plan.new_tip);
+        assert!(!dir.join("b.txt").exists());
+        let toast = s.toasts.iter().find(|t| t.undo.is_some()).expect("a toast with Undo");
+        assert!(matches!(toast.undo, Some(guard::Undo::History { .. })));
+        let id = toast.id;
+        s.run_undo(id);
+        assert_eq!(head(&git), before, "Undo put the branch back");
+        assert!(dir.join("b.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
