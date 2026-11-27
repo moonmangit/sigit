@@ -220,6 +220,45 @@ fn registry_path(machine: bool) -> Option<String> {
     }
 }
 
+/// What [`run_full`] got back: the exit status's success, stdout and stderr.
+pub struct Output {
+    pub ok: bool,
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Like [`run`], but a failing exit status is not an error (`git merge-tree` exits 1 for a
+/// conflict and still prints the result), with `stdin` fed in and extra environment variables.
+/// Only "couldn't start it" is an `Err`. Recorded like `run`.
+pub fn run_full(program: &str, args: &[&str], cwd: Option<&Path>, stdin: Option<&str>, env: &[(&str, &str)]) -> Result<Output, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    RECORD.with(|r| {
+        if let Some(v) = r.borrow_mut().as_mut() {
+            v.push(line(program, args));
+        }
+    });
+    let mut cmd = command(program, args, cwd);
+    // Nothing here may wait for a person: no editor, no password prompt.
+    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GIT_EDITOR", "true").env("GIT_SEQUENCE_EDITOR", "true");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("couldn't start `{program}`: {e}"))?;
+    if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        pipe.write_all(input.as_bytes()).map_err(|e| format!("couldn't write to `{program}`: {e}"))?;
+    }
+    let out = child.wait_with_output().map_err(|e| format!("`{program}` failed: {e}"))?;
+    Ok(Output {
+        ok: out.status.success(),
+        code: out.status.code(),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+    })
+}
+
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
     RECORD.with(|r| {
         if let Some(v) = r.borrow_mut().as_mut() {

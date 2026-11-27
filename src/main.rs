@@ -29,6 +29,7 @@ mod daily;
 mod gh;
 mod git;
 mod guard;
+mod history;
 mod jobs;
 mod lane;
 mod lane_model;
