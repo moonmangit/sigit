@@ -95,22 +95,24 @@ The operations, all on the **current branch** of a local clone:
 
 ## Uncommitted changes
 
-- **Hard reset:** the guard's dialog asks to **Stash and continue** first. The stash keeps the
-  changes safe; it is not popped after the reset (that would undo the reset's purpose). Undo
-  moves the branch back and pops the stash.
-- **All other edits** keep uncommitted changes in place: `read-tree -m -u` changes only the
-  files that differ between the old and the new tip. The preflight compares the uncommitted
-  files with those files; if one is in both, it blocks with the file names ("commit or stash
-  them first"). If git still refuses, the branch goes back (rollback).
+- **Hard reset:** the dialog asks to **Stash and continue** first. That button needs the same
+  checks as Confirm, including the typed branch name for High risk. sigit records the stash it
+  made by its SHA (git makes none when there is nothing to stash), and:
+  - if the apply fails, it pops that stash back at once and says so;
+  - Undo moves the branch back and pops that stash (found by SHA, not `stash@{0}`), so an older
+    stash of the user's is never popped.
+- **All other edits** keep uncommitted changes in place: `read-tree -m -u` changes only the files
+  that differ between the old and the new tip. The preflight blocks, with the file names, when an
+  uncommitted file is one of those files. If git still refuses, the branch goes back (rollback).
 - Soft and mixed reset and amend do not touch the files. Amend needs staged changes.
 
-## Pushed commits and signing
+## Pushed commits, signing, the remote
 
-- A rewritten commit counts as pushed when **any** remote branch has it (`git rev-list old ^new`
-  minus `--not --remotes`), not only the branch's upstream.
+- A rewritten commit counts as pushed when **any** remote branch has it.
 - With `commit.gpgsign=true`, `commit-tree` gets `-S`, so rewritten commits stay signed.
-- The remote check uses no prompts (`GIT_TERMINAL_PROMPT=0`); a remote that needs a password
-  counts as unreachable.
+- The remote check uses no prompts (`GIT_TERMINAL_PROMPT=0`) and stops after 20 s; then the remote
+  counts as unreachable (a warning, or a block when pushed commits are rewritten).
+- Reflog notes are English (`sigit: reword abc1234`), whatever the interface language.
 
 ## Risk
 
@@ -124,14 +126,19 @@ The operations, all on the **current branch** of a local clone:
 
 ## Where in the UI
 
-The Commits page's side pane for a selected commit gets an **Edit history** section:
-- For a commit on the current branch: Reset here (soft / mixed / hard), Revert, Reword…, Drop,
-  Squash into parent, Fixup into parent, Move up, Move down.
-- For a commit not on the current branch: Cherry-pick onto {branch}, Reset here (hard and soft).
-- The toolbar: **Amend last commit** (with staged changes).
-
-Each button simulates first (spinner on the button) and then opens the guard's dialog with the
-preview. Reword opens a small dialog with the message first.
+- The Commits page's side pane for a selected commit has an **Edit history** card (header with
+  the branch and ⓘ). Its buttons are grouped by what you want: **Go back to here** (Reset soft,
+  mixed, hard), **Undo this commit** (Revert, Drop), **Change this commit** (Reword…, Squash,
+  Fixup, Move up, Move down) and **Copy to {branch}** (Cherry-pick). Whether the commit is on the
+  current branch, and whether it is HEAD, comes from git when its detail loads (so Commits filters
+  can't hide buttons); after any action that moves a branch, the cached details are dropped.
+- ⓘ opens a folded guide: action names; one opens to a before/after picture, what it does and
+  its common use. "How it works" folds too. Every button's hover help has the same text.
+- The toolbar has **Amend last commit**.
+- The confirm dialog is a graphic preview: a commit graph (− leaves, + new, ~ made again,
+  ↳ joined), a bar per changed file, risk chips, **Why?** for the full reasons, and **Runs**.
+  **Play** animates the edit on the real commits with their neighbours (Before → What changes →
+  After). Long dialogs scroll; the buttons stay in view.
 
 ## Tests
 
