@@ -3671,6 +3671,57 @@ fn main() {
                 }
                 s.play_history_anim();
             }),
+            ("history-anim-pick", |s: &mut State| {
+                // A cherry-pick, animated: the first single-parent commit that isn't on the
+                // current branch is copied on top. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                let pick = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.iter().find(|c| c.parents.len() == 1 && !ui::on_head(g, &c.sha)).map(|c| c.sha.clone()));
+                if let Some(sha) = pick {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::CherryPick { sha });
+                }
+                s.play_history_anim();
+            }),
+            ("history-anim-reset", |s: &mut State| {
+                // A soft reset five commits back, animated: the branch label moves down, and
+                // commits a remote still has step aside instead of vanishing. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(5)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Soft });
+                }
+                s.play_history_anim();
+            }),
+            ("history-anim-op", |s: &mut State| {
+                // Any action, animated, for checking them all: SIGIT_ANIM_OP (reset-soft,
+                // reset-mixed, reset-hard, revert, pick, reword, drop, squash, fixup, up, down,
+                // amend) on the commit at row SIGIT_ANIM_AT of the Commits list. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                let at: usize = std::env::var("SIGIT_ANIM_AT").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+                let what = std::env::var("SIGIT_ANIM_OP").unwrap_or_else(|_| "revert".into());
+                let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(at)).map(|c| c.sha.clone()) else { return };
+                s.select_commit(&sha);
+                use history::{Op, ResetMode};
+                let op = match what.as_str() {
+                    "reset-soft" => Op::Reset { to: sha, mode: ResetMode::Soft },
+                    "reset-mixed" => Op::Reset { to: sha, mode: ResetMode::Mixed },
+                    "reset-hard" => Op::Reset { to: sha, mode: ResetMode::Hard },
+                    "pick" => Op::CherryPick { sha },
+                    "reword" => Op::Reword { sha, message: "A clearer message".into() },
+                    "drop" => Op::Drop { sha },
+                    "squash" => Op::Squash { sha, fixup: false },
+                    "fixup" => Op::Squash { sha, fixup: true },
+                    "up" => Op::Move { sha, up: true },
+                    "down" => Op::Move { sha, up: false },
+                    "amend" => Op::Amend,
+                    _ => Op::Revert { sha },
+                };
+                s.simulate_history(op);
+                s.play_history_anim();
+            }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;
                 let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());

@@ -1449,3 +1449,29 @@ Your uncommitted changes are stashed first; Undo or Branches → Stashes brings 
 {e} Your uncommitted changes were put back.	{e} การเปลี่ยนแปลงที่ยังไม่ commit ถูกนำกลับมาแล้ว
 {e} Your uncommitted changes are still in the stash (Branches → Stashes): putting them back failed ({p}).	{e} การเปลี่ยนแปลงที่ยังไม่ commit ยังอยู่ใน stash (Branch → Stash): นำกลับไม่สำเร็จ ({p})
 That stash is no longer there (popped or dropped meanwhile)	stash นั้นไม่อยู่แล้ว (ถูก pop หรือ drop ไประหว่างนั้น)
+A new commit {new_tip} on top undoes {t}. Nothing leaves {b}.	commit ใหม่ {new_tip} ด้านบนยกเลิก {t} ไม่มีอะไรออกจาก {b}
+Dimmed on the right: old commits that {holder} still has. They stay there until you force-push.	สีจางทางขวา: commit เดิมที่ {holder} ยังมีอยู่ จะอยู่ที่นั่นจนกว่าคุณจะ force-push
+One commit now holds both changes and both messages.	ตอนนี้ commit เดียวมีทั้งสองการเปลี่ยนแปลงและทั้งสองข้อความ
+One commit now holds both changes, with the older message.	ตอนนี้ commit เดียวมีทั้งสองการเปลี่ยนแปลง พร้อมข้อความของ commit เก่ากว่า
+The copy {new_tip} is the new tip of {b}. The original stays where it was.	สำเนา {new_tip} เป็น tip ใหม่ของ {b} ต้นฉบับยังอยู่ที่เดิม
+The same changes in a new order, with new SHAs; {b} points at {new_tip}.	การเปลี่ยนแปลงเหมือนเดิมในลำดับใหม่ ด้วย SHA ใหม่ {b} ชี้ที่ {new_tip}
+The same files with new SHAs from {t} up; {b} points at {new_tip}.	ไฟล์เหมือนเดิม SHA ใหม่ตั้งแต่ {t} ขึ้นไป {b} ชี้ที่ {new_tip}
+Where {} points: it moves to the new tip	ตำแหน่งที่ {} ชี้: จะย้ายไปที่ tip ใหม่
+Your branch now: the {b} label is at its tip. The ringed commit is the one you picked; the grey ones under the edit stay as they are.	branch ของคุณตอนนี้: ป้าย {b} อยู่ที่ tip commit ที่มีวงคือ commit ที่คุณเลือก commit สีเทาใต้การแก้ไขยังเหมือนเดิม
+Your staged changes go into {t}, the last commit.	การเปลี่ยนแปลงที่ stage ไว้จะเข้าไปใน {t} ซึ่งเป็น commit ล่าสุด
+another branch	branch อื่น
+staged changes	การเปลี่ยนแปลงที่ stage ไว้
+{b} now points at {t}, and your files match it. Your uncommitted work was stashed first.	ตอนนี้ {b} ชี้ที่ {t} และไฟล์ของคุณตรงกับมัน งานที่ยังไม่ commit ถูก stash ไว้ก่อน
+{b} now points at {t}. The changes of the commits that left stay in your files, not staged.	ตอนนี้ {b} ชี้ที่ {t} การเปลี่ยนแปลงของ commit ที่ออกไปยังอยู่ในไฟล์ แบบไม่ stage
+{b} now points at {t}. The changes of the commits that left stay in your files, staged.	ตอนนี้ {b} ชี้ที่ {t} การเปลี่ยนแปลงของ commit ที่ออกไปยังอยู่ในไฟล์ แบบ stage ไว้
+{b} will point at {t}: the red commits above it leave {b}.	{b} จะชี้ที่ {t}: commit สีแดงด้านบนจะออกจาก {b}
+{t} and the newer commit after it swap places.	{t} สลับที่กับ commit ที่ใหม่กว่าถัดไป
+{t} and the older commit before it swap places.	{t} สลับที่กับ commit ที่เก่ากว่าก่อนหน้า
+{t} gets a new message. The commits after it are made again (amber).	{t} ได้ข้อความใหม่ commit ที่ตามมาถูกสร้างใหม่ (สีเหลือง)
+{t} is gone from {b}, and the commits after it moved down into its place.	{t} ออกจาก {b} แล้ว และ commit ที่ตามมาเลื่อนลงมาแทนที่
+{t} is made again as {new_tip}, with your staged changes and the same message.	{t} ถูกสร้างใหม่เป็น {new_tip} พร้อมการเปลี่ยนแปลงที่ stage ไว้และข้อความเดิม
+{t} is the commit to undo. It stays in the history.	{t} คือ commit ที่จะยกเลิก มันยังอยู่ในประวัติ
+{t} joins the commit before it.	{t} รวมเข้ากับ commit ก่อนหน้า
+{t} joins the commit before it; only that commit's message stays.	{t} รวมเข้ากับ commit ก่อนหน้า เหลือเฉพาะข้อความของ commit นั้น
+{t} leaves {b}. The commits after it are made again without its changes.	{t} ออกจาก {b} commit ที่ตามมาถูกสร้างใหม่โดยไม่มีการเปลี่ยนแปลงของมัน
+{t} on {from} is copied.	{t} บน {from} ถูกคัดลอก

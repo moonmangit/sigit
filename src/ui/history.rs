@@ -734,38 +734,158 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
     c
 }
 
-/// What each step shows, in one line (it also carries the meaning under Reduce Motion).
-const STEP_TEXT: [(&str, &str); 3] = [
-    ("Before", "Your branch now, with the commits under the edit."),
-    ("What changes", "Red commits leave the branch, amber ones are made again, green ones are new."),
-    ("After", "The new history. The commits under the edit stay as they are."),
-];
+/// The steps' names; `step_text` says what each shows for the action.
+const STEP_TEXT: [&str; 3] = ["Before", "What changes", "After"];
 
 /// How a commit glides to its next place or fades: slower than the UI's own springs, so the
 /// eye can follow one commit; well under `Anim::STEP_SECS`, so each step settles.
 const MOVE: rune::Spring = rune::Spring::new(0.7, 0.0);
 
-/// The edit as an animation on the real commits: every commit is one element that stays
-/// mounted, and each step only moves it (its slot), fades it or colours it.
+/// The commit the action is about (ringed in the animation).
+fn target_sha(plan: &Plan) -> Option<String> {
+    match &plan.op {
+        Op::Reset { to, .. } => Some(to.clone()),
+        Op::Amend => Some(plan.snap.tip.clone()),
+        Op::Revert { sha } | Op::CherryPick { sha } | Op::Reword { sha, .. } | Op::Drop { sha } | Op::Squash { sha, .. } | Op::Move { sha, .. } => Some(sha.clone()),
+    }
+    // The op holds the SHA as it was typed or picked: make it the full one the lines carry.
+    .map(|t| plan.removed.iter().chain(&plan.context).chain(plan.source.iter()).find(|l| l.full.starts_with(&t) || l.sha == t).map_or(t, |l| l.full.clone()))
+}
+
+/// What a step shows, for this action, with its real names (the caption also carries the
+/// meaning when motion is reduced).
+fn step_text(plan: &Plan, step: u8) -> String {
+    let b = &plan.snap.branch;
+    let short = |x: &str| x.get(..7).unwrap_or(x).to_owned();
+    let t = target_sha(plan).map(|x| short(&x)).unwrap_or_default();
+    let new_tip = short(&plan.new_tip);
+    if step == 0 {
+        return tf!("Your branch now: the {b} label is at its tip. The ringed commit is the one you picked; the grey ones under the edit stay as they are.");
+    }
+    let changes = step == 1;
+    match &plan.op {
+        Op::Reset { mode, .. } if changes => tf!("{b} will point at {t}: the red commits above it leave {b}."),
+        Op::Reset { mode: ResetMode::Soft, .. } => tf!("{b} now points at {t}. The changes of the commits that left stay in your files, staged."),
+        Op::Reset { mode: ResetMode::Mixed, .. } => tf!("{b} now points at {t}. The changes of the commits that left stay in your files, not staged."),
+        Op::Reset { mode: ResetMode::Hard, .. } => tf!("{b} now points at {t}, and your files match it. Your uncommitted work was stashed first."),
+        Op::Revert { .. } if changes => tf!("{t} is the commit to undo. It stays in the history."),
+        Op::Revert { .. } => tf!("A new commit {new_tip} on top undoes {t}. Nothing leaves {b}."),
+        Op::CherryPick { .. } if changes => {
+            let from = plan.source.as_ref().and_then(|s| s.kept_by.first().cloned()).unwrap_or_else(|| crate::i18n::t("another branch"));
+            tf!("{t} on {from} is copied.")
+        }
+        Op::CherryPick { .. } => tf!("The copy {new_tip} is the new tip of {b}. The original stays where it was."),
+        Op::Reword { .. } if changes => tf!("{t} gets a new message. The commits after it are made again (amber)."),
+        Op::Reword { .. } => tf!("The same files with new SHAs from {t} up; {b} points at {new_tip}."),
+        Op::Drop { .. } if changes => tf!("{t} leaves {b}. The commits after it are made again without its changes."),
+        Op::Drop { .. } => tf!("{t} is gone from {b}, and the commits after it moved down into its place."),
+        Op::Squash { fixup: false, .. } if changes => tf!("{t} joins the commit before it."),
+        Op::Squash { fixup: true, .. } if changes => tf!("{t} joins the commit before it; only that commit's message stays."),
+        Op::Squash { fixup: false, .. } => tf!("One commit now holds both changes and both messages."),
+        Op::Squash { fixup: true, .. } => tf!("One commit now holds both changes, with the older message."),
+        Op::Move { up, .. } if changes => if *up { tf!("{t} and the newer commit after it swap places.") } else { tf!("{t} and the older commit before it swap places.") },
+        Op::Move { .. } => tf!("The same changes in a new order, with new SHAs; {b} points at {new_tip}."),
+        Op::Amend if changes => tf!("Your staged changes go into {t}, the last commit."),
+        Op::Amend => tf!("{t} is made again as {new_tip}, with your staged changes and the same message."),
+    }
+}
+
+/// A small label pill (a branch, a remote branch, a tag).
+fn ref_pill(k: &Kit, name: &str, strong: bool) -> El {
+    row()
+        .px(5.0)
+        .h(16.0)
+        .center_y()
+        .radius(k.radius.sm)
+        .fill(if strong { k.c.surface_base } else { k.c.bg_base })
+        .border(1.0, if strong { k.c.border_strong } else { k.c.border_weak })
+        .child(text(name.to_owned()).font(k.ty.text_xsmall_medium).color(if strong { k.c.text_base } else { k.c.text_muted }).truncate())
+        .shrink()
+        .min_w(0.0)
+}
+
+/// The stage's layout: the branch label's column, then one lane (the branch) or two (what sits
+/// beside it: the cherry-pick's source, or commits another ref still has).
+const STAGE_W: f32 = 500.0;
+const GUTTER: f32 = 78.0;
+
+/// The edit as an animation on the real commits, among their neighbours and labels: every commit
+/// is one element that stays mounted, and each step only moves it (its slot, its lane), fades it
+/// or colours it. The checked-out branch's label moves from the old tip to the new one; commits
+/// that leave but that a remote or another branch still has move to the second lane instead of
+/// vanishing; a cherry-pick's copy travels from its source in the second lane.
 fn animation(k: &Kit, plan: &Plan, a: Anim) -> El {
     const CAP: usize = 6;
     let (nodes, hidden) = history::nodes(plan, CAP);
     let step = a.step;
     let after = step >= 2;
+    // Old commits another ref still has: they get a ghost that stays, in the second lane.
+    let ghosts: Vec<&history::Node> = nodes.iter().filter(|n| matches!(n.kind, Some(Kind::Leaves | Kind::Rewritten | Kind::Joined)) && n.old.as_ref().is_some_and(|l| !l.kept_by.is_empty()) && n.before.is_some()).collect();
+    let amend = plan.op == Op::Amend;
+    let two = plan.source.is_some() || !ghosts.is_empty() || amend;
+    // The commit you picked: ringed in every step, as in the guide's pictures.
+    let target = target_sha(plan);
+    let lane = if two { (STAGE_W - GUTTER) / 2.0 } else { STAGE_W - GUTTER };
+    let x2 = GUTTER + lane;
     let rows = nodes.iter().flat_map(|n| [n.before, n.after]).flatten().max().map_or(1, |m| m + 1).max(1);
-    let mut stage = col().key("h-anim").w_full().h(rows as f32 * ROW_H).clip_rounded(0.0);
-    // The branch line, under every node.
-    stage = stage.child(el().key("h-anim-line").absolute(0.0, 0.0).size(1.5, rows as f32 * ROW_H).offset(NODE_W / 2.0 - 0.75, 0.0).fill(k.c.text_faint));
+    let h = rows as f32 * ROW_H;
+    let mut stage = col().key("h-anim").w(STAGE_W).h(h).clip_rounded(0.0);
+    // The lanes' lines: the branch always; the second lane when something is in it.
+    stage = stage.child(el().key("h-anim-line").absolute(0.0, 0.0).size(1.5, h).offset(GUTTER + NODE_W / 2.0 - 0.75, 0.0).fill(k.c.text_faint));
+    if two {
+        let shown = if plan.source.is_some() { 0.6 } else if after { 0.6 } else { 0.0 };
+        stage = stage.child(el().key("h-anim-line2").absolute(0.0, 0.0).size(1.0, h).offset(x2 + NODE_W / 2.0 - 0.5, 0.0).fill(k.c.border_strong).opacity(shown).opacity_motion(MOVE));
+    }
+
+    // One commit's row: dot, SHA, its labels, subject.
+    // `ring`: your commit, followed through the edit (made again, it keeps the ring).
+    let commit_row = |key: String, line: Option<&history::Line>, tone: rune::Color, hollow: bool, faint: bool, pills: Vec<String>, w: f32, ring: bool| -> El {
+        let (sha, subject) = line.map_or((String::new(), String::new()), |l| (l.sha.clone(), l.subject.clone()));
+        let dot = if ring {
+            // Your commit: a bigger dot with a strong ring.
+            el().size(14.0, 14.0).radius(7.0).fill(if hollow { k.c.bg_base } else { tone }).border(2.5, k.c.text_strong)
+        } else {
+            el().size(11.0, 11.0).radius(6.0).fill(if hollow { k.c.bg_base } else { tone }).border(1.5, tone)
+        };
+        let mut r = row()
+            .key(key)
+            .absolute(0.0, 0.0)
+            .w(w)
+            .h(ROW_H)
+            .gap(6.0)
+            .center_y()
+            .child(row().w(NODE_W).center().child(dot))
+            .child(text(sha).font(k.ty.mono).color(if faint { k.c.text_faint } else { tone }));
+        for p in pills.iter().take(1) {
+            r = r.child(ref_pill(k, p, false).max_w(96.0));
+        }
+        r.child(text(subject).font(k.ty.small).color(if faint { k.c.text_faint } else { k.c.text_base }).truncate().shrink().min_w(0.0))
+    };
+
     for n in &nodes {
         let slot = if after { n.after.or(n.before) } else { n.before.or(n.after) }.unwrap_or(0);
         let kind = n.kind;
-        let (mut dx, mut o) = (0.0, 1.0);
-        match kind {
-            Some(Kind::New) if !after => (dx, o) = (-28.0, 0.0),
-            Some(Kind::Leaves) if step == 1 => (dx, o) = (28.0, 0.45),
-            Some(Kind::Leaves) if after => (dx, o) = (40.0, 0.0),
-            Some(Kind::Joined) if after => o = 0.0,
-            _ => {}
+        // Where it sits (x) and how visible it is, by step.
+        let (mut x, mut o) = (GUTTER, 1.0);
+        let mut y = slot as f32 * ROW_H;
+        if n.side {
+            x = x2;
+            o = if step == 0 { 0.75 } else { 1.0 };
+        } else {
+            match kind {
+                // A cherry-picked copy: hidden at its source, shows there, then travels in.
+                // A cherry-picked copy: hidden on its source until the last step, then it comes out
+                // of the source and travels to the top of the branch.
+                Some(Kind::New) if !after && n.from.is_some() => {
+                    (x, o) = (x2, 0.0);
+                    y = n.from.unwrap_or(0) as f32 * ROW_H;
+                }
+                Some(Kind::New) if !after => (x, o) = (GUTTER - 24.0, 0.0),
+                Some(Kind::Leaves) if step == 1 => (x, o) = (GUTTER + 24.0, 0.45),
+                Some(Kind::Leaves) if after => (x, o) = (GUTTER + 36.0, 0.0),
+                Some(Kind::Joined) if after => o = 0.0,
+                _ => {}
+            }
         }
         let tone = match kind {
             Some(kd) if step >= 1 => tone(k, kd).0,
@@ -773,33 +893,80 @@ fn animation(k: &Kit, plan: &Plan, a: Anim) -> El {
         };
         // A joined commit keeps its own name while it goes into the one it joins.
         let line = if after && kind != Some(Kind::Joined) { n.new.as_ref().or(n.old.as_ref()) } else { n.old.as_ref().or(n.new.as_ref()) };
-        let (sha, subject) = line.map_or((String::new(), String::new()), |l| (l.sha.clone(), l.subject.clone()));
-        let muted_row = kind.is_none();
-        let dot = el().size(11.0, 11.0).radius(6.0).fill(if muted_row { k.c.bg_base } else { tone }).border(1.5, tone);
-        let node = row()
-            .key(format!("h-an-{}", n.key))
+        let faint = kind.is_none() && !n.side;
+        let pills = if n.side { line.map(|l| l.kept_by.clone()).unwrap_or_default() } else { line.map(|l| l.refs.clone()).unwrap_or_default() };
+        // The cherry-pick's source lights up in "What changes": this is what gets copied.
+        let lit = n.side && step == 1;
+        let ring = [n.old.as_ref(), n.new.as_ref()].into_iter().flatten().any(|l| Some(l.full.as_str()) == target.as_deref());
+        let node = commit_row(format!("h-an-{}", n.key), line, if lit { k.c.success.icon } else if n.side { k.c.text_muted } else { tone }, kind.is_none() && !lit, faint, pills, lane, ring)
+            .offset(x, y)
+            .offset_motion(MOVE)
+            .opacity(o)
+            .opacity_motion(MOVE);
+        stage = stage.child(node);
+    }
+
+    // What another ref still has: ghosts that wait on the commit, then step aside to the second
+    // lane in the last step, with the ref that keeps them.
+    for g in &ghosts {
+        let old = g.old.as_ref();
+        let slot = g.before.unwrap_or(0) as f32 * ROW_H;
+        let (x, o) = if after { (x2, 0.55) } else { (GUTTER, 0.0) };
+        let pills = old.map(|l| l.kept_by.clone()).unwrap_or_default();
+        let node = commit_row(format!("h-an-ghost-{}", g.key), old, k.c.text_muted, true, true, pills, lane, false).offset(x, slot).offset_motion(MOVE).opacity(o).opacity_motion(MOVE);
+        stage = stage.child(node);
+    }
+
+    if hidden > 0 {
+        // Between the edit and the commits under it, which keep their rows.
+        let slot = plan.added.len().min(CAP).max(plan.removed.len().min(CAP));
+        stage = stage.child(row().key("h-an-more").absolute(0.0, 0.0).h(ROW_H).offset(GUTTER + NODE_W + 8.0, slot as f32 * ROW_H).offset_motion(MOVE).center_y().child(muted(k, tf!("+{hidden} more"))));
+    }
+
+    // Amend: the staged changes wait beside the tip, then go into it.
+    if amend {
+        let row_y = nodes.iter().find(|n| n.old.as_ref().is_some_and(|l| l.full == plan.snap.tip)).and_then(|n| if after { n.after } else { n.before }).unwrap_or(0) as f32 * ROW_H;
+        let (x, o) = if after { (GUTTER + 24.0, 0.0) } else { (x2, if step == 1 { 1.0 } else { 0.8 }) };
+        let staged = row()
+            .key("h-an-staged")
             .absolute(0.0, 0.0)
-            .w_full()
             .h(ROW_H)
-            .gap(8.0)
+            .gap(6.0)
             .center_y()
-            .offset(dx, slot as f32 * ROW_H)
+            .offset(x, row_y)
             .offset_motion(MOVE)
             .opacity(o)
             .opacity_motion(MOVE)
-            .child(row().w(NODE_W).center().child(dot))
-            .child(text(sha).font(k.ty.mono).color(if muted_row { k.c.text_faint } else if step >= 1 { tone } else { k.c.text_muted }))
-            .child(text(subject).font(k.ty.small).color(if muted_row { k.c.text_faint } else { k.c.text_base }).truncate().shrink().min_w(0.0));
-        stage = stage.child(node);
+            .child(row().w(NODE_W).center().child(el().size(11.0, 11.0).radius(3.0).fill(if step >= 1 { k.c.success.bg } else { k.c.bg_base }).border(1.5, k.c.success.icon)))
+            .child(text(crate::i18n::t("staged changes")).font(k.ty.small).color(k.c.success.fg));
+        stage = stage.child(staged);
     }
-    if hidden > 0 {
-        let slot = if after { plan.added.len().min(CAP) } else { plan.removed.len().min(CAP) };
-        stage = stage.child(row().key("h-an-more").absolute(0.0, 0.0).h(ROW_H).offset(NODE_W + 8.0, slot as f32 * ROW_H).offset_motion(MOVE).center_y().child(muted(k, tf!("+{hidden} more"))));
-    }
+
+    // The checked-out branch's label: at the old tip, then it moves to the new tip.
+    let tip_slot = |sha: &str, use_after: bool| {
+        nodes
+            .iter()
+            .filter(|n| !n.side)
+            .find(|n| if use_after { n.new.as_ref().is_some_and(|l| l.full == sha) && n.kind != Some(Kind::Joined) } else { n.old.as_ref().is_some_and(|l| l.full == sha) })
+            .and_then(|n| if use_after { n.after } else { n.before })
+            .unwrap_or(0)
+    };
+    let label_slot = if after { tip_slot(&plan.new_tip, true) } else { tip_slot(&plan.snap.tip, false) };
+    let label = row()
+        .key("h-an-branch")
+        .absolute(0.0, 0.0)
+        .w(GUTTER - 8.0)
+        .h(ROW_H)
+        .center_y()
+        .offset(0.0, label_slot as f32 * ROW_H)
+        .offset_motion(MOVE)
+        .child(ref_pill(k, &plan.snap.branch, true).max_w(GUTTER - 8.0))
+        .help(crate::i18n::t(tf!("Where {} points: it moves to the new tip", plan.snap.branch)));
+    stage = stage.child(label);
 
     // The steps: click one to look at it; the caption says what it shows.
     let mut steps = row().w_full().gap(6.0).center_y();
-    for (i, (name, _)) in STEP_TEXT.iter().enumerate() {
+    for (i, name) in STEP_TEXT.iter().enumerate() {
         let on = i as u8 == step;
         let at = i as u8;
         steps = steps.child(
@@ -833,7 +1000,11 @@ fn animation(k: &Kit, plan: &Plan, a: Anim) -> El {
             .build(k)
             .key("h-anim-close"),
     );
-    let caption = text(crate::i18n::t(STEP_TEXT[step as usize].1)).font(k.ty.small).color(k.c.text_muted).wrap();
+    let mut lines = vec![step_text(plan, step)];
+    if after && let Some(holder) = ghosts.iter().find_map(|g| g.old.as_ref().and_then(|l| l.kept_by.first())) {
+        lines.push(tf!("Dimmed on the right: old commits that {holder} still has. They stay there until you force-push."));
+    }
+    let caption = lines.into_iter().fold(col().w_full().gap(2.0), |c, l| c.child(text(l).font(k.ty.small).color(k.c.text_muted).wrap()));
     col().key("h-anim-box").w_full().gap(8.0).child(steps).child(stage).child(caption)
 }
 

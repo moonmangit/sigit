@@ -811,7 +811,7 @@ mod tests {
     #[test]
     fn history_risk_levels() {
         use crate::history::{Line, Op, Plan, Snapshot, Sync};
-        let line = || Line { sha: "abc1234".into(), subject: "x".into(), full: "abc1234".repeat(6) };
+        let line = || Line { sha: "abc1234".into(), subject: "x".into(), full: "abc1234".repeat(6), ..Default::default() };
         let snap = Snapshot { branch: "feat".into(), tip: "a".repeat(40), upstream: Some("origin/feat".into()), remote: Some(("origin".into(), "refs/heads/feat".into())), ..Default::default() };
         let plan = |removed: usize, pushed: usize, sync: Sync| Plan {
             op: Op::Drop { sha: "c".repeat(40) },
@@ -822,6 +822,7 @@ mod tests {
             rows: vec![],
             files: vec![],
             context: vec![],
+            source: None,
             pushed_rewritten: pushed,
             replaced_files: vec![],
             sync,
@@ -845,7 +846,7 @@ mod tests {
         use crate::history::{Op, Plan, Snapshot, Sync};
         let dir = PathBuf::from("/x");
         let snap = Snapshot { branch: "feat".into(), tip: "a".repeat(40), ..Default::default() };
-        let plan = Plan { op: Op::Reset { to: "b".repeat(40), mode: crate::history::ResetMode::Hard }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], context: vec![], pushed_rewritten: 0, replaced_files: vec![], sync: Sync::Hard };
+        let plan = Plan { op: Op::Reset { to: "b".repeat(40), mode: crate::history::ResetMode::Hard }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], context: vec![], source: None, pushed_rewritten: 0, replaced_files: vec![], sync: Sync::Hard };
         let a = Action::History { dir: dir.clone(), slug: "o/r".into(), plan: Box::new(plan) };
         assert!(a.local_dir().is_some(), "a hard reset asks to stash first");
         let lines = a.command_lines(false);

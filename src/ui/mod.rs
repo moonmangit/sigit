@@ -9,7 +9,7 @@ mod compare;
 mod envs;
 mod group;
 mod history;
-pub use history::{Act as HistoryAct, Anim as HistoryAnim, Open as HistoryOpen};
+pub use history::{Act as HistoryAct, Anim as HistoryAnim, Open as HistoryOpen, on_head};
 mod inbox;
 mod org;
 mod onboarding;
