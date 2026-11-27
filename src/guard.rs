@@ -162,8 +162,9 @@ impl Action {
     fn local_dir(&self) -> Option<&PathBuf> {
         match self {
             Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } | Action::Pull { dir } | Action::Stash { dir, op: "pop", .. } => Some(dir),
-            // An edit that changes the files needs a clean working copy (stash first).
-            Action::History { dir, plan, .. } if plan.sync.touches_files() => Some(dir),
+            // A hard reset replaces your files: stash them first (Undo pops them back). Other
+            // edits keep your uncommitted changes; the preflight stops one that is in the way.
+            Action::History { dir, plan, .. } if plan.sync == history::Sync::Hard => Some(dir),
             _ => None,
         }
     }
@@ -325,6 +326,9 @@ impl State {
         let stash_dir = action.local_dir().cloned().filter(|_| stash_first);
         let a = action.clone();
         let (log_label, log_slug) = (label.clone(), slug.clone());
+        // A history edit reads a lot of state in its preflight: log only what changes something
+        // (and the remote check).
+        let state_only = matches!(action, Action::History { .. });
         let run = move || -> Result<String, String> {
             if let Some(dir) = &stash_dir {
                 git::stash_push(dir, &format!("sigit: before {}", a.label()))?;
@@ -352,7 +356,10 @@ impl State {
         // The activity log is written here, on the worker: no file IO on the UI thread.
         let work = move || {
             // The commands that actually ran, for the result toast and the activity log.
-            let (r, commands) = gh::recording(run);
+            let (r, mut commands) = gh::recording(run);
+            if state_only {
+                commands.retain(|c| ["git stash ", "git ls-remote ", "git update-ref ", "git read-tree ", "git reset "].iter().any(|p| c.starts_with(p)));
+            }
             let detail = match &r {
                 Ok(out) => out.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("done").to_owned(),
                 Err(e) => e.clone(),

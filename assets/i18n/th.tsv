@@ -1337,3 +1337,4 @@ Your files couldn't follow ({e}), so the branch was put back. Nothing was change
 {} moved since the simulation ({} → {}). {again}	{} ถูกย้ายหลังการจำลอง ({} → {}) {again}
 {}'s changes are already on {}: nothing to pick	การเปลี่ยนแปลงของ {} อยู่บน {} แล้ว: ไม่มีอะไรให้ pick
 {}: {} is now at {}	{}: ตอนนี้ {} อยู่ที่ {}
+Your uncommitted changes to {} are in files this edit changes. Commit or stash them first.	การเปลี่ยนแปลงที่ยังไม่ commit ใน {} อยู่ในไฟล์ที่การแก้ไขนี้เปลี่ยน ให้ commit หรือ stash ก่อน

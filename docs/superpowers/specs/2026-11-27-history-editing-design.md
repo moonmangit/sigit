@@ -95,10 +95,22 @@ The operations, all on the **current branch** of a local clone:
 
 ## Uncommitted changes
 
-The guard's dialog already offers **Stash and continue**. A hard reset and every edit that makes
-the working copy change (revert, cherry-pick, replay) use it: with uncommitted changes, the user
-must stash first, and Undo pops the stash. Soft and mixed reset and amend do not touch the files,
-so they need no stash. Amend needs staged changes and refuses without them.
+- **Hard reset:** the guard's dialog asks to **Stash and continue** first. The stash keeps the
+  changes safe; it is not popped after the reset (that would undo the reset's purpose). Undo
+  moves the branch back and pops the stash.
+- **All other edits** keep uncommitted changes in place: `read-tree -m -u` changes only the
+  files that differ between the old and the new tip. The preflight compares the uncommitted
+  files with those files; if one is in both, it blocks with the file names ("commit or stash
+  them first"). If git still refuses, the branch goes back (rollback).
+- Soft and mixed reset and amend do not touch the files. Amend needs staged changes.
+
+## Pushed commits and signing
+
+- A rewritten commit counts as pushed when **any** remote branch has it (`git rev-list old ^new`
+  minus `--not --remotes`), not only the branch's upstream.
+- With `commit.gpgsign=true`, `commit-tree` gets `-S`, so rewritten commits stay signed.
+- The remote check uses no prompts (`GIT_TERMINAL_PROMPT=0`); a remote that needs a password
+  counts as unreachable.
 
 ## Risk
 

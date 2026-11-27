@@ -93,13 +93,6 @@ pub enum Sync {
     TwoTree,
 }
 
-impl Sync {
-    /// Changes the files: uncommitted changes must be stashed first.
-    pub fn touches_files(self) -> bool {
-        matches!(self, Sync::Hard | Sync::TwoTree)
-    }
-}
-
 /// The state an edit was simulated against.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
@@ -136,7 +129,8 @@ pub struct Plan {
     pub added: Vec<Line>,
     /// `git diff --stat old new`.
     pub stat: String,
-    /// Removed commits that the upstream has: rewriting them needs a force-push.
+    /// Removed commits that a remote has (any remote branch, not only the upstream): rewriting
+    /// them needs a force-push.
     pub pushed_rewritten: usize,
     /// A hard reset: the uncommitted files it would replace (the guard stashes them first).
     pub replaced_files: Vec<String>,
@@ -279,6 +273,10 @@ fn merge_tree(dir: &Path, base: &str, ours: &str, theirs: &str) -> Result<Merge,
 /// A commit object. `author`: copied from the original commit; `None` = you.
 fn commit_tree(dir: &Path, tree: &str, parents: &[&str], message: &str, author: Option<&(String, String, String)>) -> Result<String, String> {
     let mut args = vec!["commit-tree", tree];
+    // `commit-tree` signs only when asked: keep signing when you sign your commits.
+    if git(dir, &["config", "--bool", "commit.gpgsign"]).is_ok_and(|v| v.trim() == "true") {
+        args.push("-S");
+    }
     for p in parents {
         args.push("-p");
         args.push(p);
@@ -549,13 +547,17 @@ fn preview(dir: &Path, op: Op, snap: Snapshot, new_tip: String, sync: Sync) -> R
     let added = lines(dir, &[new, &format!("^{old}")])?;
     let mut stat = git(dir, &["diff", "--stat=100", old, new]).unwrap_or_default();
     gh::cap(&mut stat, 20_000);
-    let pushed_rewritten = match &snap.upstream_sha {
-        Some(up) if !removed.is_empty() => git(dir, &["merge-base", old, up])
-            .ok()
-            .and_then(|mb| git(dir, &["rev-list", "--count", mb.trim(), &format!("^{new}")]).ok())
-            .and_then(|n| n.trim().parse().ok())
-            .unwrap_or(0),
-        _ => 0,
+    // Removed commits that some remote branch has: all removed, minus those on no remote.
+    let pushed_rewritten = if removed.is_empty() {
+        0
+    } else {
+        let count = |extra: &[&str]| -> usize {
+            let not_new = format!("^{new}");
+            let mut args = vec!["rev-list", "--count", old, not_new.as_str()];
+            args.extend_from_slice(extra);
+            git(dir, &args).ok().and_then(|n| n.trim().parse().ok()).unwrap_or(0)
+        };
+        count(&[]).saturating_sub(count(&["--not", "--remotes"]))
     };
     let replaced_files = if sync == Sync::Hard { snap.changed.clone() } else { Vec::new() };
     Ok(Plan { op, snap, new_tip, removed, added, stat: stat.trim_end().to_owned(), pushed_rewritten, replaced_files, sync })
@@ -582,12 +584,23 @@ pub fn preflight(dir: &Path, plan: &Plan) -> Result<Vec<String>, String> {
     if now.upstream_sha != was.upstream_sha {
         return Err(tf!("{} changed since the simulation (a fetch?). {again}", was.upstream.clone().unwrap_or_else(|| "The upstream".into())));
     }
+    // A two-tree merge refuses when an uncommitted change is in a file the edit changes: say so
+    // now instead of failing at the end.
+    if plan.sync == Sync::TwoTree && !now.changed.is_empty() {
+        let differ = git(dir, &["diff", "--name-only", &was.tip, &plan.new_tip])?;
+        let in_way: Vec<&str> = differ.lines().filter(|f| now.changed.iter().any(|c| c == f)).collect();
+        if !in_way.is_empty() {
+            return Err(tf!("Your uncommitted changes to {} are in files this edit changes. Commit or stash them first.", in_way.iter().take(6).copied().collect::<Vec<_>>().join(", ")));
+        }
+    }
     if plan.op == Op::Amend && now.index_tree.as_deref() != Some(&info(dir, &plan.new_tip)?.tree) {
         return Err(tf!("The staged changes changed since the simulation. {again}"));
     }
     let mut warnings = Vec::new();
     if let Some((remote, r)) = &was.remote {
-        match ls_remote_cmd(remote, r).run(Some(dir)) {
+        // No prompt may wait for a password here: a remote that needs one counts as unreachable.
+        let reached = gh::run_full("git", &["ls-remote", remote, r], Some(dir), None, &[]).and_then(|o| if o.ok { Ok(o.stdout) } else { Err(o.stderr) });
+        match reached {
             Ok(out) => {
                 let theirs = out.split_whitespace().next().map(str::to_owned);
                 if theirs != was.upstream_sha {
@@ -892,9 +905,12 @@ mod tests {
     fn rollback_when_files_cant_follow_and_undo() {
         let (r, [_, _, c, d]) = Repo::abc("rollback");
         let plan = simulate(&r.0, &Op::Drop { sha: c.clone() }).unwrap();
-        // A local change to b.txt is in the way of deleting it.
+        // A local change to b.txt is in the way of deleting it: the preflight says so.
         r.write("b.txt", "mine\n");
         let e = apply(&r.0, &plan).unwrap_err();
+        assert!(e.contains("b.txt") && e.contains("Commit or stash"), "{e}");
+        // If the files still can't follow after the ref moved, the ref goes back.
+        let e = move_ref(&r.0, "refs/heads/main", &plan.snap.tip, &plan.new_tip, Sync::TwoTree, "t").unwrap_err();
         assert!(e.contains("put back"), "{e}");
         assert_eq!(r.head(), d);
         assert_eq!(r.read("b.txt"), "mine\n");
@@ -907,6 +923,54 @@ mod tests {
         assert_eq!(r.status(), "");
         // Undo again refuses: the branch isn't where the edit left it.
         assert!(undo(&r.0, "main", &plan.new_tip, &plan.snap.tip, plan.sync).is_err());
+    }
+
+    #[test]
+    fn uncommitted_changes_elsewhere_stay() {
+        let (r, [_, _, c, _]) = Repo::abc("dirty");
+        r.write("notes.txt", "mine\n");
+        r.write("a.txt", "1\n2\n3\nmore\n");
+        r.run(Op::Drop { sha: c });
+        assert_eq!(r.subjects(), ["four", "two", "one"]);
+        assert_eq!(r.read("a.txt"), "1\n2\n3\nmore\n");
+        assert_eq!(r.read("notes.txt"), "mine\n");
+    }
+
+    #[test]
+    fn pushed_commits_count_on_any_remote() {
+        let up = Repo::new("pushed-up");
+        up.commit("a.txt", "1\n", "one");
+        up.commit("a.txt", "1\n2\n", "two");
+        let r = Repo(std::env::temp_dir().join(format!("sigit-history-pushed-clone-{}", std::process::id())));
+        let _ = std::fs::remove_dir_all(&r.0);
+        gh::run("git", &["clone", "-q", up.0.to_str().unwrap(), r.0.to_str().unwrap()], None).unwrap();
+        r.git(&["config", "user.name", "Test"]);
+        r.git(&["config", "user.email", "t@example.com"]);
+        // On the upstream: rewriting "two" needs a force-push.
+        let plan = simulate(&r.0, &Op::Reword { sha: r.head(), message: "two!".into() }).unwrap();
+        assert_eq!(plan.pushed_rewritten, 1);
+        assert_eq!(plan.push_hint().unwrap(), "git push --force-with-lease origin main:main");
+        // A branch with no upstream that holds origin/main's commits: still counted.
+        r.git(&["switch", "-q", "--no-track", "-c", "feat", "origin/main"]);
+        let plan = simulate(&r.0, &Op::Reword { sha: r.head(), message: "two!".into() }).unwrap();
+        assert_eq!(plan.pushed_rewritten, 1);
+        assert!(plan.snap.remote.is_none() && plan.push_hint().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keeps_signing_commits() {
+        use std::os::unix::fs::PermissionsExt;
+        let (r, [_, b, _, _]) = Repo::abc("sign");
+        // A stand-in for gpg that "signs" anything.
+        let gpg = r.0.join("fake-gpg.sh");
+        std::fs::write(&gpg, "#!/bin/sh\ncat >/dev/null\necho '[GNUPG:] SIG_CREATED D 1 8 00 1 X' >&2\nprintf -- '-----BEGIN PGP SIGNATURE-----\\n\\nfake\\n-----END PGP SIGNATURE-----\\n'\n").unwrap();
+        std::fs::set_permissions(&gpg, std::fs::Permissions::from_mode(0o755)).unwrap();
+        r.git(&["config", "gpg.program", gpg.to_str().unwrap()]);
+        r.git(&["config", "user.signingkey", "X"]);
+        r.git(&["config", "commit.gpgsign", "true"]);
+        r.run(Op::Reword { sha: b, message: "two, signed".into() });
+        assert!(r.git(&["cat-file", "commit", "HEAD"]).contains("gpgsig"), "the new tip is signed");
     }
 
     #[test]

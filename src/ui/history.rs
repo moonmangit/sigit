@@ -73,12 +73,15 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
             ops = ops.child(op_button(s, k, "h-revert", "Revert", "A new commit on top that undoes this one.", Op::Revert { sha: sha.clone() }));
         }
         if !merge && !root {
-            let message = s.commit_detail.data.as_ref().map(|d| d.body.clone()).unwrap_or_else(|| c.subject.clone());
+            // The full message comes with the commit's detail: wait for it, so the body is kept.
+            let message = s.commit_detail.data.as_ref().map(|d| d.body.clone());
+            let loaded = message.is_some();
+            let message = message.unwrap_or_default();
             let id = sha.clone();
             ops = ops.child(
                 Button::new(crate::i18n::t("Reword…"))
                     .variant(ButtonVariant::Outline)
-                    .disabled(s.pending.is_some())
+                    .disabled(s.pending.is_some() || !loaded)
                     .help(crate::i18n::t("Change this commit's message; the commits after it are made again."))
                     .on_press(move |s: &mut State| s.start_reword(id.clone(), message.clone()))
                     .build(k)
