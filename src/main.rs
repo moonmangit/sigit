@@ -3602,7 +3602,7 @@ fn main() {
                     s.select_commit(&sha);
                     s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Soft });
                 }
-                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true, about: true };
+                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true, about: true, how: true, act: Some(ui::HistoryAct::Revert) };
             }),
             ("history-guide", |s: &mut State| {
                 // The Edit history section with its guide open: what each action does and when.
@@ -3612,6 +3612,7 @@ fn main() {
                     s.select_commit(&sha);
                 }
                 s.history_open.help = true;
+                s.history_open.act = Some(ui::HistoryAct::Squash);
             }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;

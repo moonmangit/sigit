@@ -29,6 +29,10 @@ pub struct Open {
     pub help: bool,
     /// The preview's "about this action" box.
     pub about: bool,
+    /// In the guide: the "how it works" notes.
+    pub how: bool,
+    /// In the guide: the one action opened (its picture and text).
+    pub act: Option<Act>,
 }
 
 /// Each history action, for its explanation (what it does, and when people use it).
@@ -238,14 +242,60 @@ fn legend(k: &Kit) -> El {
         .fold(row().gap(10.0).center_y().flex_wrap(), |r, (d, t)| r.child(row().gap(4.0).center_y().child(dot(k, "", d).size(14.0, 12.0)).child(text(crate::i18n::t(t)).font(k.ty.small).color(k.c.text_muted))))
 }
 
-/// An action's name, what it does and its common use, as a block.
-fn about_block(k: &Kit, key: &str, act: Act) -> El {
-    col()
+/// A folding row: triangle, optional icon, label. `on` is open.
+fn fold_row(k: &Kit, key: &str, on: bool, icon: Option<&'static Icon>, label: &str, press: impl Fn(&mut State) + Send + Sync + 'static) -> El {
+    let mut r = row()
         .key(key.to_owned())
         .w_full()
-        .gap(3.0)
-        .child(row().gap(6.0).center_y().child(rune::icon(act.icon(), 13.0).color(k.c.icon_base)).child(text(crate::i18n::t(act.name())).font(k.ty.small_medium).color(k.c.text_base)))
-        .child(row().w_full().pl(19.0).child(picture(k, &format!("{key}-pic"), act)))
+        .gap(6.0)
+        .py(3.0)
+        .center_y()
+        .child(rune::icon(if on { &glyphs::TRIANGLE_DOWN } else { &glyphs::TRIANGLE_RIGHT }, 9.0).color(k.c.icon_faint));
+    if let Some(i) = icon {
+        r = r.child(rune::icon(i, 13.0).color(if on { k.c.icon_base } else { k.c.icon_faint }));
+    }
+    r.child(text(crate::i18n::t(label)).font(if on { k.ty.small_medium } else { k.ty.small }).color(if on { k.c.text_base } else { k.c.text_muted }))
+        .on_press(move |s: &mut State| press(s))
+}
+
+/// The ⓘ guide: action names only; one opens at a time to its picture and text. The "how it
+/// works" notes fold too.
+fn guide(s: &State, k: &Kit) -> El {
+    let o = s.history_open;
+    let mut c = col().key("h-help-box").w_full().gap(2.0).padding(8.0).radius(k.radius.md).fill(k.c.bg_base);
+    for (i, a) in Act::ALL.iter().copied().enumerate() {
+        let on = o.act == Some(a);
+        c = c.child(fold_row(k, &tf!("h-guide-row-{i}"), on, Some(a.icon()), a.name(), move |s| s.history_open.act = if s.history_open.act == Some(a) { None } else { Some(a) }));
+        if on {
+            c = c.child(col().w_full().gap(8.0).pl(15.0).pb(6.0).child(legend(k)).child(about_block(k, &tf!("h-guide-{i}"), a, false)));
+        }
+    }
+    c = c.child(el().w_full().h(1.0).my(4.0).fill(k.c.border_weak)).child(fold_row(k, "h-how", o.how, None, "How it works", |s| s.history_open.how ^= true));
+    if o.how {
+        let line = |icon: &'static Icon, t: &str| row().gap(8.0).items_start().child(rune::icon(icon, 13.0).color(k.c.icon_faint)).child(text(crate::i18n::t(t)).font(k.ty.small).color(k.c.text_muted).wrap().shrink());
+        c = c.child(
+            col()
+                .w_full()
+                .gap(6.0)
+                .pl(15.0)
+                .pt(4.0)
+                .child(line(&I_STAR, "Each button simulates first: you see the new history before anything changes."))
+                .child(line(&I_SHIELD, "Before it runs, a preflight checks that the branch, its upstream and the remote didn't change."))
+                .child(line(&I_UNDO, "Undo (10 s) puts the branch back. sigit never pushes."))
+                .child(line(&I_FILE, "Your uncommitted changes stay; a hard reset stashes them first.")),
+        );
+    }
+    c
+}
+
+/// An action's name, what it does and its common use, as a block.
+/// `named`: with its icon and name on top (the guide's row already shows them).
+fn about_block(k: &Kit, key: &str, act: Act, named: bool) -> El {
+    let mut c = col().key(key.to_owned()).w_full().gap(3.0);
+    if named {
+        c = c.child(row().gap(6.0).center_y().child(rune::icon(act.icon(), 13.0).color(k.c.icon_base)).child(text(crate::i18n::t(act.name())).font(k.ty.small_medium).color(k.c.text_base)));
+    }
+    c.child(row().w_full().pl(19.0).child(picture(k, &format!("{key}-pic"), act)))
         .child(text(crate::i18n::t(act.what())).font(k.ty.small).color(k.c.text_base).wrap().pl(19.0))
         .child(
             row()
@@ -383,23 +433,7 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
             ),
     );
     if open {
-        let line = |icon: &'static Icon, t: &str| row().gap(8.0).items_start().child(rune::icon(icon, 13.0).color(k.c.icon_faint)).child(text(crate::i18n::t(t)).font(k.ty.small).color(k.c.text_muted).wrap().shrink());
-        out = out.child(
-            col()
-                .key("h-help-box")
-                .w_full()
-                .gap(6.0)
-                .padding(10.0)
-                .radius(k.radius.md)
-                .fill(k.c.bg_base)
-                .child(line(&I_STAR, "Each button simulates first: you see the new history before anything changes."))
-                .child(line(&I_SHIELD, "Before it runs, a preflight checks that the branch, its upstream and the remote didn't change."))
-                .child(line(&I_UNDO, "Undo (10 s) puts the branch back. sigit never pushes."))
-                .child(line(&I_FILE, "Your uncommitted changes stay; a hard reset stashes them first."))
-                .child(el().w_full().h(1.0).fill(k.c.border_weak))
-                .child(legend(k))
-                .children(Act::ALL.iter().enumerate().map(|(i, a)| about_block(k, &tf!("h-guide-{i}"), *a)).collect::<Vec<_>>()),
-        );
+        out = out.child(guide(s, k));
     }
 
     if !is_head {
@@ -606,7 +640,7 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
     }
     c = c.child(head);
     if open.about {
-        c = c.child(col().w_full().gap(8.0).padding(10.0).radius(k.radius.md).fill(k.c.surface_base).child(legend(k)).child(about_block(k, "h-about-box", Act::of(&plan.op))));
+        c = c.child(col().w_full().gap(8.0).padding(10.0).radius(k.radius.md).fill(k.c.surface_base).child(legend(k)).child(about_block(k, "h-about-box", Act::of(&plan.op), true)));
     }
 
     // The graph, newest first.

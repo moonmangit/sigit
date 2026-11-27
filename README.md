@@ -201,7 +201,8 @@ dialog shows the outcome as a graphic: a small commit graph (− leaves, + new, 
 ↳ joined), a bar per changed file, and risk chips; **Why?**, **+N more** and the ⓘ button open the
 details, and the commands are listed under Runs. Every action explains itself: hover a button for
 what it does and its common use, or click ⓘ (in the Edit history section, or in the preview) for
-a before / after picture of the commits (A–B–C–D → A–B′–C′–D′) with the same words. Rewriting commits already on the upstream, or on an important branch, is high
+a before / after picture of the commits (A–B–C–D → A–B′–C′–D′) with the same words. Theory stays
+folded: the guide lists the actions by name, one opens at a time, and "How it works" folds too. Rewriting commits already on the upstream, or on an important branch, is high
 risk (type the branch name). When you confirm, a **preflight** checks again that the branch, its
 upstream and the remote (`git ls-remote`, read-only) didn't change; if one did, nothing changes and
 you simulate again. Then `git update-ref` moves the branch only if it is still where the simulation
