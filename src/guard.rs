@@ -589,6 +589,7 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
                 Ok(warnings) => {
                     for w in warnings {
                         a.risk.because(Level::Medium, w);
+                        a.risk.tags.push((risk::Tag::Warn, crate::i18n::t("Remote not checked")));
                     }
                 }
             }
@@ -608,29 +609,36 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
 
 /// A history edit's risk (spec: Risk). `r` holds what the preflight found.
 pub(crate) fn history_risk(plan: &history::Plan, important: bool, mut r: Risk) -> Risk {
+    // The preview's graph shows what leaves and what's new: the reasons only say why it matters.
+    use risk::Tag;
     let b = &plan.snap.branch;
     let gone = plan.removed.len();
-    r.because(Level::Low, tf!("Simulated: {} new commit(s), {} leave {b}. Undo (10 s) or the reflog brings the old tip back.", plan.added.len(), gone));
     if gone > 0 {
-        r.because(Level::Medium, tf!("{gone} commit(s) leave {b}"));
+        r.level = r.level.max(Level::Medium);
         if important {
             r.because(Level::High, tf!("{b} is an important branch (default, protected, or a main/release name): rewriting its history affects everyone"));
+            r.tags.push((Tag::Important, crate::i18n::t("Important branch")));
         }
         if plan.sync == history::Sync::Hard {
             r.because(Level::High, "A hard reset replaces your files with the target commit's");
+            r.tags.push((Tag::Files, crate::i18n::t("Replaces files")));
         }
     } else if important {
         r.because(Level::Medium, tf!("{b} is an important branch: you'll push this new commit to it yourself"));
+        r.tags.push((Tag::Important, crate::i18n::t("Important branch")));
     }
     if plan.pushed_rewritten > 0 {
-        let up = plan.snap.upstream.clone().unwrap_or_default();
-        r.because(Level::High, tf!("{} of them are already on {up}: sharing this needs a force-push, and anyone who pulled them must fix their copy", plan.pushed_rewritten));
+        let (n, up) = (plan.pushed_rewritten, plan.snap.upstream.clone().unwrap_or_else(|| "a remote".into()));
+        r.because(Level::High, tf!("{n} of them are already on {up}: sharing this needs a force-push, and anyone who pulled them must fix their copy"));
+        r.tags.push((Tag::Pushed, tf!("{n} pushed")));
         if let Some(cmd) = plan.push_hint() {
             r.reasons.push(tf!("  • sigit doesn't push. To share it: {cmd}"));
         }
     }
     if !plan.replaced_files.is_empty() {
-        r.because(Level::High, tf!("{} uncommitted file(s) would be replaced (sigit stashes them first)", plan.replaced_files.len()));
+        let n = plan.replaced_files.len();
+        r.because(Level::High, tf!("{n} uncommitted file(s) would be replaced (sigit stashes them first)"));
+        r.tags.push((Tag::Files, tf!("{n} uncommitted")));
     }
     r
 }
@@ -759,7 +767,7 @@ mod tests {
     #[test]
     fn history_risk_levels() {
         use crate::history::{Line, Op, Plan, Snapshot, Sync};
-        let line = || Line { sha: "abc1234".into(), subject: "x".into() };
+        let line = || Line { sha: "abc1234".into(), subject: "x".into(), full: "abc1234".repeat(6) };
         let snap = Snapshot { branch: "feat".into(), tip: "a".repeat(40), upstream: Some("origin/feat".into()), remote: Some(("origin".into(), "refs/heads/feat".into())), ..Default::default() };
         let plan = |removed: usize, pushed: usize, sync: Sync| Plan {
             op: Op::Drop { sha: "c".repeat(40) },
@@ -767,7 +775,8 @@ mod tests {
             new_tip: "b".repeat(40),
             removed: (0..removed).map(|_| line()).collect(),
             added: vec![line()],
-            stat: String::new(),
+            rows: vec![],
+            files: vec![],
             pushed_rewritten: pushed,
             replaced_files: vec![],
             sync,
@@ -791,7 +800,7 @@ mod tests {
         use crate::history::{Op, Plan, Snapshot, Sync};
         let dir = PathBuf::from("/x");
         let snap = Snapshot { branch: "feat".into(), tip: "a".repeat(40), ..Default::default() };
-        let plan = Plan { op: Op::Reset { to: "b".repeat(40), mode: crate::history::ResetMode::Hard }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], stat: String::new(), pushed_rewritten: 0, replaced_files: vec![], sync: Sync::Hard };
+        let plan = Plan { op: Op::Reset { to: "b".repeat(40), mode: crate::history::ResetMode::Hard }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], pushed_rewritten: 0, replaced_files: vec![], sync: Sync::Hard };
         let a = Action::History { dir: dir.clone(), slug: "o/r".into(), plan: Box::new(plan) };
         assert!(a.local_dir().is_some(), "a hard reset asks to stash first");
         let lines = a.command_lines(false);

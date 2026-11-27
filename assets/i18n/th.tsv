@@ -1338,3 +1338,49 @@ Your files couldn't follow ({e}), so the branch was put back. Nothing was change
 {}'s changes are already on {}: nothing to pick	การเปลี่ยนแปลงของ {} อยู่บน {} แล้ว: ไม่มีอะไรให้ pick
 {}: {} is now at {}	{}: ตอนนี้ {} อยู่ที่ {}
 Your uncommitted changes to {} are in files this edit changes. Commit or stash them first.	การเปลี่ยนแปลงที่ยังไม่ commit ใน {} อยู่ในไฟล์ที่การแก้ไขนี้เปลี่ยน ให้ commit หรือ stash ก่อน
+Commits made again with new SHAs	commit ที่สร้างใหม่ด้วย SHA ใหม่
+Commits that leave the branch	commit ที่ออกจาก branch
+Commits joined into the one above	commit ที่รวมเข้ากับรายการด้านบน
+Each button simulates first: you see the new history before anything changes.	ทุกปุ่มจำลองก่อน: คุณเห็นประวัติใหม่ก่อนที่อะไรจะเปลี่ยน
+Files in your working copy are replaced	ไฟล์ใน working copy ของคุณจะถูกแทนที่
+Fixup	Fixup
+Hard	Hard
+Hide	ซ่อน
+Hide the reasons	ซ่อนเหตุผล
+How careful sigit is before running it	sigit ระวังแค่ไหนก่อนรัน
+How editing history works	การแก้ไขประวัติทำงานอย่างไร
+Important branch	branch สำคัญ
+Mixed	Mixed
+New commits	commit ใหม่
+Nothing has changed yet: these commits exist only as objects until you confirm.	ยังไม่มีอะไรเปลี่ยน: commit เหล่านี้เป็นเพียง object จนกว่าคุณยืนยัน
+Preflight	Preflight
+Remote not checked	ยังไม่ได้ตรวจ remote
+Replaced: {list}	ถูกแทนที่: {list}
+Replaces files	แทนที่ไฟล์
+Reset here	Reset ที่นี่
+Rewrite	เขียนใหม่
+Same files: only the history changes	ไฟล์เหมือนเดิม: เปลี่ยนเฉพาะประวัติ
+Show fewer	แสดงน้อยลง
+Show the reasons	แสดงเหตุผล
+Simulated	จำลองแล้ว
+Soft	Soft
+Some of these commits are already on a remote: sharing the edit needs a force-push	บาง commit อยู่บน remote แล้ว: การแชร์การแก้ไขต้อง force-push
+The default, a protected, or a main/release branch	branch ค่าเริ่มต้น, ถูกป้องกัน หรือ main/release
+The remote couldn't be checked for new commits	ตรวจ commit ใหม่บน remote ไม่ได้
+Undo (10 s) puts the branch back. sigit never pushes.	เลิกทำ (10 วินาที) คืน branch กลับ sigit ไม่ push
+Undo 10 s	เลิกทำ 10 วิ
+Undo puts the branch back for 10 seconds after; the reflog keeps the old tip longer	เลิกทำคืน branch ได้ภายใน 10 วินาที reflog เก็บ tip เดิมไว้นานกว่านั้น
+Was: {}	เดิม: {}
+Your uncommitted changes stay; a hard reset stashes them first.	การเปลี่ยนแปลงที่ยังไม่ commit ยังอยู่ hard reset จะ stash ไว้ก่อน
+Your uncommitted changes are stashed first; Undo brings them back.	การเปลี่ยนแปลงที่ยังไม่ commit จะถูก stash ก่อน เลิกทำนำกลับมาได้
+Before it runs, a preflight checks that the branch, its upstream and the remote didn't change.	ก่อนรัน preflight ตรวจว่า branch, upstream และ remote ไม่เปลี่ยน
+Before it runs, sigit checks again that the branch, its upstream and the remote didn't change. If one did, nothing changes.	ก่อนรัน sigit ตรวจอีกครั้งว่า branch, upstream และ remote ไม่เปลี่ยน ถ้าอย่างใดเปลี่ยน จะไม่มีอะไรเปลี่ยน
+Add a commit	เพิ่ม commit
+a remote	remote
+{n} of them are already on {up}: sharing this needs a force-push, and anyone who pulled them must fix their copy	{n} รายการอยู่บน {up} แล้ว: การแชร์ต้อง force-push และทุกคนที่ pull ไปแล้วต้องแก้สำเนาของตน
+{n} pushed	push แล้ว {n}
+{n} uncommitted	ยังไม่ commit {n}
+{n} uncommitted file(s) would be replaced (sigit stashes them first)	ไฟล์ที่ยังไม่ commit {n} ไฟล์จะถูกแทนที่ (sigit จะ stash ไว้ก่อน)
+{} file(s)	{} ไฟล์
+{}: simulated first	{}: จำลองก่อน
++{hidden} more	+อีก {hidden}

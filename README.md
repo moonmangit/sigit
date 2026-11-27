@@ -197,8 +197,9 @@ profile), and click a folder in **Changed code** to show only the PRs that touch
 another branch, **Cherry-pick onto** your branch; **Amend last commit** in the toolbar puts your
 staged changes into the last commit. Each one is first **simulated**: sigit makes the new commits
 as objects only (`git merge-tree`, `git commit-tree`), no branch or file changes, and the confirm
-dialog shows the outcome: the commits that leave the branch, the new ones, the files that differ,
-and the commands. Rewriting commits already on the upstream, or on an important branch, is high
+dialog shows the outcome as a graphic: a small commit graph (− leaves, + new, ~ made again,
+↳ joined), a bar per changed file, and risk chips; **Why?**, **+N more** and the ⓘ button open the
+details, and the commands are listed under Runs. Rewriting commits already on the upstream, or on an important branch, is high
 risk (type the branch name). When you confirm, a **preflight** checks again that the branch, its
 upstream and the remote (`git ls-remote`, read-only) didn't change; if one did, nothing changes and
 you simulate again. Then `git update-ref` moves the branch only if it is still where the simulation

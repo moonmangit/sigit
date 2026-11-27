@@ -593,6 +593,8 @@ pub struct State {
     pub pr_draft: Option<PrDraft>,
     /// Commits → Reword…: the commit and its new message, before the simulation.
     pub reword: Option<(String, TextEdit)>,
+    /// What's open in the history preview and the Edit history section.
+    pub history_open: ui::HistoryOpen,
     /// The draft last handed to the guard: it comes back if the PR isn't opened.
     pub last_pr_draft: Option<PrDraft>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
@@ -758,6 +760,7 @@ impl State {
             compare_edit: None,
             pr_draft: None,
             reword: None,
+            history_open: Default::default(),
             last_pr_draft: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
@@ -2905,7 +2908,11 @@ impl State {
         jobs::spawn(self, move || history::simulate(&d, &op), move |s, r| {
             s.busy.retain(|b| *b != label);
             match r {
-                Ok(plan) => s.request(guard::Action::History { dir, slug, plan: Box::new(plan) }),
+                Ok(plan) => {
+                    // A new preview starts folded (the help box keeps its state).
+                    s.history_open = ui::HistoryOpen { help: s.history_open.help, ..Default::default() };
+                    s.request(guard::Action::History { dir, slug, plan: Box::new(plan) })
+                }
                 Err(e) => s.toast(crate::i18n::t(tf!("Can't do that: {e}")), true),
             }
         });
@@ -3586,6 +3593,16 @@ fn main() {
                     s.select_commit(&sha);
                     s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Hard });
                 }
+            }),
+            ("history-open", |s: &mut State| {
+                // The high-risk preview with its details open: every row, every file, the reasons.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(8)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Soft });
+                }
+                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true };
             }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;

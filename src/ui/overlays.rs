@@ -87,7 +87,7 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
 
     // A history edit: the simulated outcome first.
     if let Action::History { plan, .. } = &p.action {
-        body = body.child(super::history::preview(k, plan));
+        body = body.child(super::history::preview(s, k, plan));
     }
 
     // Merge options live in the dialog.
@@ -127,7 +127,10 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     }
 
     // Risk level + reasons.
-    if p.checking {
+    let history = matches!(p.action, Action::History { .. });
+    if history && !p.checking {
+        body = body.child(super::history::risk_strip(s, k, p));
+    } else if p.checking {
         body = body.child(row().gap(8.0).center_y().child(Spinner::new().size(14.0).build(k)).child(muted(k, "Checking GitHub and your working copy…")));
     } else {
         let mut box_ = col().w_full().gap(6.0).padding(12.0).radius(k.radius.md).fill(tone_bg).child(
@@ -152,7 +155,10 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     if let Some(b) = &p.blocked {
         body = body.child(col().w_full().gap(6.0).padding(12.0).radius(k.radius.md).fill(k.c.danger.bg).child(text("Can't do this right now").font(k.ty.ui_medium).color(k.c.danger.fg)).child(text(b.clone()).font(k.ty.small).color(k.c.text_base).wrap()));
     }
-    if !p.dirty.is_empty() {
+    if !p.dirty.is_empty() && history {
+        // The preview already names the files and the chip counts them: one short line.
+        body = body.child(muted(k, "Your uncommitted changes are stashed first; Undo brings them back.").wrap());
+    } else if !p.dirty.is_empty() {
         let mut list = col().w_full().gap(2.0).padding(10.0).radius(k.radius.md).fill(k.c.bg_base);
         for f in p.dirty.iter().take(20) {
             list = list.child(text(f.clone()).font(k.ty.mono).color(k.c.text_muted).truncate());
@@ -235,7 +241,12 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         Level::High => tf!("⚠ {}?", p.action.label()),
         _ => tf!("{}?", p.action.label()),
     };
-    Dialog::new("guard", crate::i18n::t(title)).description(crate::i18n::t(p.action.subject())).open(true).fit().width(560.0).on_close(|s: &mut State| s.cancel_pending()).child(body).build(k, layer);
+    // A history edit's preview already says what moves where.
+    let mut dialog = Dialog::new("guard", crate::i18n::t(title));
+    if !history {
+        dialog = dialog.description(crate::i18n::t(p.action.subject()));
+    }
+    dialog.open(true).fit().width(560.0).on_close(|s: &mut State| s.cancel_pending()).child(body).build(k, layer);
 }
 
 // ---------------------------------------------------------------------------------------------

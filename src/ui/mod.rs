@@ -9,6 +9,7 @@ mod compare;
 mod envs;
 mod group;
 mod history;
+pub use history::Open as HistoryOpen;
 mod inbox;
 mod org;
 mod onboarding;

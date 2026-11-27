@@ -115,6 +115,59 @@ pub struct Snapshot {
 pub struct Line {
     pub sha: String,
     pub subject: String,
+    pub full: String,
+}
+
+/// What an edit does to one commit, for the preview's graph.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// Leaves the branch.
+    Leaves,
+    /// New on the branch.
+    New,
+    /// Made again (new SHA): reworded, moved, or after an edited commit.
+    Rewritten,
+    /// Joined into the commit above it (squash, fixup).
+    Joined,
+}
+
+/// One row of the preview's graph: the old commit, the new one, or both.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    pub kind: Kind,
+    pub old: Option<Line>,
+    pub new: Option<Line>,
+}
+
+/// A file that differs between the old and the new tip.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileChange {
+    pub path: String,
+    pub add: u64,
+    pub del: u64,
+}
+
+/// The graph's rows, newest first: each new commit with the old one(s) it replaces, then the
+/// commits that only leave.
+pub fn rows(removed: &[Line], added: &[Line], pairs: &[(String, String)]) -> Vec<Row> {
+    let mut out = Vec::new();
+    let mut used = std::collections::HashSet::new();
+    for a in added {
+        let olds: Vec<&Line> = pairs.iter().filter(|(_, n)| *n == a.full).filter_map(|(o, _)| removed.iter().find(|r| r.full == *o)).collect();
+        match olds.split_first() {
+            None => out.push(Row { kind: Kind::New, old: None, new: Some(a.clone()) }),
+            Some((first, rest)) => {
+                used.insert(first.full.clone());
+                out.push(Row { kind: Kind::Rewritten, old: Some((*first).clone()), new: Some(a.clone()) });
+                for o in rest {
+                    used.insert(o.full.clone());
+                    out.push(Row { kind: Kind::Joined, old: Some((*o).clone()), new: Some(a.clone()) });
+                }
+            }
+        }
+    }
+    out.extend(removed.iter().filter(|r| !used.contains(&r.full)).map(|r| Row { kind: Kind::Leaves, old: Some(r.clone()), new: None }));
+    out
 }
 
 /// A simulated edit: the new tip exists as objects; nothing else changed.
@@ -127,8 +180,10 @@ pub struct Plan {
     pub removed: Vec<Line>,
     /// On the new tip, not on the old one.
     pub added: Vec<Line>,
-    /// `git diff --stat old new`.
-    pub stat: String,
+    /// What the edit does to each commit, for the graph.
+    pub rows: Vec<Row>,
+    /// The files that differ between the old and the new tip (`git diff --numstat`).
+    pub files: Vec<FileChange>,
     /// Removed commits that a remote has (any remote branch, not only the upstream): rewriting
     /// them needs a force-push.
     pub pushed_rewritten: usize,
@@ -328,9 +383,14 @@ enum Step {
     Fold(String, bool),
 }
 
+/// Old → new SHA for each commit an edit made again (or joined into another), oldest first.
+type Pairs = Vec<(String, String)>;
+
 /// Makes `steps` again on top of `base`. A commit whose parent didn't change is kept as it is.
-fn replay(dir: &Path, base: &str, steps: &[Step]) -> Result<String, String> {
+/// Returns the new tip and the old → new pairs.
+fn replay(dir: &Path, base: &str, steps: &[Step]) -> Result<(String, Pairs), String> {
     let mut cur = base.to_owned();
+    let mut pairs: Pairs = Vec::new();
     // The commit made last: its parent, message and author, for a Fold.
     let mut last: Option<(Option<String>, String, (String, String, String))> = None;
     for step in steps {
@@ -354,6 +414,7 @@ fn replay(dir: &Path, base: &str, steps: &[Step]) -> Result<String, String> {
                 let message = msg.clone().unwrap_or(c.message);
                 let new = commit_tree(dir, &tree, &[&cur], &message, Some(&c.author))?;
                 last = Some((Some(cur.clone()), message, c.author));
+                pairs.push((sha.clone(), new.clone()));
                 cur = new;
             }
             Step::Fold(sha, fixup) => {
@@ -372,11 +433,20 @@ fn replay(dir: &Path, base: &str, steps: &[Step]) -> Result<String, String> {
                 let parents: Vec<&str> = prev_parent.iter().map(String::as_str).collect();
                 let new = commit_tree(dir, &tree, &parents, &message, Some(&prev_author))?;
                 last = Some((prev_parent, message, prev_author));
+                // The commit it joins into is replaced too: point its pair at the new one.
+                if pairs.iter().any(|(_, n)| *n == cur) {
+                    for p in pairs.iter_mut().filter(|(_, n)| *n == cur) {
+                        p.1 = new.clone();
+                    }
+                } else {
+                    pairs.push((cur.clone(), new.clone()));
+                }
+                pairs.push((sha.clone(), new.clone()));
                 cur = new;
             }
         }
     }
-    Ok(cur)
+    Ok((cur, pairs))
 }
 
 /// The commits from `sha` (included) to the tip, oldest first, checked: on the branch, not the
@@ -427,6 +497,11 @@ pub fn simulate(dir: &Path, op: &Op) -> Result<Plan, String> {
     if !matches!(op, Op::Reset { .. } | Op::Amend) {
         check_git_version(dir)?;
     }
+    let mut pairs: Pairs = Vec::new();
+    let mut replayed = |r: (String, Pairs)| {
+        pairs = r.1;
+        r.0
+    };
     let new_tip = match op {
         Op::Reset { to, .. } => {
             let to = rev(dir, to)?;
@@ -481,13 +556,13 @@ pub fn simulate(dir: &Path, op: &Op) -> Result<Plan, String> {
             }
             let (base, list) = linear_from(dir, &tip, &sha)?;
             let steps: Vec<Step> = list.into_iter().map(|c| { let m = (c == sha).then(|| format!("{message}\n")); Step::Pick(c, m) }).collect();
-            replay(dir, &base, &steps)?
+            replayed(replay(dir, &base, &steps)?)
         }
         Op::Drop { sha } => {
             let sha = rev(dir, sha)?;
             let (base, list) = linear_from(dir, &tip, &sha)?;
             let steps: Vec<Step> = list.into_iter().filter(|c| *c != sha).map(|c| Step::Pick(c, None)).collect();
-            replay(dir, &base, &steps)?
+            replayed(replay(dir, &base, &steps)?)
         }
         Op::Squash { sha, fixup } => {
             let sha = rev(dir, sha)?;
@@ -498,7 +573,7 @@ pub fn simulate(dir: &Path, op: &Op) -> Result<Plan, String> {
             for c in list {
                 steps.push(if c == sha { Step::Fold(c, *fixup) } else { Step::Pick(c, None) });
             }
-            replay(dir, &base, &steps)?
+            replayed(replay(dir, &base, &steps)?)
         }
         Op::Move { sha, up } => {
             let sha = rev(dir, sha)?;
@@ -513,7 +588,7 @@ pub fn simulate(dir: &Path, op: &Op) -> Result<Plan, String> {
             let (base, list) = linear_from(dir, &tip, &older).map_err(|e| tf!("Can't move it: {e}"))?;
             let mut steps = vec![Step::Pick(newer.clone(), None), Step::Pick(older.clone(), None)];
             steps.extend(list.into_iter().filter(|c| *c != older && *c != newer).map(|c| Step::Pick(c, None)));
-            replay(dir, &base, &steps)?
+            replayed(replay(dir, &base, &steps)?)
         }
         Op::Amend => {
             let index = snap.index_tree.clone().ok_or_else(|| crate::i18n::t("Couldn't read the staged changes (is a merge half done?)"))?;
@@ -522,31 +597,42 @@ pub fn simulate(dir: &Path, op: &Op) -> Result<Plan, String> {
                 return Err(crate::i18n::t("Nothing is staged: stage the changes to put into the last commit first (git add)"));
             }
             let parents: Vec<&str> = c.parents.iter().map(String::as_str).collect();
-            commit_tree(dir, &index, &parents, &c.message, Some(&c.author))?
+            let new = commit_tree(dir, &index, &parents, &c.message, Some(&c.author))?;
+            pairs = vec![(tip.clone(), new.clone())];
+            new
         }
     };
-    preview(dir, op.clone(), snap, new_tip, sync)
+    preview(dir, op.clone(), snap, new_tip, sync, &pairs)
 }
 
 fn lines(dir: &Path, range: &[&str]) -> Result<Vec<Line>, String> {
-    let fmt = format!("--format=%h{SEP}%s");
+    let fmt = format!("--format=%H{SEP}%h{SEP}%s");
     let mut args = vec!["log", "-n", "200", &fmt];
     args.extend_from_slice(range);
     Ok(git(dir, &args)?
         .lines()
         .filter_map(|l| {
-            let (sha, subject) = l.split_once(SEP)?;
-            Some(Line { sha: sha.to_owned(), subject: subject.to_owned() })
+            let mut f = l.splitn(3, SEP);
+            let full = f.next()?.to_owned();
+            Some(Line { sha: f.next()?.to_owned(), subject: f.next().unwrap_or_default().to_owned(), full })
         })
         .collect())
 }
 
-fn preview(dir: &Path, op: Op, snap: Snapshot, new_tip: String, sync: Sync) -> Result<Plan, String> {
+fn preview(dir: &Path, op: Op, snap: Snapshot, new_tip: String, sync: Sync, pairs: &[(String, String)]) -> Result<Plan, String> {
     let (old, new) = (snap.tip.as_str(), new_tip.as_str());
     let removed = lines(dir, &[old, &format!("^{new}")])?;
     let added = lines(dir, &[new, &format!("^{old}")])?;
-    let mut stat = git(dir, &["diff", "--stat=100", old, new]).unwrap_or_default();
-    gh::cap(&mut stat, 20_000);
+    let files = git(dir, &["diff", "--numstat", old, new])
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            let add = f.next()?.parse().unwrap_or(0); // "-" for binary files
+            let del = f.next()?.parse().unwrap_or(0);
+            Some(FileChange { path: f.next()?.to_owned(), add, del })
+        })
+        .collect();
     // Removed commits that some remote branch has: all removed, minus those on no remote.
     let pushed_rewritten = if removed.is_empty() {
         0
@@ -560,7 +646,8 @@ fn preview(dir: &Path, op: Op, snap: Snapshot, new_tip: String, sync: Sync) -> R
         count(&[]).saturating_sub(count(&["--not", "--remotes"]))
     };
     let replaced_files = if sync == Sync::Hard { snap.changed.clone() } else { Vec::new() };
-    Ok(Plan { op, snap, new_tip, removed, added, stat: stat.trim_end().to_owned(), pushed_rewritten, replaced_files, sync })
+    let rows = rows(&removed, &added, pairs);
+    Ok(Plan { op, snap, new_tip, removed, added, rows, files, pushed_rewritten, replaced_files, sync })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -739,7 +826,8 @@ mod tests {
         assert_eq!(r.read("a.txt"), "dirty\n", "the files didn't change");
         assert_eq!(plan.removed.len(), 1);
         assert_eq!(plan.added.len(), 0);
-        assert!(plan.stat.contains("a.txt"));
+        assert!(plan.files.iter().any(|f| f.path == "a.txt" && f.del == 1));
+        assert_eq!(plan.rows.iter().map(|r| r.kind).collect::<Vec<_>>(), [Kind::Leaves]);
     }
 
     #[test]
@@ -926,6 +1014,27 @@ mod tests {
     }
 
     #[test]
+    fn graph_rows_pair_old_and_new() {
+        let kinds = |p: &Plan| p.rows.iter().map(|r| r.kind).collect::<Vec<_>>();
+        let (r, [_, b, c, _]) = Repo::abc("rows");
+        // Reword "two": it and the two after it are made again, one row each.
+        let p = simulate(&r.0, &Op::Reword { sha: b.clone(), message: "two!".into() }).unwrap();
+        assert_eq!(kinds(&p), [Kind::Rewritten; 3]);
+        assert_eq!(p.rows[2].old.as_ref().unwrap().subject, "two");
+        assert_eq!(p.rows[2].new.as_ref().unwrap().subject, "two!");
+        // Squash "three" into "two": two rows land on one new commit.
+        let p = simulate(&r.0, &Op::Squash { sha: c.clone(), fixup: false }).unwrap();
+        assert_eq!(kinds(&p), [Kind::Rewritten, Kind::Rewritten, Kind::Joined]);
+        assert_eq!(p.rows[1].new, p.rows[2].new);
+        // Drop "three": it only leaves.
+        let p = simulate(&r.0, &Op::Drop { sha: c }).unwrap();
+        assert_eq!(kinds(&p), [Kind::Rewritten, Kind::Leaves]);
+        // Revert: one new commit.
+        let p = simulate(&r.0, &Op::Revert { sha: r.git(&["rev-parse", "HEAD~1"]).trim().to_owned() }).unwrap();
+        assert_eq!(kinds(&p), [Kind::New]);
+    }
+
+    #[test]
     fn uncommitted_changes_elsewhere_stay() {
         let (r, [_, _, c, _]) = Repo::abc("dirty");
         r.write("notes.txt", "mine\n");
@@ -976,7 +1085,7 @@ mod tests {
     #[test]
     fn command_lines() {
         let snap = Snapshot { branch: "main".into(), tip: "a".repeat(40), remote: Some(("origin".into(), "refs/heads/main".into())), ..Default::default() };
-        let plan = Plan { op: Op::Drop { sha: "c".repeat(40) }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], stat: String::new(), pushed_rewritten: 2, replaced_files: vec![], sync: Sync::TwoTree };
+        let plan = Plan { op: Op::Drop { sha: "c".repeat(40) }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], pushed_rewritten: 2, replaced_files: vec![], sync: Sync::TwoTree };
         let lines: Vec<String> = plan.commands().iter().map(Cmd::line).collect();
         let (a, b) = ("a".repeat(40), "b".repeat(40));
         assert_eq!(lines, [
