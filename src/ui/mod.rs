@@ -8,6 +8,7 @@ mod commits;
 mod compare;
 mod envs;
 mod group;
+mod history;
 mod inbox;
 mod org;
 mod onboarding;
@@ -360,6 +361,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         Some(nav) => row().w_full().h_full().child(nav).child(col().w(0.0).grow(1.0).min_w(0.0).h_full().child(body)),
         None => body,
     };
+    history::reword_dialog(s, &k, &mut layer);
     overlays::guard_dialog(s, &k, &mut layer);
     group_dialog(s, &k, &mut layer);
     org::dialog(s, &k, &mut layer);

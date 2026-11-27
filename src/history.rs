@@ -74,6 +74,11 @@ impl Op {
     }
 }
 
+/// The busy label while `op` is being simulated (a button shows a spinner for it).
+pub fn sim_label(op: &Op) -> String {
+    format!("Simulating: {}", op.label())
+}
+
 /// How the index and the files follow the branch after the ref moves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sync {

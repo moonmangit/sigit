@@ -591,6 +591,8 @@ pub struct State {
     pub repo_scope: Option<RepoScope>,
     pub compare_edit: Option<CompareEdit>,
     pub pr_draft: Option<PrDraft>,
+    /// Commits → Reword…: the commit and its new message, before the simulation.
+    pub reword: Option<(String, TextEdit)>,
     /// The draft last handed to the guard: it comes back if the PR isn't opened.
     pub last_pr_draft: Option<PrDraft>,
     /// Settings → Git: the shared comparisons being edited (name, from, to), and for each the name
@@ -755,6 +757,7 @@ impl State {
             repo_scope: None,
             compare_edit: None,
             pr_draft: None,
+            reword: None,
             last_pr_draft: None,
             cmp_rows: Vec::new(),
             cmp_ids: Vec::new(),
@@ -2889,6 +2892,35 @@ impl State {
         self.request(guard::Action::Pull { dir });
     }
 
+    /// History editing: simulate `op` on a worker (nothing changes), then open the guard's
+    /// dialog with the preview. The dialog's preflight and the apply happen in `guard`.
+    pub fn simulate_history(&mut self, op: history::Op) {
+        let (Some(dir), Some(slug)) = (self.local_path(), self.cur.clone()) else { return };
+        let label = history::sim_label(&op);
+        if self.busy.contains(&label) {
+            return;
+        }
+        self.busy.push(label.clone());
+        let d = dir.clone();
+        jobs::spawn(self, move || history::simulate(&d, &op), move |s, r| {
+            s.busy.retain(|b| *b != label);
+            match r {
+                Ok(plan) => s.request(guard::Action::History { dir, slug, plan: Box::new(plan) }),
+                Err(e) => s.toast(crate::i18n::t(tf!("Can't do that: {e}")), true),
+            }
+        });
+    }
+
+    /// Reword…: opens the message editor with the commit's full message.
+    pub fn start_reword(&mut self, sha: String, message: String) {
+        self.reword = Some((sha, TextEdit::new(&message)));
+    }
+
+    pub fn submit_reword(&mut self) {
+        let Some((sha, msg)) = self.reword.take() else { return };
+        self.simulate_history(history::Op::Reword { sha, message: msg.text.clone() });
+    }
+
     pub fn checkout_branch(&mut self, name: String, remote: bool) {
         let (Some(dir), Some(slug)) = (self.local_path(), self.cur.clone()) else { return };
         self.request(guard::Action::Checkout { dir, slug, name, remote });
@@ -3524,6 +3556,16 @@ fn main() {
                 s.select_repo(&local, Page::Commits);
                 if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
                     s.select_commit(&sha);
+                }
+            }),
+            ("history-edit", |s: &mut State| {
+                // A simulated edit: commit objects only, no ref or file changes; the dialog's
+                // preflight is read-only and nothing is confirmed.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(1)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Reword { sha, message: "A better message\n\nWith a body.".into() });
                 }
             }),
             ("branches", |s: &mut State| {

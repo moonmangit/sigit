@@ -18,7 +18,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FILES = sorted((ROOT / "src/ui").glob("*.rs")) + [ROOT / "src" / n for n in [
     "main.rs", "daily.rs", "focus.rs", "settings.rs", "onboarding.rs", "update.rs", "guard.rs",
-    "config.rs", "pulse.rs", "risk.rs", "model.rs", "activity.rs", "compare.rs", "route.rs"]]
+    "config.rs", "pulse.rs", "risk.rs", "model.rs", "activity.rs", "compare.rs", "route.rs", "history.rs"]]
 
 LITERAL = re.compile(r'(?<![A-Za-z0-9_#])"((?:[^"\\]|\\.)*)"')
 # Literals right after these are code, not words on screen.
@@ -30,7 +30,7 @@ CODE_CONTEXT = re.compile(
 
 
 # Shown as written: commands, versions and the screenshot scenes' sample data.
-KEEP = re.compile(r"^(Sample |Could not resolve to a Repository with the name |query \{|, after: |refs/heads|repository\(| p\{i\}: pullRequest\(|gh |git |rm -rf|repo:|scale\(|currentColor|Demo$|Rust tooling$|octocat |, env!|AIza$|Ctrl\+|\{alias\}|\.\./|<[^>]+>$|.*Noto Sans Thai$|✓ Squashed and merged|[\w.-]+(/[\w.-]+)+$)")
+KEEP = re.compile(r"^(Simulating: |Revert \"|, reversing|sigit: \{why\}|\{why\} \(rolled back\)|Sample |Could not resolve to a Repository with the name |query \{|, after: |refs/heads|repository\(| p\{i\}: pullRequest\(|gh |git |rm -rf|repo:|scale\(|currentColor|Demo$|Rust tooling$|octocat |, env!|AIza$|Ctrl\+|\{alias\}|\.\./|<[^>]+>$|.*Noto Sans Thai$|✓ Squashed and merged|[\w.-]+(/[\w.-]+)+$)")
 
 
 def is_prose(v: str) -> bool:

@@ -85,6 +85,11 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     };
     let mut body = col().w_full().px(16.0).pb(16.0).gap(12.0);
 
+    // A history edit: the simulated outcome first.
+    if let Action::History { plan, .. } = &p.action {
+        body = body.child(super::history::preview(k, plan));
+    }
+
     // Merge options live in the dialog.
     if let Action::Merge { method, delete_branch, .. } = &p.action {
         let i = MergeMethod::ALL.iter().position(|m| m == method);

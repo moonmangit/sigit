@@ -6,7 +6,7 @@ A fast desktop app for everyday GitHub and git work: pull requests, Actions, env
 history, across all your repositories and organizations. Built in Rust on
 [Rune](https://github.com/anomalyco/rune), a GPU-rendered native UI.
 
-**It reads and reviews; it never commits or pushes.** In English or Thai (ไทย).
+**It reads and reviews, and edits local history only after it shows you the simulated outcome; it never pushes.** In English or Thai (ไทย).
 
 ## Download
 
@@ -63,7 +63,7 @@ keep your local folder paths out of the binary. Official releases are built by
 | **Pull requests** | Open / merged / closed with checks, review state, diff size; detail with description, reviews, files and diff, checks | Approve, request changes, comment, merge (squash / merge / rebase), close, check out |
 | **Actions** | Runs with duration and result, jobs and steps on one timeline, failing log lines | Re-run failed or all, cancel, watch |
 | **Environments** | What's deployed where, a deployment timeline | Open the deployed commit |
-| **Commits** (local clone) | Commit graph with lanes, branch and tag chips | Commit detail with diff |
+| **Commits** (local clone) | Commit graph with lanes, branch and tag chips | Commit detail with diff; **edit history** (below) |
 | **Branches** (local clone) | Local and remote, ahead/behind, stashes, clean-up of merged or gone branches; select a branch for a side pane of what it brings to the default branch (or one you pick): PRs, contributors, modules | Checkout, fetch, fast-forward pull |
 | **Groups** | A dashboard for repos you group yourself, across owners | |
 
@@ -178,7 +178,7 @@ cargo run -- --snap shot.png --scene prs --size 1400x860    # headless still of 
 ```
 
 Scenes (in `src/main.rs`): `inbox`, `activity`, `needs`, `prs`, `actions`, `envs`, `commits`,
-`branches`, `merge`, `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-by-contributor`, `comparisons-edit`, `branches-detail`, `guide`, `group`, `groups`, `orgs`; `light-*` for
+`branches`, `merge`, `history-edit` (a simulated reword: it makes commit objects only, no branch or file change), `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-by-contributor`, `comparisons-edit`, `branches-detail`, `guide`, `group`, `groups`, `orgs`; `light-*` for
 the light theme (`light-comparisons`, `light-comparisons-by-contributor`, `light-branches-detail`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
 it); `setup`, `welcome`, `update-available`, and more. They use public repositories and sample
 data and never write anything. Add `SIGIT_LANG=th` to render in Thai.
@@ -191,6 +191,22 @@ a one-line summary and size; switch to **By contributor** to see who wrote them 
 profile), and click a folder in **Changed code** to show only the PRs that touched it.
 
 **New pull request.** Open one from the **New pull request** button on a repo's Pull requests page, or **Open PR** for the selected branch on Branches. Pick any branch as From and any as To; the form shows how many commits ahead the pair is, starts with the title from the last commit (**Use last commit**), and **List commits** fills the body. It blocks with a reason when there's nothing to merge, the branch isn't pushed, a PR between those two is already open (click to open it), or the title is blank. The target, draft/ready, reviewers, assignees and labels are remembered per repo, and every PR still goes through a confirm step showing the exact `gh pr create` command; edits survive a cancel or a failure.
+
+**Edit history.** Select a commit on the Commits page: **Reset** (soft, mixed, hard), **Revert**,
+**Reword…**, **Drop**, **Squash** or **Fixup into parent**, **Move up / down**, or, for a commit on
+another branch, **Cherry-pick onto** your branch; **Amend last commit** in the toolbar puts your
+staged changes into the last commit. Each one is first **simulated**: sigit makes the new commits
+as objects only (`git merge-tree`, `git commit-tree`), no branch or file changes, and the confirm
+dialog shows the outcome: the commits that leave the branch, the new ones, the files that differ,
+and the commands. Rewriting commits already on the upstream, or on an important branch, is high
+risk (type the branch name). When you confirm, a **preflight** checks again that the branch, its
+upstream and the remote (`git ls-remote`, read-only) didn't change; if one did, nothing changes and
+you simulate again. Then `git update-ref` moves the branch only if it is still where the simulation
+saw it, and your files follow (or the branch goes back). Uncommitted changes are stashed first when
+the files change. Undo (10 s) puts the branch back. sigit never pushes: after rewriting pushed
+commits it shows the `git push --force-with-lease` command for you to run. Conflicts, merge commits
+inside the edited range and the first commit of a history are refused. Needs git 2.40 or newer
+(Reset and Amend work with any git).
 
 **Clone folders.** Add folders in Settings → Git; they're scanned at launch and on Rescan now,
 5 levels deep, skipping hidden folders, `node_modules`, `target`, `vendor`, `dist` and `build`.
@@ -213,6 +229,7 @@ every English string it actually shows that the catalog lacks.
 | `src/scan.rs` | finding clones inside a folder |
 | `src/ui/compare.rs` | the Comparisons tab and the per-repo dialog |
 | `src/guard.rs` / `src/risk.rs` | risk checks, confirmations, undo |
+| `src/history.rs`, `src/ui/history.rs` | history editing: simulate, preflight, apply, undo; its buttons and preview |
 | `src/daily.rs` | notifications, review queue, triage, groups, watches, palette |
 | `src/cache.rs`, `src/config.rs`, `src/settings.rs` | the on-disk cache, preferences, the Settings window's actions |
 | `src/focus.rs` | links that open the exact run or PR |

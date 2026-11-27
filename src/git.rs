@@ -1,5 +1,5 @@
 //! Local git: log, branches, status, and the safe everyday actions (fetch, fast-forward pull,
-//! checkout). Nothing here commits or pushes. Also the commit graph's lane layout.
+//! checkout). Nothing here commits or pushes (history edits are in `history.rs`). Also the commit graph's lane layout.
 
 use std::path::Path;
 

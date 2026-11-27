@@ -17,6 +17,7 @@ use crate::activity;
 use crate::config::Prefs;
 use crate::gh::{self, MergeMethod};
 use crate::git::{self, Safety};
+use crate::history;
 use crate::model::{Envs, Outcome, now};
 use crate::risk::{self, Level, Risk};
 use crate::{State, jobs};
@@ -39,6 +40,9 @@ pub enum Action {
     Stash { dir: PathBuf, op: &'static str, name: String },
     DeleteBranch { dir: PathBuf, name: String, sha: String, force: bool, unpushed: Vec<String> },
     CreatePr { spec: crate::route::PrSpec },
+    /// A simulated history edit (`history.rs`): the preflight runs again, then the branch moves
+    /// to `plan.new_tip`.
+    History { dir: PathBuf, slug: String, plan: Box<history::Plan> },
 }
 
 impl Action {
@@ -61,6 +65,7 @@ impl Action {
                 let (head, base) = (&spec.head, &spec.base);
                 tf!("Open PR {head} → {base}")
             }
+            Action::History { plan, .. } => plan.label(),
         }
     }
 
@@ -74,6 +79,10 @@ impl Action {
             Action::Pull { .. } => "Fast-forward the current branch".into(),
             Action::DeleteBranch { name, .. } => tf!("Delete local branch {name}"),
             Action::CreatePr { spec, .. } => spec.title.clone(),
+            Action::History { plan, .. } => {
+                let (b, old, new) = (&plan.snap.branch, short(&plan.snap.tip), short(&plan.new_tip));
+                tf!("Moves {b} from {old} to {new}. Simulated: nothing has changed yet.")
+            }
             other => other.label(),
         }
     }
@@ -88,7 +97,8 @@ impl Action {
             | Action::Rerun { slug, .. }
             | Action::CancelRun { slug, .. }
             | Action::Checkout { slug, .. }
-            | Action::PrCheckout { slug, .. } => slug.clone(),
+            | Action::PrCheckout { slug, .. }
+            | Action::History { slug, .. } => slug.clone(),
             Action::CreatePr { spec, .. } => spec.slug.clone(),
             _ => String::new(),
         }
@@ -125,6 +135,7 @@ impl Action {
             Action::Stash { op, name, .. } => vec![git::stash_op_cmd(op, name)],
             Action::DeleteBranch { name, force, .. } => vec![git::delete_branch_cmd(name, *force)],
             Action::CreatePr { spec, .. } => vec![gh::create_pr_cmd(spec)],
+            Action::History { plan, .. } => plan.commands(),
         }
     }
 
@@ -132,7 +143,7 @@ impl Action {
     /// the repo with `-R`).
     fn cwd(&self) -> Option<&PathBuf> {
         match self {
-            Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } | Action::Pull { dir } | Action::Fetch { dir } | Action::Stash { dir, .. } | Action::DeleteBranch { dir, .. } => Some(dir),
+            Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } | Action::Pull { dir } | Action::Fetch { dir } | Action::Stash { dir, .. } | Action::DeleteBranch { dir, .. } | Action::History { dir, .. } => Some(dir),
             _ => None,
         }
     }
@@ -151,6 +162,8 @@ impl Action {
     fn local_dir(&self) -> Option<&PathBuf> {
         match self {
             Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } | Action::Pull { dir } | Action::Stash { dir, op: "pop", .. } => Some(dir),
+            // An edit that changes the files needs a clean working copy (stash first).
+            Action::History { dir, plan, .. } if plan.sync.touches_files() => Some(dir),
             _ => None,
         }
     }
@@ -183,7 +196,13 @@ pub enum Undo {
     SwitchBack { dir: PathBuf, branch: String },
     RestoreBranch { dir: PathBuf, name: String, sha: String },
     StashPop { dir: PathBuf },
+    /// A history edit: the branch back from `from` to `to`; `pop_stash` when the edit stashed.
+    History { dir: PathBuf, branch: String, from: String, to: String, sync: history::Sync, pop_stash: bool },
     Prefs(Box<Prefs>),
+}
+
+fn short(sha: &str) -> String {
+    sha.get(..7).unwrap_or(sha).to_owned()
 }
 
 impl Undo {
@@ -194,6 +213,13 @@ impl Undo {
             Undo::SwitchBack { branch, .. } => git::checkout_cmds(branch, false).iter().map(gh::Cmd::line).collect(),
             Undo::RestoreBranch { name, sha, .. } => vec![git::restore_branch_cmd(name, sha).line()],
             Undo::StashPop { .. } => vec![git::stash_op_cmd("pop", "stash@{0}").line()],
+            Undo::History { branch, from, to, pop_stash, .. } => {
+                let mut v = vec![history::update_ref_cmd(&format!("refs/heads/{branch}"), to, from, "undo").line()];
+                if *pop_stash {
+                    v.push(git::stash_op_cmd("pop", "stash@{0}").line());
+                }
+                v
+            }
             Undo::Prefs(_) => Vec::new(),
         }
     }
@@ -211,6 +237,9 @@ struct Assessment {
 struct Context {
     prefs: Prefs,
     envs: Option<Envs>,
+    /// The repo's default branch and protected branches, as last loaded.
+    default_branch: String,
+    protected: Vec<String>,
 }
 
 impl State {
@@ -220,7 +249,13 @@ impl State {
             self.execute(action, false);
             return;
         }
-        let ctx = Context { prefs: self.prefs.clone(), envs: self.rd().and_then(|d| d.envs.data.clone()) };
+        let meta = self.rd().and_then(|d| d.meta.data.as_ref());
+        let ctx = Context {
+            prefs: self.prefs.clone(),
+            envs: self.rd().and_then(|d| d.envs.data.clone()),
+            default_branch: meta.map(|m| m.default_branch.clone()).unwrap_or_default(),
+            protected: meta.map(|m| m.protected.clone()).unwrap_or_default(),
+        };
         self.typed = TextEdit::new("");
         self.pending = Some(Pending { action: action.clone(), checking: true, risk: Risk::new(Level::Low), blocked: None, dirty: Vec::new(), word: None });
         let label = action.label();
@@ -301,6 +336,9 @@ impl State {
                 Action::Fetch { dir } => git::fetch(dir),
                 Action::Stash { dir, op, name } => git::stash_op(dir, op, name),
                 Action::DeleteBranch { dir, name, force, .. } => git::delete_branch(dir, name, *force),
+                // The preflight again (state may have changed while the dialog was open), then
+                // the transaction with the simulated tip.
+                Action::History { dir, plan, .. } => history::apply(dir, plan),
                 // The rest: each command in turn, in the clone where there is one.
                 _ => {
                     let mut out = String::new();
@@ -352,6 +390,14 @@ impl State {
                 before.clone().filter(|b| !b.is_empty() && b != "(detached)").map(|branch| Undo::SwitchBack { dir: dir.clone(), branch })
             }
             Action::DeleteBranch { dir, name, sha, .. } => Some(Undo::RestoreBranch { dir: dir.clone(), name: name.clone(), sha: sha.clone() }),
+            Action::History { dir, plan, .. } => Some(Undo::History {
+                dir: dir.clone(),
+                branch: plan.snap.branch.clone(),
+                from: plan.new_tip.clone(),
+                to: plan.snap.tip.clone(),
+                sync: plan.sync,
+                pop_stash: stash_first,
+            }),
             _ => None,
         };
         let undo = undo.or_else(|| stash_first.then(|| action.local_dir().map(|d| Undo::StashPop { dir: d.clone() })).flatten());
@@ -416,6 +462,10 @@ impl State {
             }
             Action::PrCheckout { .. } | Action::Pull { .. } | Action::Fetch { .. } => self.refresh_page(),
             Action::Stash { .. } | Action::DeleteBranch { .. } => self.refresh_branch_tools(),
+            Action::History { .. } => {
+                self.refresh_page();
+                self.refresh_status();
+            }
         }
     }
 
@@ -427,6 +477,16 @@ impl State {
             Undo::SwitchBack { dir, branch } => (tf!("Switch back to {branch}"), Box::new(move || git::checkout(&dir, &branch, false))),
             Undo::RestoreBranch { dir, name, sha } => (tf!("Restore {name}"), Box::new(move || git::restore_branch(&dir, &name, &sha))),
             Undo::StashPop { dir } => ("Pop stash".into(), Box::new(move || git::stash_op(&dir, "pop", "stash@{0}"))),
+            Undo::History { dir, branch, from, to, sync, pop_stash } => (
+                tf!("Undo the edit on {branch}"),
+                Box::new(move || {
+                    let msg = history::undo(&dir, &branch, &from, &to, sync)?;
+                    if pop_stash {
+                        git::stash_op(&dir, "pop", "stash@{0}")?;
+                    }
+                    Ok(msg)
+                }),
+            ),
             Undo::Prefs(p) => {
                 self.prefs = *p;
                 self.save_prefs();
@@ -516,12 +576,56 @@ fn assess(action: &Action, ctx: &Context) -> Assessment {
             a.word = Some(name.clone());
         }
         Action::CreatePr { spec, .. } => a.risk = create_pr_risk(&spec.base, &ctx.prefs.prod_names),
+        Action::History { dir, plan, .. } => {
+            match history::preflight(dir, plan) {
+                Err(e) => a.blocked = Some(e),
+                Ok(warnings) => {
+                    for w in warnings {
+                        a.risk.because(Level::Medium, w);
+                    }
+                }
+            }
+            let important = risk::important_branch(&plan.snap.branch, &ctx.default_branch, &ctx.protected) || risk::is_production(&plan.snap.branch, false, &ctx.prefs.prod_names);
+            a.risk = history_risk(plan, important, a.risk);
+            if a.risk.level == Level::High {
+                a.word = Some(plan.snap.branch.clone());
+            }
+        }
         _ => {}
     }
     if a.risk.level == Level::High && a.word.is_none() {
         a.word = Some(repo_name(&action.slug()));
     }
     a
+}
+
+/// A history edit's risk (spec: Risk). `r` holds what the preflight found.
+pub(crate) fn history_risk(plan: &history::Plan, important: bool, mut r: Risk) -> Risk {
+    let b = &plan.snap.branch;
+    let gone = plan.removed.len();
+    r.because(Level::Low, tf!("Simulated: {} new commit(s), {} leave {b}. Undo (10 s) or the reflog brings the old tip back.", plan.added.len(), gone));
+    if gone > 0 {
+        r.because(Level::Medium, tf!("{gone} commit(s) leave {b}"));
+        if important {
+            r.because(Level::High, tf!("{b} is an important branch (default, protected, or a main/release name): rewriting its history affects everyone"));
+        }
+        if plan.sync == history::Sync::Hard {
+            r.because(Level::High, "A hard reset replaces your files with the target commit's");
+        }
+    } else if important {
+        r.because(Level::Medium, tf!("{b} is an important branch: you'll push this new commit to it yourself"));
+    }
+    if plan.pushed_rewritten > 0 {
+        let up = plan.snap.upstream.clone().unwrap_or_default();
+        r.because(Level::High, tf!("{} of them are already on {up}: sharing this needs a force-push, and anyone who pulled them must fix their copy", plan.pushed_rewritten));
+        if let Some(cmd) = plan.push_hint() {
+            r.reasons.push(tf!("  • sigit doesn't push. To share it: {cmd}"));
+        }
+    }
+    if !plan.replaced_files.is_empty() {
+        r.because(Level::High, tf!("{} uncommitted file(s) would be replaced (sigit stashes them first)", plan.replaced_files.len()));
+    }
+    r
 }
 
 /// Opening a PR is harmless (close it again); it asks only when it targets production.
@@ -643,6 +747,51 @@ mod tests {
             assignees: String::new(),
             labels: String::new(),
         }
+    }
+
+    #[test]
+    fn history_risk_levels() {
+        use crate::history::{Line, Op, Plan, Snapshot, Sync};
+        let line = || Line { sha: "abc1234".into(), subject: "x".into() };
+        let snap = Snapshot { branch: "feat".into(), tip: "a".repeat(40), upstream: Some("origin/feat".into()), remote: Some(("origin".into(), "refs/heads/feat".into())), ..Default::default() };
+        let plan = |removed: usize, pushed: usize, sync: Sync| Plan {
+            op: Op::Drop { sha: "c".repeat(40) },
+            snap: snap.clone(),
+            new_tip: "b".repeat(40),
+            removed: (0..removed).map(|_| line()).collect(),
+            added: vec![line()],
+            stat: String::new(),
+            pushed_rewritten: pushed,
+            replaced_files: vec![],
+            sync,
+        };
+        // A new commit on top of a feature branch: low.
+        assert_eq!(history_risk(&plan(0, 0, Sync::TwoTree), false, Risk::new(Level::Low)).level, Level::Low);
+        // Same on an important branch: a look.
+        assert_eq!(history_risk(&plan(0, 0, Sync::TwoTree), true, Risk::new(Level::Low)).level, Level::Medium);
+        // Unpushed commits rewritten: a look; on an important branch: high.
+        assert_eq!(history_risk(&plan(1, 0, Sync::TwoTree), false, Risk::new(Level::Low)).level, Level::Medium);
+        assert_eq!(history_risk(&plan(1, 0, Sync::TwoTree), true, Risk::new(Level::Low)).level, Level::High);
+        // Pushed commits rewritten, or a hard reset that drops commits: high, with the push hint.
+        let r = history_risk(&plan(2, 2, Sync::TwoTree), false, Risk::new(Level::Low));
+        assert_eq!(r.level, Level::High);
+        assert!(r.reasons.iter().any(|x| x.contains("git push --force-with-lease origin feat:feat")));
+        assert_eq!(history_risk(&plan(1, 0, Sync::Hard), false, Risk::new(Level::Low)).level, Level::High);
+    }
+
+    #[test]
+    fn history_action_and_undo_commands() {
+        use crate::history::{Op, Plan, Snapshot, Sync};
+        let dir = PathBuf::from("/x");
+        let snap = Snapshot { branch: "feat".into(), tip: "a".repeat(40), ..Default::default() };
+        let plan = Plan { op: Op::Reset { to: "b".repeat(40), mode: crate::history::ResetMode::Hard }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], stat: String::new(), pushed_rewritten: 0, replaced_files: vec![], sync: Sync::Hard };
+        let a = Action::History { dir: dir.clone(), slug: "o/r".into(), plan: Box::new(plan) };
+        assert!(a.local_dir().is_some(), "a hard reset asks to stash first");
+        let lines = a.command_lines(false);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].starts_with("git reset --hard bbbbbbb"));
+        let u = Undo::History { dir, branch: "feat".into(), from: "b".repeat(40), to: "a".repeat(40), sync: Sync::Hard, pop_stash: true };
+        assert_eq!(u.command_lines(), [format!("git update-ref -m \"sigit: undo\" refs/heads/feat {} {}", "a".repeat(40), "b".repeat(40)), "git stash pop stash@{0}".to_owned()]);
     }
 
     #[test]

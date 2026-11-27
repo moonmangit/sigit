@@ -10,7 +10,8 @@ answers "what needs me?" faster than github.com and **stops them before they bre
 important**.
 
 Ground rules, same as today:
-- No commit and no push, ever.
+- No push, ever. Local commits and branch moves only through a simulated, preflighted
+  transaction with Undo (history editing, `docs/superpowers/specs/2026-11-27-history-editing-design.md`).
 - Everything goes through `gh` / `git`.
 - Nothing blocks the window.
 - Local settings only.

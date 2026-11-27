@@ -1229,3 +1229,111 @@ Pick a contributor	เลือกผู้ร่วมพัฒนา
 {n} open pull requests	pull request ที่เปิดอยู่ {n} รายการ
 you	คุณ
 Loading your repositories from GitHub…	กำลังโหลด repository ของคุณจาก GitHub…
+  • sigit doesn't push. To share it: {cmd}	  • sigit ไม่ push ให้ หากจะแชร์ ให้รัน: {cmd}
+A copy of this commit on top of your branch.	สำเนาของ commit นี้ บน branch ของคุณ
+A hard reset replaces your files with the target commit's	hard reset จะแทนที่ไฟล์ของคุณด้วยไฟล์ของ commit เป้าหมาย
+A new commit on top that undoes this one.	commit ใหม่ด้านบนที่ยกเลิกการเปลี่ยนแปลงของ commit นี้
+Amend last commit	Amend commit ล่าสุด
+Before it runs, sigit checks again that the branch, its upstream and the remote didn't change (preflight). If one did, nothing changes.	ก่อนรัน sigit ตรวจอีกครั้งว่า branch, upstream และ remote ไม่เปลี่ยน (preflight) ถ้าอย่างใดเปลี่ยน จะไม่มีอะไรเปลี่ยนแปลง
+Can't do that: {e}	ทำไม่ได้: {e}
+Change this commit's message; the commits after it are made again.	เปลี่ยนข้อความของ commit นี้ commit ที่ตามมาจะถูกสร้างใหม่
+Cherry-pick onto {branch}	Cherry-pick ลงบน {branch}
+Edit history of {branch}	แก้ไขประวัติของ {branch}
+Files, old tip → new tip	ไฟล์ จาก tip เดิม → tip ใหม่
+Fixup into parent	Fixup เข้ากับ commit ก่อนหน้า
+Join it with the commit before it, keeping both messages.	รวมกับ commit ก่อนหน้า โดยเก็บข้อความทั้งสอง
+Join it with the commit before it, keeping that commit's message.	รวมกับ commit ก่อนหน้า โดยเก็บข้อความของ commit นั้น
+Leave {b} ({})	ออกจาก {b} ({})
+Move the branch here and make your files match it.	ย้าย branch มาที่นี่ และทำให้ไฟล์ของคุณตรงกับ commit นี้
+Move the branch here; the changes after it stay in your files, unstaged.	ย้าย branch มาที่นี่ การเปลี่ยนแปลงหลังจากนี้ยังอยู่ในไฟล์ของคุณ แบบไม่ stage
+Move the branch here; the changes after it stay staged.	ย้าย branch มาที่นี่ การเปลี่ยนแปลงหลังจากนี้ยัง stage อยู่
+Moves {b} from {old} to {new}. Simulated: nothing has changed yet.	ย้าย {b} จาก {old} ไป {new} นี่คือการจำลอง: ยังไม่มีอะไรเปลี่ยน
+New on {b} ({})	ใหม่บน {b} ({})
+No file changes between the old and the new tip	ไม่มีไฟล์ต่างกันระหว่าง tip เดิมกับ tip ใหม่
+Put your staged changes into the last commit.	ใส่การเปลี่ยนแปลงที่ stage ไว้ลงใน commit ล่าสุด
+Remove this commit; the commits after it are made again.	ลบ commit นี้ commit ที่ตามมาจะถูกสร้างใหม่
+Reset (hard)	Reset (hard)
+Reset (mixed)	Reset (mixed)
+Reset (soft)	Reset (soft)
+Reword {}	Reword {}
+Reword…	Reword…
+Shows the outcome first: nothing changes until you confirm	แสดงผลลัพธ์ก่อน: ไม่มีอะไรเปลี่ยนจนกว่าคุณยืนยัน
+Simulate	จำลอง
+Simulated first · Undo · never pushes	จำลองก่อน · เลิกทำได้ · ไม่ push
+Simulated outcome	ผลลัพธ์จากการจำลอง
+Simulated: {} new commit(s), {} leave {b}. Undo (10 s) or the reflog brings the old tip back.	จำลองแล้ว: commit ใหม่ {} รายการ, {} รายการออกจาก {b} เลิกทำ (10 วินาที) หรือ reflog นำ tip เดิมกลับมาได้
+Simulating…	กำลังจำลอง…
+Squash into parent	Squash เข้ากับ commit ก่อนหน้า
+Swap it with the newer commit after it.	สลับกับ commit ที่ใหม่กว่าถัดไป
+Swap it with the older commit before it.	สลับกับ commit ที่เก่ากว่าก่อนหน้า
+The first line is the subject. The commits after this one are made again with new SHAs.	บรรทัดแรกคือหัวเรื่อง commit ที่ตามมาจะถูกสร้างใหม่ด้วย SHA ใหม่
+Uncommitted files replaced: {list}	ไฟล์ที่ยังไม่ commit ที่จะถูกแทนที่: {list}
+Undo the edit on {branch}	เลิกทำการแก้ไขบน {branch}
+{b} is an important branch (default, protected, or a main/release name): rewriting its history affects everyone	{b} เป็น branch สำคัญ (ค่าเริ่มต้น, ถูกป้องกัน หรือชื่อแบบ main/release): การเขียนประวัติใหม่มีผลกับทุกคน
+{b} is an important branch: you'll push this new commit to it yourself	{b} เป็น branch สำคัญ: คุณจะ push commit ใหม่นี้เอง
+{gone} commit(s) leave {b}	{gone} commit ออกจาก {b}
+{} Simulates it first: nothing changes until you confirm.	{} จำลองก่อน: ไม่มีอะไรเปลี่ยนจนกว่าคุณยืนยัน
+{} of them are already on {up}: sharing this needs a force-push, and anyone who pulled them must fix their copy	{} รายการอยู่บน {up} แล้ว: การแชร์ต้อง force-push และทุกคนที่ pull ไปแล้วต้องแก้สำเนาของตน
+{} uncommitted file(s) would be replaced (sigit stashes them first)	ไฟล์ที่ยังไม่ commit {} ไฟล์จะถูกแทนที่ (sigit จะ stash ไว้ก่อน)
+ (and {} more)	 (และอีก {})
+(none)	(ไม่มี)
+. Nothing was changed. Resolve it in your terminal, or pick another edit.	 ไม่มีอะไรเปลี่ยน แก้ใน terminal หรือเลือกการแก้ไขอื่น
+. To share it: {cmd}	 หากจะแชร์ ให้รัน: {cmd}
+A {what} is half done in this working copy. Finish or abort it first.	มี {what} ทำค้างอยู่ใน working copy นี้ ทำให้เสร็จหรือยกเลิกก่อน
+A {what} started in this working copy. {again}	มี {what} เริ่มขึ้นใน working copy นี้ {again}
+Amend the last commit	Amend commit ล่าสุด
+Can't move it: {e}	ย้ายไม่ได้: {e}
+Can't squash into the commit before it: {e}	squash เข้ากับ commit ก่อนหน้าไม่ได้: {e}
+Cherry-pick {}	Cherry-pick {}
+Cherry-picking {}	การ cherry-pick {}
+Couldn't reach {remote} to check for new commits ({e}). This edit rewrites pushed commits, so it waits until the check works.	ติดต่อ {remote} เพื่อตรวจ commit ใหม่ไม่ได้ ({e}) การแก้ไขนี้เขียน commit ที่ push แล้วใหม่ จึงต้องรอจนตรวจได้
+Couldn't reach {remote} to check for new commits: {e}	ติดต่อ {remote} เพื่อตรวจ commit ใหม่ไม่ได้: {e}
+Couldn't read commit {}	อ่าน commit {} ไม่ได้
+Couldn't read the staged changes (is a merge half done?)	อ่านการเปลี่ยนแปลงที่ stage ไว้ไม่ได้ (มี merge ค้างอยู่หรือไม่?)
+Drop {}	Drop {}
+Fixup {} into its parent	Fixup {} เข้ากับ commit ก่อนหน้า
+HEAD isn't on a local branch	HEAD ไม่ได้อยู่บน branch ในเครื่อง
+It's already the newest commit	เป็น commit ใหม่สุดอยู่แล้ว
+It's already the oldest commit	เป็น commit เก่าสุดอยู่แล้ว
+Making {} again	การสร้าง {} ใหม่
+Move {} down	ย้าย {} ลง
+Move {} up	ย้าย {} ขึ้น
+Nothing is staged: stage the changes to put into the last commit first (git add)	ไม่มีอะไร stage ไว้: stage การเปลี่ยนแปลงที่จะใส่ใน commit ล่าสุดก่อน (git add)
+Nothing to squash into	ไม่มี commit ให้ squash เข้า
+Nothing was changed: simulate it again.	ไม่มีอะไรเปลี่ยน: จำลองอีกครั้ง
+Reset to {} ({})	Reset ไปที่ {} ({})
+Revert {}	Revert {}
+Reverting {}	การ revert {}
+Set your commit name and email first (Settings → Git)	ตั้งชื่อและอีเมลสำหรับ commit ก่อน (การตั้งค่า → Git)
+Squash {} into its parent	Squash {} เข้ากับ commit ก่อนหน้า
+Squashing {}	การ squash {}
+The branch moved meanwhile, so nothing was changed ({e})	branch ถูกย้ายระหว่างนั้น จึงไม่มีอะไรเปลี่ยน ({e})
+The first commit of a history can't be cherry-picked here	cherry-pick commit แรกของประวัติที่นี่ไม่ได้
+The first commit of the history can't be reverted	revert commit แรกของประวัติไม่ได้
+The message is empty	ข้อความว่างเปล่า
+The staged changes changed since the simulation. {again}	การเปลี่ยนแปลงที่ stage ไว้เปลี่ยนไปหลังการจำลอง {again}
+The upstream	upstream
+There's a merge commit between {} and the tip: editing would flatten it. Use Revert or Reset instead.	มี merge commit ระหว่าง {} กับ tip: การแก้ไขจะทำให้มันหายไป ใช้ Revert หรือ Reset แทน
+This branch has no commits yet	branch นี้ยังไม่มี commit
+This is a merge commit: cherry-pick needs a single-parent commit	นี่คือ merge commit: cherry-pick ต้องใช้ commit ที่มี parent เดียว
+This is a merge commit: only Revert and Reset work on merges	นี่คือ merge commit: ใช้ได้เฉพาะ Revert และ Reset
+This is the first commit of the history: it can't be edited here	นี่คือ commit แรกของประวัติ: แก้ไขที่นี่ไม่ได้
+This needs git {}.{} or newer (you have: {})	ต้องใช้ git {}.{} ขึ้นไป (ของคุณ: {})
+You're on a detached HEAD: switch to a branch to edit its history	คุณอยู่บน detached HEAD: สลับไปที่ branch ก่อนแก้ไขประวัติ
+You're on {} now, not {branch}: switch back to undo	ตอนนี้คุณอยู่บน {} ไม่ใช่ {branch}: สลับกลับก่อนเลิกทำ
+You're on {} now, not {}. {again}	ตอนนี้คุณอยู่บน {} ไม่ใช่ {} {again}
+Your files couldn't follow ({e}), and putting the branch back failed too ({b}). Run: git update-ref {r} {old}	ไฟล์ของคุณตามไม่ได้ ({e}) และการคืน branch ก็ล้มเหลวด้วย ({b}) ให้รัน: git update-ref {r} {old}
+Your files couldn't follow ({e}), so the branch was put back. Nothing was changed.	ไฟล์ของคุณตามไม่ได้ ({e}) จึงคืน branch กลับแล้ว ไม่มีอะไรเปลี่ยน
+{branch} is back at {}	{branch} กลับไปที่ {} แล้ว
+{remote} has {} on {r}, but your {up} is at {}: someone pushed. Fetch, then simulate again.	{remote} มี {} บน {r} แต่ {up} ของคุณอยู่ที่ {}: มีคน push เข้ามา ให้ fetch แล้วจำลองอีกครั้ง
+{r} is gone from {remote}. Fetch, then simulate again.	{r} หายไปจาก {remote} ให้ fetch แล้วจำลองอีกครั้ง
+{spec} isn't a commit here	{spec} ไม่ใช่ commit ในที่นี้
+{what} would conflict in: {}	{what} จะ conflict ใน: {}
+{} changed since the simulation (a fetch?). {again}	{} เปลี่ยนไปหลังการจำลอง (มีการ fetch?) {again}
+{} is already at {}	{} อยู่ที่ {} อยู่แล้ว
+{} is already on {}	{} อยู่บน {} แล้ว
+{} isn't on this branch	{} ไม่ได้อยู่บน branch นี้
+{} isn't on this branch: nothing to revert	{} ไม่ได้อยู่บน branch นี้: ไม่มีอะไรให้ revert
+{} moved since the simulation ({} → {}). {again}	{} ถูกย้ายหลังการจำลอง ({} → {}) {again}
+{}'s changes are already on {}: nothing to pick	การเปลี่ยนแปลงของ {} อยู่บน {} แล้ว: ไม่มีอะไรให้ pick
+{}: {} is now at {}	{}: ตอนนี้ {} อยู่ที่ {}

@@ -39,6 +39,7 @@ pub fn view(s: &State, k: &Kit) -> El {
                 .key("c-scope"),
         )
         .child(spacer())
+        .child(super::history::amend_button(s, k).unwrap_or_else(row))
         .child(muted(k, graph(s).map_or(String::new(), |g| tf!("{} commit{} · {} lane{}", g.commits.len(), if g.commits.len() == 1 { "" } else { "s" }, g.width, if g.width == 1 { "" } else { "s" }))));
 
     let list = match s.rd().and_then(|d| pending(k, &d.graph)) {
@@ -219,6 +220,9 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
             );
         }
         col_ = col_.child(actions);
+    }
+    if let Some(h) = graph(s).and_then(|g| super::history::actions(s, k, g, c)) {
+        col_ = col_.child(h);
     }
     if let Some(p) = pending(k, &s.commit_detail) {
         return Some(side_pane(k, "c-pane", col_.child(p)));
