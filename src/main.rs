@@ -4735,6 +4735,85 @@ mod cache_tests {
 
     /// History editing end to end through `State`: simulate, apply (the worker's half), the
     /// result toast with Undo, then Undo puts the branch back.
+    /// A temporary repository with three commits (a.txt, b.txt, c.txt), for State-level tests.
+    fn history_repo(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sigit-state-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        for (f, msg) in [("a.txt", "one"), ("b.txt", "two"), ("c.txt", "three")] {
+            std::fs::write(dir.join(f), msg).unwrap();
+            git(&["add", f]);
+            git(&["commit", "-q", "-m", msg]);
+        }
+        dir
+    }
+
+    #[test]
+    fn failed_history_apply_puts_the_stash_back() {
+        let dir = history_repo("stash-back");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let one = git(&["rev-parse", "HEAD~2"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reset { to: one, mode: history::ResetMode::Hard }).unwrap();
+        // The branch moves after the simulation, so the apply's preflight refuses.
+        std::fs::write(dir.join("d.txt"), "four").unwrap();
+        git(&["add", "d.txt"]);
+        git(&["commit", "-q", "-m", "four"]);
+        std::fs::write(dir.join("a.txt"), "my work").unwrap();
+        let mut s = dialog_state();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        s.pending = Some(guard::Pending { action, checking: false, risk: risk::Risk::new(risk::Level::Low), blocked: None, dirty: vec!["a.txt".into()], word: None });
+        s.confirm(true);
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "my work", "the work is back in the file");
+        assert_eq!(git(&["stash", "list"]), "", "and not left in a stash");
+        let toast = s.toasts.last().expect("a toast");
+        assert!(toast.error && toast.text.contains("put back"), "{}", toast.text);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_detail_knows_the_current_branch() {
+        let dir = history_repo("detail");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let head = git(&["rev-parse", "HEAD"]).trim().to_owned();
+        let two = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+        git(&["switch", "-q", "-c", "side", &two]);
+        std::fs::write(dir.join("s.txt"), "side").unwrap();
+        git(&["add", "s.txt"]);
+        git(&["commit", "-q", "-m", "side"]);
+        let side = git(&["rev-parse", "HEAD"]).trim().to_owned();
+        git(&["switch", "-q", "main"]);
+        let d = |sha: &str| git::commit_detail(&dir, sha).unwrap();
+        assert_eq!((d(&head).on_head, d(&head).is_head), (Some(true), true));
+        assert_eq!((d(&two).on_head, d(&two).is_head), (Some(true), false));
+        assert_eq!(d(&side).on_head, Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unrecorded_reads_stay_out_of_the_log() {
+        let ((), lines) = gh::recording(|| {
+            let _ = gh::unrecorded(|| gh::run("git", &["--version"], None));
+            let _ = gh::run("git", &["--version"], None);
+        });
+        assert_eq!(lines, ["git --version"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_command_is_stopped_at_its_limit() {
+        let t = Instant::now();
+        let r = gh::run_full_within("sleep", &["5"], None, None, &[], Some(Duration::from_millis(300)));
+        assert!(r.is_err_and(|e| e.contains("longer than")));
+        assert!(t.elapsed() < Duration::from_secs(3));
+        let ok = gh::run_full_within("echo", &["hi"], None, None, &[], Some(Duration::from_secs(5))).unwrap();
+        assert_eq!(ok.stdout.trim(), "hi");
+    }
+
     #[test]
     fn history_animation_steps_on_the_clock() {
         let a = ui::HistoryAnim::start(10.0);

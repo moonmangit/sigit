@@ -30,7 +30,7 @@ CODE_CONTEXT = re.compile(
 
 
 # Shown as written: commands, versions and the screenshot scenes' sample data.
-KEEP = re.compile(r"^(Simulating: |Revert \"|, reversing|sigit: \{why\}|\{why\} \(rolled back\)|Sample |Could not resolve to a Repository with the name |query \{|, after: |refs/heads|repository\(| p\{i\}: pullRequest\(|gh |git |rm -rf|repo:|scale\(|currentColor|Demo$|Rust tooling$|octocat |, env!|AIza$|Ctrl\+|\{alias\}|\.\./|<[^>]+>$|.*Noto Sans Thai$|✓ Squashed and merged|[\w.-]+(/[\w.-]+)+$)")
+KEEP = re.compile(r"^(reset to \{|revert \{|cherry-pick \{|reword \{|drop \{|move \{|\{\} \{\} into its parent|Simulating: |Revert \"|, reversing|sigit: \{why\}|\{why\} \(rolled back\)|Sample |Could not resolve to a Repository with the name |query \{|, after: |refs/heads|repository\(| p\{i\}: pullRequest\(|gh |git |rm -rf|repo:|scale\(|currentColor|Demo$|Rust tooling$|octocat |, env!|AIza$|Ctrl\+|\{alias\}|\.\./|<[^>]+>$|.*Noto Sans Thai$|✓ Squashed and merged|[\w.-]+(/[\w.-]+)+$)")
 
 
 def is_prose(v: str) -> bool:

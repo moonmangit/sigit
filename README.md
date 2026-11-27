@@ -181,7 +181,8 @@ Scenes (in `src/main.rs`): `inbox`, `activity`, `needs`, `prs`, `actions`, `envs
 `branches`, `merge`, `history-edit` (a simulated reword: it makes commit objects only, no branch or file change), `palette`, `settings`, `settings-git`, `comparisons`, `comparisons-by-contributor`, `comparisons-edit`, `branches-detail`, `guide`, `group`, `groups`, `orgs`; `light-*` for
 the light theme (`light-comparisons`, `light-comparisons-by-contributor`, `light-branches-detail`); `cmd-*` for a button's command card (with `--script` moving the pointer onto
 it); `setup`, `welcome`, `update-available`, and more. They use public repositories and sample
-data and never write anything. Add `SIGIT_LANG=th` to render in Thai.
+data and never write anything, except that the `history-*` scenes simulate an edit, which adds
+unreferenced commit objects (no branch or file changes; `git gc` removes them). Add `SIGIT_LANG=th` to render in Thai.
 
 **Comparisons.** Edited in Settings → Git (name, From, To; a pair like dev → staging), and changed
 per repo from the gear on that repo's row on the Dashboard. Each cell counts the commits and PRs

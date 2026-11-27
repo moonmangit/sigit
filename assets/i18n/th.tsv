@@ -1446,3 +1446,5 @@ Watch the edit happen on your real commits, step by step	ดูการแก�
 What changes	สิ่งที่เปลี่ยน
 Your branch now, with the commits under the edit.	branch ของคุณตอนนี้ พร้อม commit ที่อยู่ใต้การแก้ไข
 Your uncommitted changes are stashed first; Undo or Branches → Stashes brings them back.	การเปลี่ยนแปลงที่ยังไม่ commit จะถูก stash ก่อน เลิกทำ หรือ Branch → Stash นำกลับมาได้
+{e} Your uncommitted changes were put back.	{e} การเปลี่ยนแปลงที่ยังไม่ commit ถูกนำกลับมาแล้ว
+{e} Your uncommitted changes are still in the stash (Branches → Stashes): putting them back failed ({p}).	{e} การเปลี่ยนแปลงที่ยังไม่ commit ยังอยู่ใน stash (Branch → Stash): นำกลับไม่สำเร็จ ({p})

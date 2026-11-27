@@ -342,7 +342,17 @@ impl State {
                 Action::DeleteBranch { dir, name, force, .. } => git::delete_branch(dir, name, *force),
                 // The preflight again (state may have changed while the dialog was open), then
                 // the transaction with the simulated tip.
-                Action::History { dir, plan, .. } => history::apply(dir, plan),
+                // If it fails after "Stash and continue", the stash goes back at once: failing must
+                // not leave the user's work parked in a stash they didn't see coming.
+                Action::History { dir, plan, .. } => history::apply(dir, plan).map_err(|e| {
+                    if stash_dir.is_none() {
+                        return e;
+                    }
+                    match git::stash_op(dir, "pop", "stash@{0}") {
+                        Ok(_) => tf!("{e} Your uncommitted changes were put back."),
+                        Err(p) => tf!("{e} Your uncommitted changes are still in the stash (Branches → Stashes): putting them back failed ({p})."),
+                    }
+                }),
                 // The rest: each command in turn, in the clone where there is one.
                 _ => {
                     let mut out = String::new();
@@ -470,6 +480,8 @@ impl State {
             Action::PrCheckout { .. } | Action::Pull { .. } | Action::Fetch { .. } => self.refresh_page(),
             Action::Stash { .. } | Action::DeleteBranch { .. } => self.refresh_branch_tools(),
             Action::History { .. } => {
+                // Which commits are on the branch changed: cached details are out of date.
+                self.commit_memo.clear();
                 self.refresh_page();
                 self.refresh_status();
             }

@@ -57,6 +57,21 @@ pub enum Op {
 }
 
 impl Op {
+    /// The note in the reflog: always English, as git's own notes are.
+    pub fn reflog(&self) -> String {
+        let short = |s: &str| s.get(..7).unwrap_or(s).to_owned();
+        match self {
+            Op::Reset { to, mode } => format!("reset to {} ({})", short(to), mode.word()),
+            Op::Revert { sha } => format!("revert {}", short(sha)),
+            Op::CherryPick { sha } => format!("cherry-pick {}", short(sha)),
+            Op::Reword { sha, .. } => format!("reword {}", short(sha)),
+            Op::Drop { sha } => format!("drop {}", short(sha)),
+            Op::Squash { sha, fixup } => format!("{} {} into its parent", if *fixup { "fixup" } else { "squash" }, short(sha)),
+            Op::Move { sha, up } => format!("move {} {}", short(sha), if *up { "up" } else { "down" }),
+            Op::Amend => "amend".into(),
+        }
+    }
+
     pub fn label(&self) -> String {
         let short = |s: &str| s.get(..7).unwrap_or(s).to_owned();
         match self {
@@ -250,7 +265,7 @@ impl Plan {
         if let Some((remote, r)) = &self.snap.remote {
             v.push(ls_remote_cmd(remote, r));
         }
-        v.push(update_ref_cmd(&self.branch_ref(), &self.new_tip, &self.snap.tip, &self.op.label()));
+        v.push(update_ref_cmd(&self.branch_ref(), &self.new_tip, &self.snap.tip, &self.op.reflog()));
         v.extend(sync_cmd(self.sync, &self.snap.tip, &self.new_tip));
         v
     }
@@ -401,6 +416,10 @@ fn conflict(what: &str, files: &[String]) -> String {
 // ---------------------------------------------------------------------------------------------
 
 pub fn snapshot(dir: &Path) -> Result<Snapshot, String> {
+    gh::unrecorded(|| snapshot_inner(dir))
+}
+
+fn snapshot_inner(dir: &Path) -> Result<Snapshot, String> {
     let head = git(dir, &["symbolic-ref", "-q", "HEAD"]).map_err(|_| crate::i18n::t("You're on a detached HEAD: switch to a branch to edit its history"))?;
     let branch = head.trim().strip_prefix("refs/heads/").ok_or_else(|| crate::i18n::t("HEAD isn't on a local branch"))?.to_owned();
     let tip = rev(dir, "HEAD").map_err(|_| crate::i18n::t("This branch has no commits yet"))?;
@@ -687,7 +706,12 @@ fn preview(dir: &Path, op: Op, snap: Snapshot, new_tip: String, sync: Sync, pair
         };
         count(&[]).saturating_sub(count(&["--not", "--remotes"]))
     };
-    let replaced_files = if sync == Sync::Hard { snap.changed.clone() } else { Vec::new() };
+    // A hard reset replaces tracked files with changes; it leaves untracked ones alone.
+    let replaced_files = if sync == Sync::Hard {
+        gh::unrecorded(|| git(dir, &["diff", "--name-only", "HEAD"])).unwrap_or_default().lines().map(str::to_owned).collect()
+    } else {
+        Vec::new()
+    };
     let rows = rows(&removed, &added, pairs);
     // No merge-base (unrelated histories) or nothing under it: no neighbours, which is fine.
     let context = git(dir, &["merge-base", old, new]).ok().map(|mb| lines(dir, &["--first-parent", "-n", "3", mb.trim()]).unwrap_or_default()).unwrap_or_default();
@@ -730,7 +754,8 @@ pub fn preflight(dir: &Path, plan: &Plan) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
     if let Some((remote, r)) = &was.remote {
         // No prompt may wait for a password here: a remote that needs one counts as unreachable.
-        let reached = gh::run_full("git", &["ls-remote", remote, r], Some(dir), None, &[]).and_then(|o| if o.ok { Ok(o.stdout) } else { Err(o.stderr) });
+        // Nor wait forever on a dead link or an SSH prompt: 20 s, then it counts as unreachable.
+        let reached = gh::run_full_within("git", &["ls-remote", remote, r], Some(dir), None, &[], Some(std::time::Duration::from_secs(20))).and_then(|o| if o.ok { Ok(o.stdout) } else { Err(o.stderr) });
         match reached {
             Ok(out) => {
                 let theirs = out.split_whitespace().next().map(str::to_owned);
@@ -768,7 +793,7 @@ fn move_ref(dir: &Path, r: &str, old: &str, new: &str, sync: Sync, why: &str) ->
 /// The preflight, then the transaction. Uses the simulated tip; nothing is made again.
 pub fn apply(dir: &Path, plan: &Plan) -> Result<String, String> {
     preflight(dir, plan)?;
-    move_ref(dir, &plan.branch_ref(), &plan.snap.tip, &plan.new_tip, plan.sync, &plan.op.label())?;
+    move_ref(dir, &plan.branch_ref(), &plan.snap.tip, &plan.new_tip, plan.sync, &plan.op.reflog())?;
     let mut msg = tf!("{}: {} is now at {}", plan.op.label(), plan.snap.branch, short(&plan.new_tip));
     if let Some(cmd) = plan.push_hint() {
         msg.push_str(&tf!(". To share it: {cmd}"));
@@ -1173,7 +1198,7 @@ mod tests {
         let (a, b) = ("a".repeat(40), "b".repeat(40));
         assert_eq!(lines, [
             "git ls-remote origin refs/heads/main".to_owned(),
-            format!("git update-ref -m \"sigit: Drop ccccccc\" refs/heads/main {b} {a}"),
+            format!("git update-ref -m \"sigit: drop ccccccc\" refs/heads/main {b} {a}"),
             format!("git read-tree -m -u {a} {b}"),
         ]);
         assert_eq!(plan.push_hint().unwrap(), "git push --force-with-lease origin main:main");

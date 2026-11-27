@@ -334,6 +334,10 @@ pub struct Commit {
 
 #[derive(Clone, Debug, Default)]
 pub struct CommitDetail {
+    /// Whether the commit is on the current branch (HEAD has it), and whether it is HEAD: from
+    /// git, so the Edit history buttons are right whatever the Commits page has loaded.
+    pub on_head: Option<bool>,
+    pub is_head: bool,
     pub body: String,
     pub files: Vec<(String, u64, u64)>, // path, added, removed
     pub diff: String,

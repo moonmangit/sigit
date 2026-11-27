@@ -88,7 +88,15 @@ pub fn commit_detail(dir: &Path, sha: &str) -> Result<CommitDetail, String> {
         .collect();
     let mut diff = git(dir, &["show", "--format=", "--patch", sha])?;
     cap(&mut diff, 400_000);
-    Ok(CommitDetail { body: body.trim().to_owned(), files, diff })
+    // Exit status 0: an ancestor of HEAD; 1: not; anything else (no HEAD yet): unknown.
+    let on_head = crate::gh::run_full("git", &["merge-base", "--is-ancestor", sha, "HEAD"], Some(dir), None, &[]).ok().and_then(|o| match o.code {
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    });
+    let head = git(dir, &["rev-parse", "HEAD"]).map(|h| h.trim().to_owned()).unwrap_or_default();
+    let full = git(dir, &["rev-parse", "--verify", sha]).map(|h| h.trim().to_owned()).unwrap_or_default();
+    Ok(CommitDetail { on_head, is_head: !head.is_empty() && head == full, body: body.trim().to_owned(), files, diff })
 }
 
 pub fn branches(dir: &Path) -> Result<Vec<Branch>, String> {

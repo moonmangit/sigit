@@ -434,8 +434,11 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
     let branch = s.rd().and_then(|d| d.status.data.as_ref()).map(|st| st.branch.clone()).filter(|b| !b.is_empty() && b != "(detached)")?;
     s.local_path()?;
     let sha = c.sha.clone();
-    let here = on_head(g, &sha);
-    let is_head = head_sha(g) == Some(sha.as_str());
+    // From git when the commit's detail has loaded; the loaded graph until then (it can't see
+    // past a date or contributor filter).
+    let detail = s.commit_detail.data.as_ref();
+    let here = detail.and_then(|d| d.on_head).unwrap_or_else(|| on_head(g, &sha));
+    let is_head = detail.map_or_else(|| head_sha(g) == Some(sha.as_str()), |d| d.is_head);
     let merge = c.parents.len() > 1;
     let root = c.parents.is_empty();
     let card = col().key("h-actions").w_full().gap(10.0).padding(12.0).radius(k.radius.lg).border(1.0, k.c.border_weak).fill(k.c.layer_01);
@@ -675,7 +678,11 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
         .variant(ButtonVariant::GhostMuted)
         .icon(&I_PLAY)
         .help(crate::i18n::t("Watch the edit happen on your real commits, step by step"))
-        .on_press(|s: &mut State| s.play_history_anim())
+        .on_press_tx(|s: &mut State, tx| {
+            s.play_history_anim();
+            // The first step's time: don't wait for the next idle poll.
+            tx.wake_after(std::time::Duration::from_secs_f64(Anim::STEP_SECS));
+        })
         .build(k)
         .key("h-play");
     c = c.child(section(k, "h-sec-commits", &I_COMMITS, "Commits", None).child(play));
