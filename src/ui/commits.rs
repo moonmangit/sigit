@@ -230,7 +230,7 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
     let d = s.commit_detail.data.as_ref()?;
     let body = d.body.split_once('\n').map_or("", |(_, rest)| rest).trim();
     if !body.is_empty() {
-        col_ = col_.child(
+        col_ = col_.child(super::history::section(k, "c-sec-msg", &super::history::I_MESSAGE, "Message", None)).child(
             text(reflow(body))
                 .font(TextStyle { size: 13.0, line_height: 20.0, ..k.ty.ui })
                 .color(k.c.text_base)
@@ -254,8 +254,9 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
                 .child(diffstat(k, *a, *r)),
         )
     });
+    let total = row().gap(6.0).center_y().child(text(tf!("{} file{} changed", d.files.len(), if d.files.len() == 1 { "" } else { "s" })).font(k.ty.small).color(k.c.text_faint)).child(diffstat(k, add, del));
     col_ = col_
-        .child(row().w_full().gap(8.0).center_y().child(text(tf!("{} file{} changed", d.files.len(), if d.files.len() == 1 { "" } else { "s" })).font(k.ty.small_medium).color(k.c.text_muted)).child(diffstat(k, add, del)))
+        .child(super::history::section(k, "c-sec-changes", &super::history::I_CHANGES, "Changes", Some(total)))
         .child(files)
         .child(diff_view(k, &tf!("cdiff-{sha}"), &d.diff));
     Some(side_pane(k, "c-pane", col_))

@@ -242,6 +242,19 @@ fn legend(k: &Kit) -> El {
         .fold(row().gap(10.0).center_y().flex_wrap(), |r, (d, t)| r.child(row().gap(4.0).center_y().child(dot(k, "", d).size(14.0, 12.0)).child(text(crate::i18n::t(t)).font(k.ty.small).color(k.c.text_muted))))
 }
 
+/// A section's header: icon, title, what's on the right, then a thin line.
+pub fn section(k: &Kit, key: &str, icon: &'static Icon, title: &str, trailing: Option<El>) -> El {
+    let mut r = row().key(key.to_owned()).w_full().gap(6.0).center_y().child(rune::icon(icon, 13.0).color(k.c.icon_faint)).child(text(crate::i18n::t(title)).font(k.ty.small_medium).color(k.c.text_muted));
+    if let Some(t) = trailing {
+        r = r.child(t);
+    }
+    r.child(el().h(1.0).grow(1.0).fill(k.c.border_weak))
+}
+
+pub static I_MESSAGE: Icon = Icon { name: "h-message", view: 16.0, body: r#"<path d="M2.5 3.5H13.5V10.5H7L4 13V10.5H2.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"# };
+pub static I_CHANGES: Icon = Icon { name: "h-changes", view: 16.0, body: r#"<path d="M4 2.5H9.5L12 5V13.5H4Z M6 8H10 M8 6V10" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/>"# };
+static I_COMMITS: Icon = Icon { name: "h-commits", view: 16.0, body: r#"<circle cx="8" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="8" cy="12" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M8 5.8V10.2" stroke="currentColor" stroke-width="1.2"/>"# };
+
 /// A folding row: triangle, optional icon, label. `on` is open.
 fn fold_row(k: &Kit, key: &str, on: bool, icon: Option<&'static Icon>, label: &str, press: impl Fn(&mut State) + Send + Sync + 'static) -> El {
     let mut r = row()
@@ -262,7 +275,7 @@ fn fold_row(k: &Kit, key: &str, on: bool, icon: Option<&'static Icon>, label: &s
 /// works" notes fold too.
 fn guide(s: &State, k: &Kit) -> El {
     let o = s.history_open;
-    let mut c = col().key("h-help-box").w_full().gap(2.0).padding(8.0).radius(k.radius.md).fill(k.c.bg_base);
+    let mut c = col().key("h-help-box").w_full().gap(2.0);
     for (i, a) in Act::ALL.iter().copied().enumerate() {
         let on = o.act == Some(a);
         c = c.child(fold_row(k, &tf!("h-guide-row-{i}"), on, Some(a.icon()), a.name(), move |s| s.history_open.act = if s.history_open.act == Some(a) { None } else { Some(a) }));
@@ -370,35 +383,14 @@ fn op_button(s: &State, k: &Kit, key: &str, icon: Option<&'static Icon>, label: 
     b.build(k).key(key.to_owned())
 }
 
-/// A small icon-only button (move up / down), with its name for screen readers.
-fn op_icon(s: &State, k: &Kit, key: &str, icon: &'static Icon, label: &str, op: Op) -> El {
-    IconButton::new(icon)
-        .variant(IconButtonVariant::GhostMuted)
-        .label(crate::i18n::t(label))
-        .help(tf!("{}. {}", crate::i18n::t(label), Act::of(&op).help()))
-        .disabled(any_busy(s) || s.pending.is_some())
-        .on_press(move |s: &mut State| s.simulate_history(op.clone()))
-        .build(k)
-        .key(key.to_owned())
-}
-
-/// A group of buttons under a small icon: what kind of edit they are.
+/// A group of buttons: a small label with its icon on top, the buttons under it.
 fn group(k: &Kit, key: &str, icon: &'static Icon, title: &str, buttons: El) -> El {
-    row()
+    col()
         .key(key.to_owned())
         .w_full()
-        .gap(8.0)
-        .items_start()
-        .child(
-            row()
-                .w(96.0)
-                .pt(7.0)
-                .gap(5.0)
-                .center_y()
-                .child(rune::icon(icon, 13.0).color(k.c.icon_faint))
-                .child(text(crate::i18n::t(title)).font(k.ty.small).color(k.c.text_faint)),
-        )
-        .child(buttons.grow(1.0).shrink().min_w(0.0))
+        .gap(6.0)
+        .child(row().gap(5.0).center_y().child(rune::icon(icon, 12.0).color(k.c.icon_faint)).child(text(crate::i18n::t(title)).font(k.ty.small).color(k.c.text_faint)))
+        .child(buttons.w_full())
 }
 
 /// The Edit history section of a commit's pane: three groups of labelled buttons.
@@ -410,17 +402,18 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
     let is_head = head_sha(g) == Some(sha.as_str());
     let merge = c.parents.len() > 1;
     let root = c.parents.is_empty();
-    let mut out = col().key("h-actions").w_full().gap(8.0);
+    let card = col().key("h-actions").w_full().gap(10.0).padding(12.0).radius(k.radius.lg).border(1.0, k.c.border_weak).fill(k.c.layer_01);
 
-    // Title: the branch, and an info button that opens the explainer.
+    // Header: what this is, on which branch, and the guide.
     let open = s.history_open.help;
-    out = out.child(
+    let mut out = card.child(
         row()
             .w_full()
-            .gap(6.0)
+            .gap(8.0)
             .center_y()
-            .child(rune::icon(&I_EDIT, 13.0).color(k.c.icon_faint))
-            .child(text(tf!("Edit history of {branch}")).font(k.ty.small_medium).color(k.c.text_muted).truncate().shrink().min_w(0.0))
+            .child(rune::icon(&I_EDIT, 14.0).color(k.c.icon_base))
+            .child(text(crate::i18n::t("Edit history")).font(k.ty.ui_medium).color(k.c.text_strong))
+            .child(text(branch.clone()).font(k.ty.mono).color(k.c.text_muted).truncate().shrink().min_w(0.0).help_when_truncated(branch.clone()))
             .child(spacer())
             .child(
                 IconButton::new(&I_INFO)
@@ -432,27 +425,21 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
                     .key("h-help"),
             ),
     );
-    if open {
-        out = out.child(guide(s, k));
-    }
+    out = out.child(el().w_full().h(1.0).fill(k.c.border_weak));
 
+    // The buttons, grouped by what you want to do with this commit.
+    let buttons = || row().gap(6.0).flex_wrap();
     if !is_head {
         let modes = [(ResetMode::Soft, "Soft"), (ResetMode::Mixed, "Mixed"), (ResetMode::Hard, "Hard")];
-        let buttons = modes.into_iter().fold(row().gap(6.0).flex_wrap(), |r, (mode, label)| r.child(op_button(s, k, &tf!("h-reset-{}", mode.word()), None, label, Op::Reset { to: sha.clone(), mode })));
-        out = out.child(group(k, "h-g-reset", &I_RESET, "Reset here", buttons));
+        let b = modes.into_iter().fold(buttons(), |r, (mode, label)| r.child(op_button(s, k, &tf!("h-reset-{}", mode.word()), None, label, Op::Reset { to: sha.clone(), mode })));
+        out = out.child(group(k, "h-g-reset", &I_RESET, "Go back to here", b));
     }
-    let mut add = row().gap(6.0).flex_wrap();
-    let mut has_add = false;
     if here && !root {
-        add = add.child(op_button(s, k, "h-revert", Some(&I_UNDO), "Revert", Op::Revert { sha: sha.clone() }));
-        has_add = true;
-    }
-    if !here && !merge && !root {
-        add = add.child(op_button(s, k, "h-pick", Some(&I_ADD), &tf!("Cherry-pick onto {branch}"), Op::CherryPick { sha: sha.clone() }));
-        has_add = true;
-    }
-    if has_add {
-        out = out.child(group(k, "h-g-add", &I_ADD, "Add a commit", add));
+        let mut b = buttons().child(op_button(s, k, "h-revert", Some(&I_UNDO), "Revert", Op::Revert { sha: sha.clone() }));
+        if !merge {
+            b = b.child(op_button(s, k, "h-drop", Some(&I_DROP), "Drop", Op::Drop { sha: sha.clone() }));
+        }
+        out = out.child(group(k, "h-g-undo", &I_UNDO, "Undo this commit", b));
     }
     if here && !merge && !root {
         // The full message comes with the commit's detail: wait for it, so the body is kept.
@@ -460,7 +447,7 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
         let loaded = message.is_some();
         let message = message.unwrap_or_default();
         let id = sha.clone();
-        let mut rw = row().gap(6.0).flex_wrap().child(
+        let mut b = buttons().child(
             Button::new(crate::i18n::t("Reword…"))
                 .variant(ButtonVariant::Outline)
                 .icon(&I_EDIT)
@@ -470,18 +457,21 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
                 .build(k)
                 .key("h-reword"),
         );
-        rw = rw
-            .child(op_button(s, k, "h-drop", Some(&I_DROP), "Drop", Op::Drop { sha: sha.clone() }))
+        b = b
             .child(op_button(s, k, "h-squash", Some(&I_SQUASH), "Squash", Op::Squash { sha: sha.clone(), fixup: false }))
             .child(op_button(s, k, "h-fixup", Some(&I_SQUASH), "Fixup", Op::Squash { sha: sha.clone(), fixup: true }));
-        // Move up / down stay side by side when the row wraps.
-        let mut moves = row().gap(2.0).center_y().radius(k.radius.md).border(1.0, k.c.border_weak);
         if !is_head {
-            moves = moves.child(op_icon(s, k, "h-up", &glyphs::CHEVRON_UP, "Move up", Op::Move { sha: sha.clone(), up: true }));
+            b = b.child(op_button(s, k, "h-up", Some(&glyphs::CHEVRON_UP), "Move up", Op::Move { sha: sha.clone(), up: true }));
         }
-        moves = moves.child(op_icon(s, k, "h-down", &glyphs::CHEVRON_DOWN, "Move down", Op::Move { sha: sha.clone(), up: false }));
-        rw = rw.child(moves);
-        out = out.child(group(k, "h-g-rewrite", &I_EDIT, "Rewrite", rw));
+        b = b.child(op_button(s, k, "h-down", Some(&glyphs::CHEVRON_DOWN), "Move down", Op::Move { sha: sha.clone(), up: false }));
+        out = out.child(group(k, "h-g-change", &I_EDIT, "Change this commit", b));
+    }
+    if !here && !merge && !root {
+        let b = buttons().child(op_button(s, k, "h-pick", Some(&I_ADD), "Cherry-pick", Op::CherryPick { sha: sha.clone() }));
+        out = out.child(group(k, "h-g-pick", &I_ADD, &tf!("Copy to {branch}"), b));
+    }
+    if open {
+        out = out.child(el().w_full().h(1.0).fill(k.c.border_weak)).child(guide(s, k));
     }
     Some(out)
 }
@@ -644,6 +634,7 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
     }
 
     // The graph, newest first.
+    c = c.child(section(k, "h-sec-commits", &I_COMMITS, "Commits", None));
     const ROWS: usize = 6;
     let shown = if open.rows { plan.rows.len() } else { plan.rows.len().min(ROWS) };
     let mut graph = col().key("h-graph").w_full();
@@ -655,22 +646,16 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
         c = c.child(more_toggle(k, "h-rows-more", open.rows, plan.rows.len() - ROWS, |s| s.history_open.rows ^= true));
     }
 
-    // Files: a bar each; the total in the title.
+    // Files: a bar each; the count and total in the section's header.
     const FILES: usize = 4;
     if plan.files.is_empty() {
-        c = c.child(row().gap(6.0).center_y().child(rune::icon(&I_FILE, 13.0).color(k.c.icon_faint)).child(muted(k, "Same files: only the history changes")));
+        c = c.child(section(k, "h-sec-files", &I_FILE, "Files", None)).child(muted(k, "Same files: only the history changes"));
     } else {
         let (add, del) = plan.files.iter().fold((0, 0), |(a, d), f| (a + f.add, d + f.del));
-        c = c.child(
-            row()
-                .gap(6.0)
-                .center_y()
-                .child(rune::icon(&I_FILE, 13.0).color(k.c.icon_faint))
-                .child(text(tf!("{} file(s)", plan.files.len())).font(k.ty.small_medium).color(k.c.text_base))
-                .child(diffstat(k, add, del)),
-        );
+        let total = row().gap(6.0).center_y().child(text(tf!("{} file(s)", plan.files.len())).font(k.ty.small).color(k.c.text_faint)).child(diffstat(k, add, del));
+        c = c.child(section(k, "h-sec-files", &I_FILE, "Files", Some(total)));
         let n = if open.files { plan.files.len() } else { plan.files.len().min(FILES) };
-        let mut files = col().key("h-files").w_full().gap(3.0).pl(19.0);
+        let mut files = col().key("h-files").w_full().gap(3.0);
         for (i, f) in plan.files.iter().take(n).enumerate() {
             files = files.child(
                 row()

@@ -1432,3 +1432,8 @@ your commit	commit ของคุณ
 new	ใหม่
 leaves	ออกไป
 How it works	ทำงานอย่างไร
+Change this commit	แก้ไข commit นี้
+Copy to {branch}	คัดลอกไปที่ {branch}
+Edit history	แก้ไขประวัติ
+Go back to here	ย้อนกลับมาที่นี่
+Undo this commit	ยกเลิก commit นี้

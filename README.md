@@ -192,9 +192,10 @@ profile), and click a folder in **Changed code** to show only the PRs that touch
 
 **New pull request.** Open one from the **New pull request** button on a repo's Pull requests page, or **Open PR** for the selected branch on Branches. Pick any branch as From and any as To; the form shows how many commits ahead the pair is, starts with the title from the last commit (**Use last commit**), and **List commits** fills the body. It blocks with a reason when there's nothing to merge, the branch isn't pushed, a PR between those two is already open (click to open it), or the title is blank. The target, draft/ready, reviewers, assignees and labels are remembered per repo, and every PR still goes through a confirm step showing the exact `gh pr create` command; edits survive a cancel or a failure.
 
-**Edit history.** Select a commit on the Commits page: **Reset** (soft, mixed, hard), **Revert**,
-**Reword…**, **Drop**, **Squash** or **Fixup into parent**, **Move up / down**, or, for a commit on
-another branch, **Cherry-pick onto** your branch; **Amend last commit** in the toolbar puts your
+**Edit history.** Select a commit on the Commits page. The Edit history card groups the actions by
+what you want: **Go back to here** (Reset soft, mixed, hard), **Undo this commit** (Revert, Drop),
+**Change this commit** (Reword…, Squash, Fixup, Move up / down) and, for a commit on another
+branch, **Copy to** your branch (Cherry-pick); **Amend last commit** in the toolbar puts your
 staged changes into the last commit. Each one is first **simulated**: sigit makes the new commits
 as objects only (`git merge-tree`, `git commit-tree`), no branch or file changes, and the confirm
 dialog shows the outcome as a graphic: a small commit graph (− leaves, + new, ~ made again,
