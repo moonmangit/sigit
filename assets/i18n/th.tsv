@@ -1437,3 +1437,12 @@ Copy to {branch}	คัดลอกไปที่ {branch}
 Edit history	แก้ไขประวัติ
 Go back to here	ย้อนกลับมาที่นี่
 Undo this commit	ยกเลิก commit นี้
+Close the animation	ปิดภาพเคลื่อนไหว
+Play	เล่น
+Red commits leave the branch, amber ones are made again, green ones are new.	commit สีแดงออกจาก branch สีเหลืองถูกสร้างใหม่ สีเขียวเป็น commit ใหม่
+Replay	เล่นอีกครั้ง
+The new history. The commits under the edit stay as they are.	ประวัติใหม่ commit ที่อยู่ใต้การแก้ไขยังเหมือนเดิม
+Watch the edit happen on your real commits, step by step	ดูการแก้ไขเกิดขึ้นบน commit จริงของคุณทีละขั้น
+What changes	สิ่งที่เปลี่ยน
+Your branch now, with the commits under the edit.	branch ของคุณตอนนี้ พร้อม commit ที่อยู่ใต้การแก้ไข
+Your uncommitted changes are stashed first; Undo or Branches → Stashes brings them back.	การเปลี่ยนแปลงที่ยังไม่ commit จะถูก stash ก่อน เลิกทำ หรือ Branch → Stash นำกลับมาได้

@@ -777,6 +777,7 @@ mod tests {
             added: vec![line()],
             rows: vec![],
             files: vec![],
+            context: vec![],
             pushed_rewritten: pushed,
             replaced_files: vec![],
             sync,
@@ -800,7 +801,7 @@ mod tests {
         use crate::history::{Op, Plan, Snapshot, Sync};
         let dir = PathBuf::from("/x");
         let snap = Snapshot { branch: "feat".into(), tip: "a".repeat(40), ..Default::default() };
-        let plan = Plan { op: Op::Reset { to: "b".repeat(40), mode: crate::history::ResetMode::Hard }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], pushed_rewritten: 0, replaced_files: vec![], sync: Sync::Hard };
+        let plan = Plan { op: Op::Reset { to: "b".repeat(40), mode: crate::history::ResetMode::Hard }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], context: vec![], pushed_rewritten: 0, replaced_files: vec![], sync: Sync::Hard };
         let a = Action::History { dir: dir.clone(), slug: "o/r".into(), plan: Box::new(plan) };
         assert!(a.local_dir().is_some(), "a hard reset asks to stash first");
         let lines = a.command_lines(false);

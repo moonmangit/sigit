@@ -203,7 +203,10 @@ dialog shows the outcome as a graphic: a small commit graph (− leaves, + new, 
 details, and the commands are listed under Runs. Every action explains itself: hover a button for
 what it does and its common use, or click ⓘ (in the Edit history section, or in the preview) for
 a before / after picture of the commits (A–B–C–D → A–B′–C′–D′) with the same words. Theory stays
-folded: the guide lists the actions by name, one opens at a time, and "How it works" folds too. Rewriting commits already on the upstream, or on an important branch, is high
+folded: the guide lists the actions by name, one opens at a time, and "How it works" folds too.
+**Play** (in the preview's Commits header) animates the edit on your real commits, with the
+commits under the edit as neighbours: 1 Before → 2 What changes (red leave, amber are made again,
+green are new) → 3 After. Click a step to stop on it; Replay starts again. Rewriting commits already on the upstream, or on an important branch, is high
 risk (type the branch name). When you confirm, a **preflight** checks again that the branch, its
 upstream and the remote (`git ls-remote`, read-only) didn't change; if one did, nothing changes and
 you simulate again. Then `git update-ref` moves the branch only if it is still where the simulation

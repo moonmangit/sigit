@@ -33,6 +33,41 @@ pub struct Open {
     pub how: bool,
     /// In the guide: the one action opened (its picture and text).
     pub act: Option<Act>,
+    /// The preview's animation, when it's open.
+    pub anim: Option<Anim>,
+}
+
+/// The preview's animation: before → what changes → after, a step every `STEP_SECS`. Each
+/// step only sets where every commit sits and how it looks; Rune springs between them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anim {
+    pub step: u8,
+    pub playing: bool,
+    /// The clock (seconds) when this step began.
+    pub at: f64,
+}
+
+impl Anim {
+    pub const STEPS: u8 = 3;
+    pub const STEP_SECS: f64 = 1.4;
+
+    pub fn start(clock: f64) -> Anim {
+        Anim { step: 0, playing: true, at: clock }
+    }
+
+    /// The next step when its time came; it stops at the last one.
+    pub fn advance(self, clock: f64) -> Anim {
+        if !self.playing || clock - self.at < Anim::STEP_SECS {
+            return self;
+        }
+        let step = (self.step + 1).min(Anim::STEPS - 1);
+        Anim { step, playing: step + 1 < Anim::STEPS, at: clock }
+    }
+
+    /// Seconds until the next step, while playing.
+    pub fn wait(self, clock: f64) -> Option<f64> {
+        self.playing.then(|| (Anim::STEP_SECS - (clock - self.at)).max(0.0))
+    }
 }
 
 /// Each history action, for its explanation (what it does, and when people use it).
@@ -338,6 +373,7 @@ glyph!(I_STAR, "h-star", r#"<path d="M8 2.5L9.6 6L13.3 6.3L10.5 8.8L11.3 12.5L8 
 glyph!(I_FILE, "h-file", r#"<path d="M4 2.5H9.5L12 5V13.5H4Z M9.5 2.5V5H12" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"#);
 glyph!(I_WARN, "h-warn", r#"<path d="M8 2.5L14 13H2Z M8 6.5V9.5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" fill="none"/><circle cx="8" cy="11.3" r="0.8" fill="currentColor"/>"#);
 glyph!(I_MOVE, "h-move", r#"<path d="M5 13V3 M2.5 5.5L5 3L7.5 5.5 M11 3V13 M8.5 10.5L11 13L13.5 10.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
+glyph!(I_PLAY, "h-play", r#"<path d="M5 3.5L12.5 8L5 12.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none"/>"#);
 glyph!(I_INFO, "h-info", r#"<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M8 7.2V11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="5" r="0.8" fill="currentColor"/>"#);
 
 /// Whether `sha` is on the current branch, from the loaded graph: walk the parents from the
@@ -634,16 +670,28 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
     }
 
     // The graph, newest first.
-    c = c.child(section(k, "h-sec-commits", &I_COMMITS, "Commits", None));
-    const ROWS: usize = 6;
-    let shown = if open.rows { plan.rows.len() } else { plan.rows.len().min(ROWS) };
-    let mut graph = col().key("h-graph").w_full();
-    for (i, r) in plan.rows.iter().take(shown).enumerate() {
-        graph = graph.child(graph_row(k, i, r, i == 0, i + 1 == shown && shown == plan.rows.len()));
-    }
-    c = c.child(graph);
-    if plan.rows.len() > ROWS {
-        c = c.child(more_toggle(k, "h-rows-more", open.rows, plan.rows.len() - ROWS, |s| s.history_open.rows ^= true));
+    // Play: the edit as an animation on the real commits, with the neighbours under it.
+    let play = Button::new(crate::i18n::t(if open.anim.is_some() { "Replay" } else { "Play" }))
+        .variant(ButtonVariant::GhostMuted)
+        .icon(&I_PLAY)
+        .help(crate::i18n::t("Watch the edit happen on your real commits, step by step"))
+        .on_press(|s: &mut State| s.play_history_anim())
+        .build(k)
+        .key("h-play");
+    c = c.child(section(k, "h-sec-commits", &I_COMMITS, "Commits", None).child(play));
+    if let Some(a) = open.anim {
+        c = c.child(animation(k, plan, a));
+    } else {
+        const ROWS: usize = 6;
+        let shown = if open.rows { plan.rows.len() } else { plan.rows.len().min(ROWS) };
+        let mut graph = col().key("h-graph").w_full();
+        for (i, r) in plan.rows.iter().take(shown).enumerate() {
+            graph = graph.child(graph_row(k, i, r, i == 0, i + 1 == shown && shown == plan.rows.len()));
+        }
+        c = c.child(graph);
+        if plan.rows.len() > ROWS {
+            c = c.child(more_toggle(k, "h-rows-more", open.rows, plan.rows.len() - ROWS, |s| s.history_open.rows ^= true));
+        }
     }
 
     // Files: a bar each; the count and total in the section's header.
@@ -677,6 +725,109 @@ pub fn preview(s: &State, k: &Kit, plan: &Plan) -> El {
         c = c.child(row().gap(6.0).center_y().child(rune::icon(&I_WARN, 13.0).color(k.c.danger.icon)).child(text(tf!("Replaced: {list}")).font(k.ty.small).color(k.c.danger.fg).truncate().shrink().min_w(0.0)));
     }
     c
+}
+
+/// What each step shows, in one line (it also carries the meaning under Reduce Motion).
+const STEP_TEXT: [(&str, &str); 3] = [
+    ("Before", "Your branch now, with the commits under the edit."),
+    ("What changes", "Red commits leave the branch, amber ones are made again, green ones are new."),
+    ("After", "The new history. The commits under the edit stay as they are."),
+];
+
+/// How a commit glides to its next place or fades: slower than the UI's own springs, so the
+/// eye can follow one commit; well under `Anim::STEP_SECS`, so each step settles.
+const MOVE: rune::Spring = rune::Spring::new(0.7, 0.0);
+
+/// The edit as an animation on the real commits: every commit is one element that stays
+/// mounted, and each step only moves it (its slot), fades it or colours it.
+fn animation(k: &Kit, plan: &Plan, a: Anim) -> El {
+    const CAP: usize = 6;
+    let (nodes, hidden) = history::nodes(plan, CAP);
+    let step = a.step;
+    let after = step >= 2;
+    let rows = nodes.iter().flat_map(|n| [n.before, n.after]).flatten().max().map_or(1, |m| m + 1).max(1);
+    let mut stage = col().key("h-anim").w_full().h(rows as f32 * ROW_H).clip_rounded(0.0);
+    // The branch line, under every node.
+    stage = stage.child(el().key("h-anim-line").absolute(0.0, 0.0).size(1.5, rows as f32 * ROW_H).offset(NODE_W / 2.0 - 0.75, 0.0).fill(k.c.text_faint));
+    for n in &nodes {
+        let slot = if after { n.after.or(n.before) } else { n.before.or(n.after) }.unwrap_or(0);
+        let kind = n.kind;
+        let (mut dx, mut o) = (0.0, 1.0);
+        match kind {
+            Some(Kind::New) if !after => (dx, o) = (-28.0, 0.0),
+            Some(Kind::Leaves) if step == 1 => (dx, o) = (28.0, 0.45),
+            Some(Kind::Leaves) if after => (dx, o) = (40.0, 0.0),
+            Some(Kind::Joined) if after => o = 0.0,
+            _ => {}
+        }
+        let tone = match kind {
+            Some(kd) if step >= 1 => tone(k, kd).0,
+            _ => k.c.text_faint,
+        };
+        // A joined commit keeps its own name while it goes into the one it joins.
+        let line = if after && kind != Some(Kind::Joined) { n.new.as_ref().or(n.old.as_ref()) } else { n.old.as_ref().or(n.new.as_ref()) };
+        let (sha, subject) = line.map_or((String::new(), String::new()), |l| (l.sha.clone(), l.subject.clone()));
+        let muted_row = kind.is_none();
+        let dot = el().size(11.0, 11.0).radius(6.0).fill(if muted_row { k.c.bg_base } else { tone }).border(1.5, tone);
+        let node = row()
+            .key(format!("h-an-{}", n.key))
+            .absolute(0.0, 0.0)
+            .w_full()
+            .h(ROW_H)
+            .gap(8.0)
+            .center_y()
+            .offset(dx, slot as f32 * ROW_H)
+            .offset_motion(MOVE)
+            .opacity(o)
+            .opacity_motion(MOVE)
+            .child(row().w(NODE_W).center().child(dot))
+            .child(text(sha).font(k.ty.mono).color(if muted_row { k.c.text_faint } else if step >= 1 { tone } else { k.c.text_muted }))
+            .child(text(subject).font(k.ty.small).color(if muted_row { k.c.text_faint } else { k.c.text_base }).truncate().shrink().min_w(0.0));
+        stage = stage.child(node);
+    }
+    if hidden > 0 {
+        let slot = if after { plan.added.len().min(CAP) } else { plan.removed.len().min(CAP) };
+        stage = stage.child(row().key("h-an-more").absolute(0.0, 0.0).h(ROW_H).offset(NODE_W + 8.0, slot as f32 * ROW_H).offset_motion(MOVE).center_y().child(muted(k, tf!("+{hidden} more"))));
+    }
+
+    // The steps: click one to look at it; the caption says what it shows.
+    let mut steps = row().w_full().gap(6.0).center_y();
+    for (i, (name, _)) in STEP_TEXT.iter().enumerate() {
+        let on = i as u8 == step;
+        let at = i as u8;
+        steps = steps.child(
+            row()
+                .key(tf!("h-step-{i}"))
+                .gap(5.0)
+                .center_y()
+                .px(8.0)
+                .py(3.0)
+                .radius(k.radius.sm)
+                .fill(if on { k.c.surface_base } else { k.c.bg_base })
+                .border(1.0, if on { k.c.border_strong } else { k.c.border_weak })
+                .child(text(format!("{}", i + 1)).font(k.ty.text_xsmall_medium).color(if on { k.c.text_strong } else { k.c.text_faint }))
+                .child(text(crate::i18n::t(*name)).font(k.ty.small).color(if on { k.c.text_base } else { k.c.text_muted }))
+                .on_press(move |s: &mut State| {
+                    if let Some(a) = s.history_open.anim.as_mut() {
+                        *a = Anim { step: at, playing: false, at: s.clock };
+                    }
+                }),
+        );
+        if i + 1 < STEP_TEXT.len() {
+            steps = steps.child(text("→").font(k.ty.small).color(k.c.text_faint));
+        }
+    }
+    steps = steps.child(spacer()).child(
+        IconButton::new(&glyphs::CLOSE)
+            .variant(IconButtonVariant::GhostMuted)
+            .label(crate::i18n::t("Close the animation"))
+            .help(crate::i18n::t("Close the animation"))
+            .on_press(|s: &mut State| s.history_open.anim = None)
+            .build(k)
+            .key("h-anim-close"),
+    );
+    let caption = text(crate::i18n::t(STEP_TEXT[step as usize].1)).font(k.ty.small).color(k.c.text_muted).wrap();
+    col().key("h-anim-box").w_full().gap(8.0).child(steps).child(stage).child(caption)
 }
 
 /// A chip: icon and a few words, tinted by the risk.

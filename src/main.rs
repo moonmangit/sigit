@@ -2910,12 +2910,39 @@ impl State {
             match r {
                 Ok(plan) => {
                     // A new preview starts folded (the help box keeps its state).
-                    s.history_open = ui::HistoryOpen { help: s.history_open.help, ..Default::default() };
+                    let o = s.history_open;
+                    s.history_open = ui::HistoryOpen { help: o.help, how: o.how, act: o.act, ..Default::default() };
                     s.request(guard::Action::History { dir, slug, plan: Box::new(plan) })
                 }
                 Err(e) => s.toast(crate::i18n::t(tf!("Can't do that: {e}")), true),
             }
         });
+    }
+
+    /// The preview's animation: play it from the start.
+    pub fn play_history_anim(&mut self) {
+        self.history_open.anim = Some(ui::HistoryAnim::start(self.clock));
+    }
+
+    /// From `poll`: the animation's next step when it's due; it closes with its dialog. One wake
+    /// per step: Rune draws the frames in between.
+    fn tick_history_anim(&mut self, tx: &mut Tx) -> bool {
+        let Some(a) = self.history_open.anim else { return false };
+        if !self.pending.as_ref().is_some_and(|p| matches!(p.action, guard::Action::History { .. })) {
+            self.history_open.anim = None;
+            return true;
+        }
+        let next = a.advance(self.clock);
+        if let Some(w) = next.wait(self.clock) {
+            tx.wake_after(Duration::from_secs_f64(w.max(0.05)));
+        }
+        self.history_open.anim = Some(next);
+        if next != a {
+            // A timer, not the pointer, moves it on: ask Rune to animate this change (it lands
+            // changes no input caused at once otherwise).
+            tx.animated();
+        }
+        next != a
     }
 
     /// Reword…: opens the message editor with the commit's full message.
@@ -3110,6 +3137,7 @@ fn poll_inner(s: &mut State, clock: f64, tx: &mut Tx) -> bool {
     if !s.window_icon_set {
         s.window_icon_set = window_icon::apply();
     }
+    changed |= s.tick_history_anim(tx);
     changed |= s.poll_setup();
     if s.reveal.is_some() || s.want_failed.is_some() {
         changed |= s.poll_focus(tx);
@@ -3602,7 +3630,7 @@ fn main() {
                     s.select_commit(&sha);
                     s.simulate_history(history::Op::Reset { to: sha, mode: history::ResetMode::Soft });
                 }
-                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true, about: true, how: true, act: Some(ui::HistoryAct::Revert) };
+                s.history_open = ui::HistoryOpen { why: true, files: true, rows: true, help: true, about: true, how: true, act: Some(ui::HistoryAct::Revert), anim: None };
             }),
             ("history-guide", |s: &mut State| {
                 // The Edit history section with its guide open: what each action does and when.
@@ -3613,6 +3641,18 @@ fn main() {
                 }
                 s.history_open.help = true;
                 s.history_open.act = Some(ui::HistoryAct::Squash);
+            }),
+            ("history-anim", |s: &mut State| {
+                // The preview's animation, playing: squash the third commit into the fourth, so two
+                // commits join and the ones above are made again, over their neighbours. A squash
+                // can't conflict. Simulated only.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.get(2)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                    s.simulate_history(history::Op::Squash { sha, fixup: false });
+                }
+                s.play_history_anim();
             }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;
@@ -3925,7 +3965,8 @@ fn main() {
         on_key: Some(on_key),
         ..AppSpec::new("sigit", (1440.0, 900.0), init, view)
     };
-    let headless = std::env::args().any(|a| a == "--snap" || a == "--tree" || a == "--script");
+    // `--frames` and `--video` dump an animation: headless too, so their scene has its data.
+    let headless = std::env::args().any(|a| ["--snap", "--tree", "--script", "--frames", "--video"].contains(&a.as_str()));
     // B6: OS notifications under the app's own name; a click opens what it's about. Registering
     // writes the name under HKCU\Software\Classes\AppUserModelId, so headless runs skip it.
     if !headless {
@@ -4690,6 +4731,57 @@ mod cache_tests {
     fn finish_with(s: &mut State, action: guard::Action, r: Result<String, String>) {
         let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: r.is_ok(), detail: r.clone().unwrap_or_else(|e| e), commands: vec![] };
         s.action_finished(action.clone(), action.label(), None, false, (r, entry, Ok(())));
+    }
+
+    /// History editing end to end through `State`: simulate, apply (the worker's half), the
+    /// result toast with Undo, then Undo puts the branch back.
+    #[test]
+    fn history_animation_steps_on_the_clock() {
+        let a = ui::HistoryAnim::start(10.0);
+        assert_eq!(a.advance(10.5), a, "too early: same step");
+        let b = a.advance(10.0 + ui::HistoryAnim::STEP_SECS);
+        assert_eq!((b.step, b.playing), (1, true));
+        let c = b.advance(b.at + ui::HistoryAnim::STEP_SECS);
+        assert_eq!((c.step, c.playing), (2, false), "stops at the last step");
+        assert_eq!(c.advance(100.0), c);
+        assert!(c.wait(100.0).is_none() && a.wait(10.5).is_some());
+    }
+
+    #[test]
+    fn history_edit_apply_then_undo_through_state() {
+        let dir = std::env::temp_dir().join(format!("sigit-state-history-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        for (f, msg) in [("a.txt", "one"), ("b.txt", "two"), ("c.txt", "three")] {
+            std::fs::write(dir.join(f), msg).unwrap();
+            git(&["add", f]);
+            git(&["commit", "-q", "-m", msg]);
+        }
+        let head = |g: &dyn Fn(&[&str]) -> String| g(&["rev-parse", "HEAD"]).trim().to_owned();
+        let before = head(&git);
+        let two = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Drop { sha: two }).unwrap();
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan.clone()) };
+        let mut s = dialog_state();
+        // The worker's half of `execute`, then the UI's.
+        let r = history::apply(&dir, &plan);
+        assert!(r.is_ok(), "{r:?}");
+        let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: true, detail: r.clone().unwrap(), commands: vec![] };
+        s.action_finished(action.clone(), action.label(), None, false, (r, entry, Ok(())));
+        assert_eq!(head(&git), plan.new_tip);
+        assert!(!dir.join("b.txt").exists());
+        let toast = s.toasts.iter().find(|t| t.undo.is_some()).expect("a toast with Undo");
+        assert!(matches!(toast.undo, Some(guard::Undo::History { .. })));
+        let id = toast.id;
+        s.run_undo(id);
+        assert_eq!(head(&git), before, "Undo put the branch back");
+        assert!(dir.join("b.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

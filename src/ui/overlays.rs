@@ -157,7 +157,7 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
     }
     if !p.dirty.is_empty() && history {
         // The preview already names the files and the chip counts them: one short line.
-        body = body.child(muted(k, "Your uncommitted changes are stashed first; Undo brings them back.").wrap());
+        body = body.child(muted(k, "Your uncommitted changes are stashed first; Undo or Branches → Stashes brings them back.").wrap());
     } else if !p.dirty.is_empty() {
         let mut list = col().w_full().gap(2.0).padding(10.0).radius(k.radius.md).fill(k.c.bg_base);
         for f in p.dirty.iter().take(20) {
@@ -205,6 +205,8 @@ pub fn guard_dialog(s: &State, k: &Kit, layer: &mut Vec<El>) {
         Action::Rerun { .. } => "Re-run".into(),
         Action::DeleteBranch { .. } => "Delete branch".into(),
         Action::Stash { op, .. } => tf!("{}{} stash", op[..1].to_uppercase(), &op[1..]),
+        // The branch is in the title and the field above: the button says only what it does.
+        Action::History { plan, .. } => plan.op.label(),
         other => other.label(),
     };
     let mut buttons = row().w_full().gap(8.0).child(spacer()).child(Button::new(crate::i18n::t("Cancel")).variant(ButtonVariant::Outline).on_press(|s: &mut State| s.cancel_pending()).build(k).key("no"));

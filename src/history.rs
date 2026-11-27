@@ -147,6 +147,45 @@ pub struct FileChange {
     pub del: u64,
 }
 
+/// One commit in the animation: where it sits before and after (slot 0 is the newest), and
+/// what happens to it. Context commits sit under the edit in both.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Node {
+    pub key: String,
+    /// The SHA and subject before (for a rewritten commit, the old ones).
+    pub old: Option<Line>,
+    /// The SHA and subject after.
+    pub new: Option<Line>,
+    /// `None` for a neighbour commit the edit doesn't touch.
+    pub kind: Option<Kind>,
+    pub before: Option<usize>,
+    pub after: Option<usize>,
+}
+
+/// The animation's nodes, from the graph rows and the neighbours. At most `cap` commits of the
+/// edit on each side; the rest are counted in the second value (shown as one "+N" node).
+pub fn nodes(plan: &Plan, cap: usize) -> (Vec<Node>, usize) {
+    let slot_old = |l: &Line| plan.removed.iter().position(|r| r.full == l.full).filter(|i| *i < cap);
+    let slot_new = |l: &Line| plan.added.iter().position(|r| r.full == l.full).filter(|i| *i < cap);
+    let mut out = Vec::new();
+    for r in &plan.rows {
+        let before = r.old.as_ref().and_then(slot_old);
+        let after = r.new.as_ref().and_then(slot_new);
+        if before.is_none() && after.is_none() {
+            continue;
+        }
+        let key = r.old.as_ref().or(r.new.as_ref()).map(|l| l.full.clone()).unwrap_or_default();
+        out.push(Node { key, old: r.old.clone(), new: r.new.clone(), kind: Some(r.kind), before, after });
+    }
+    let (nb, na) = (plan.removed.len().min(cap), plan.added.len().min(cap));
+    let hidden = plan.removed.len().saturating_sub(cap).max(plan.added.len().saturating_sub(cap));
+    let extra = usize::from(hidden > 0);
+    for (j, c) in plan.context.iter().enumerate() {
+        out.push(Node { key: c.full.clone(), old: Some(c.clone()), new: Some(c.clone()), kind: None, before: Some(nb + extra + j), after: Some(na + extra + j) });
+    }
+    (out, hidden)
+}
+
 /// The graph's rows, newest first: each new commit with the old one(s) it replaces, then the
 /// commits that only leave.
 pub fn rows(removed: &[Line], added: &[Line], pairs: &[(String, String)]) -> Vec<Row> {
@@ -184,6 +223,9 @@ pub struct Plan {
     pub rows: Vec<Row>,
     /// The files that differ between the old and the new tip (`git diff --numstat`).
     pub files: Vec<FileChange>,
+    /// The commits under the edit that both tips share (the merge-base and up to two before it,
+    /// first parents), newest first: the neighbours the animation shows.
+    pub context: Vec<Line>,
     /// Removed commits that a remote has (any remote branch, not only the upstream): rewriting
     /// them needs a force-push.
     pub pushed_rewritten: usize,
@@ -647,7 +689,9 @@ fn preview(dir: &Path, op: Op, snap: Snapshot, new_tip: String, sync: Sync, pair
     };
     let replaced_files = if sync == Sync::Hard { snap.changed.clone() } else { Vec::new() };
     let rows = rows(&removed, &added, pairs);
-    Ok(Plan { op, snap, new_tip, removed, added, rows, files, pushed_rewritten, replaced_files, sync })
+    // No merge-base (unrelated histories) or nothing under it: no neighbours, which is fine.
+    let context = git(dir, &["merge-base", old, new]).ok().map(|mb| lines(dir, &["--first-parent", "-n", "3", mb.trim()]).unwrap_or_default()).unwrap_or_default();
+    Ok(Plan { op, snap, new_tip, removed, added, rows, files, context, pushed_rewritten, replaced_files, sync })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1035,6 +1079,45 @@ mod tests {
     }
 
     #[test]
+    fn animation_slots_follow_the_edit() {
+        let slots = |p: &Plan| {
+            let (n, hidden) = nodes(p, 8);
+            assert_eq!(hidden, 0);
+            n.into_iter().map(|n| (n.old.or(n.new).unwrap().subject, n.kind, n.before, n.after)).collect::<Vec<_>>()
+        };
+        let (r, [a, b, c, _]) = Repo::abc("anim");
+        // Move "three" up: it and "four" swap slots; "two" and "one" are the neighbours below.
+        let p = simulate(&r.0, &Op::Move { sha: c.clone(), up: true }).unwrap();
+        let s = slots(&p);
+        let find = |name: &str| s.iter().find(|x| x.0 == name).cloned().unwrap();
+        assert_eq!((find("four").2, find("four").3), (Some(0), Some(1)));
+        assert_eq!((find("three").2, find("three").3), (Some(1), Some(0)));
+        assert_eq!(find("two"), ("two".into(), None, Some(2), Some(2)));
+        assert_eq!(find("one").1, None);
+        // Drop "three": it has no after-slot, and the gap closes ("four" moves down one).
+        let p = simulate(&r.0, &Op::Drop { sha: c.clone() }).unwrap();
+        let s = slots(&p);
+        assert!(s.iter().any(|x| x.0 == "three" && x.1 == Some(Kind::Leaves) && x.3.is_none()));
+        assert!(s.iter().any(|x| x.0 == "two" && x.2 == Some(2) && x.3 == Some(1)));
+        // Squash "three" into "two": both go to the same after-slot.
+        let p = simulate(&r.0, &Op::Squash { sha: c, fixup: false }).unwrap();
+        let s = slots(&p);
+        let two = s.iter().find(|x| x.0 == "two").unwrap().3;
+        let three = s.iter().find(|x| x.0 == "three").unwrap().3;
+        assert_eq!(two, three);
+        // Reset to "one": three leave, "one" is the neighbour (both tips share it).
+        let p = simulate(&r.0, &Op::Reset { to: a.clone(), mode: ResetMode::Soft }).unwrap();
+        let s = slots(&p);
+        assert_eq!(s.iter().filter(|x| x.1 == Some(Kind::Leaves)).count(), 3);
+        assert_eq!(s.last().unwrap(), &("one".to_owned(), None, Some(3), Some(0)));
+        // A cap: one "+N" for the rest, and the neighbours sit under it.
+        let (n, hidden) = nodes(&p, 2);
+        assert_eq!(hidden, 1);
+        assert_eq!(n.last().unwrap().before, Some(3));
+        let _ = b;
+    }
+
+    #[test]
     fn uncommitted_changes_elsewhere_stay() {
         let (r, [_, _, c, _]) = Repo::abc("dirty");
         r.write("notes.txt", "mine\n");
@@ -1085,7 +1168,7 @@ mod tests {
     #[test]
     fn command_lines() {
         let snap = Snapshot { branch: "main".into(), tip: "a".repeat(40), remote: Some(("origin".into(), "refs/heads/main".into())), ..Default::default() };
-        let plan = Plan { op: Op::Drop { sha: "c".repeat(40) }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], pushed_rewritten: 2, replaced_files: vec![], sync: Sync::TwoTree };
+        let plan = Plan { op: Op::Drop { sha: "c".repeat(40) }, snap, new_tip: "b".repeat(40), removed: vec![], added: vec![], rows: vec![], files: vec![], context: vec![], pushed_rewritten: 2, replaced_files: vec![], sync: Sync::TwoTree };
         let lines: Vec<String> = plan.commands().iter().map(Cmd::line).collect();
         let (a, b) = ("a".repeat(40), "b".repeat(40));
         assert_eq!(lines, [
