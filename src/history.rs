@@ -290,6 +290,16 @@ impl Plan {
         v
     }
 
+    /// Where a commit is after the edit: itself when it stays, its new SHA when it was made again
+    /// (or the commit it was joined into), `None` when it left the branch.
+    pub fn follow(&self, full: &str) -> Option<String> {
+        if let Some(r) = self.rows.iter().find(|r| r.old.as_ref().is_some_and(|l| l.full == full)) {
+            return r.new.as_ref().map(|l| l.full.clone());
+        }
+        let gone = self.removed.iter().any(|l| l.full == full);
+        (!gone).then(|| full.to_owned())
+    }
+
     /// What the user runs to share the edit, when pushed commits were rewritten.
     pub fn push_hint(&self) -> Option<String> {
         let (remote, r) = self.snap.remote.as_ref()?;
@@ -1221,6 +1231,69 @@ mod tests {
         let (n, _) = nodes(&p, 8);
         assert!(n.iter().any(|x| x.side && x.before == Some(0)));
         assert!(n.iter().any(|x| x.kind == Some(Kind::New) && x.from == Some(0)));
+    }
+
+    #[test]
+    fn every_action_applies_and_undoes() {
+        // Each action, on a fresh repo: the branch moves, then Undo brings back the tip, the
+        // files and a clean working copy.
+        let cases: Vec<(&str, Box<dyn Fn(&[String; 4]) -> Op>)> = vec![
+            ("soft", Box::new(|c| Op::Reset { to: c[1].clone(), mode: ResetMode::Soft })),
+            ("mixed", Box::new(|c| Op::Reset { to: c[1].clone(), mode: ResetMode::Mixed })),
+            ("hard", Box::new(|c| Op::Reset { to: c[1].clone(), mode: ResetMode::Hard })),
+            ("revert", Box::new(|c| Op::Revert { sha: c[2].clone() })),
+            ("reword", Box::new(|c| Op::Reword { sha: c[1].clone(), message: "two, again".into() })),
+            ("drop", Box::new(|c| Op::Drop { sha: c[2].clone() })),
+            ("squash", Box::new(|c| Op::Squash { sha: c[2].clone(), fixup: false })),
+            ("fixup", Box::new(|c| Op::Squash { sha: c[2].clone(), fixup: true })),
+            ("up", Box::new(|c| Op::Move { sha: c[2].clone(), up: true })),
+            ("down", Box::new(|c| Op::Move { sha: c[3].clone(), up: false })),
+        ];
+        for (name, make) in cases {
+            let (r, c) = Repo::abc(&format!("undo-{name}"));
+            let (tip, files) = (r.head(), r.git(&["ls-files", "-s"]));
+            let plan = r.run(make(&c));
+            assert_ne!(r.head(), tip, "{name}: the branch moved");
+            undo(&r.0, "main", &plan.new_tip, &plan.snap.tip, plan.sync).unwrap_or_else(|e| panic!("{name}: undo: {e}"));
+            assert_eq!(r.head(), tip, "{name}: Undo brings the tip back");
+            if plan.sync != Sync::Index && plan.sync != Sync::None {
+                assert_eq!(r.git(&["ls-files", "-s"]), files, "{name}: and the files");
+                assert_eq!(r.status(), "", "{name}: with a clean working copy");
+            }
+        }
+        // Amend, and cherry-pick from another branch.
+        let (r, _) = Repo::abc("undo-amend");
+        let tip = r.head();
+        r.write("a.txt", "1\n2\n3\n4\n");
+        r.git(&["add", "a.txt"]);
+        let plan = r.run(Op::Amend);
+        undo(&r.0, "main", &plan.new_tip, &plan.snap.tip, plan.sync).unwrap();
+        assert_eq!(r.head(), tip);
+        assert_eq!(r.status(), "M  a.txt\n", "the staged change is staged again, not lost");
+        let (r, c) = Repo::abc("undo-pick");
+        r.git(&["switch", "-q", "-c", "side", &c[0]]);
+        let s = r.commit("s.txt", "s\n", "side");
+        r.git(&["switch", "-q", "main"]);
+        let tip = r.head();
+        let plan = r.run(Op::CherryPick { sha: s });
+        undo(&r.0, "main", &plan.new_tip, &plan.snap.tip, plan.sync).unwrap();
+        assert_eq!(r.head(), tip);
+        assert!(!r.0.join("s.txt").exists());
+    }
+
+    #[test]
+    fn your_commit_is_followed_through_the_edit() {
+        let (r, [a, b, c, d]) = Repo::abc("follow");
+        let p = simulate(&r.0, &Op::Reword { sha: b.clone(), message: "two!".into() }).unwrap();
+        assert_eq!(p.follow(&a), Some(a.clone()), "under the edit: the same");
+        let nb = p.follow(&b).unwrap();
+        assert_ne!(nb, b);
+        assert_eq!(r.git(&["log", "-1", "--format=%s", &nb]).trim(), "two!");
+        let p = simulate(&r.0, &Op::Drop { sha: c.clone() }).unwrap();
+        assert_eq!(p.follow(&c), None, "a dropped commit is gone");
+        assert!(p.follow(&d).is_some_and(|x| x != d));
+        let p = simulate(&r.0, &Op::Squash { sha: c.clone(), fixup: false }).unwrap();
+        assert_eq!(p.follow(&c), p.follow(&b), "squashed: it's in the commit it joined");
     }
 
     #[test]

@@ -202,7 +202,8 @@ fn detail(s: &State, k: &Kit) -> Option<El> {
         .iter()
         .filter_map(|r| {
             let r = r.strip_prefix("HEAD -> ").unwrap_or(r);
-            (!r.starts_with("tag: ") && r != "HEAD").then(|| r.to_owned())
+            // A stash isn't a branch: nothing to check out.
+            (!r.starts_with("tag: ") && r != "HEAD" && r != "refs/stash").then(|| r.to_owned())
         })
         .collect();
     if !branches.is_empty() {

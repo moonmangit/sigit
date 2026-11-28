@@ -406,12 +406,17 @@ fn any_busy(s: &State) -> bool {
 }
 
 /// One button that simulates `op`. On hover: what it does and its common use.
-fn op_button(s: &State, k: &Kit, key: &str, icon: Option<&'static Icon>, label: &str, op: Op) -> El {
+fn op_button(s: &State, k: &Kit, key: &str, icon: Option<&'static Icon>, label: &str, op: Op, blocked: Option<String>) -> El {
     let busy = s.busy.contains(&history::sim_label(&op));
+    // An action that can only fail here is disabled, and its help says why first.
+    let help = match &blocked {
+        Some(why) => tf!("{why} {}", Act::of(&op).help()),
+        None => Act::of(&op).help(),
+    };
     let mut b = Button::new(crate::i18n::t(if busy { "Simulating…" } else { label }))
         .variant(ButtonVariant::Outline)
-        .disabled(any_busy(s) || s.pending.is_some())
-        .help(Act::of(&op).help())
+        .disabled(any_busy(s) || s.pending.is_some() || blocked.is_some())
+        .help(help)
         .on_press(move |s: &mut State| s.simulate_history(op.clone()));
     if let Some(i) = icon {
         b = b.icon(i);
@@ -442,6 +447,12 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
     let merge = c.parents.len() > 1;
     let root = c.parents.is_empty();
     let card = col().key("h-actions").w_full().gap(10.0).padding(12.0).radius(k.radius.lg).border(1.0, k.c.border_weak).fill(k.c.layer_01);
+    // git's own stash commits ("WIP on …", "index on …") show under All branches: they aren't
+    // history to edit.
+    let stash_commits: std::collections::HashSet<&str> = g.commits.iter().filter(|x| x.refs.iter().any(|r| r == "refs/stash")).flat_map(|x| std::iter::once(x.sha.as_str()).chain(x.parents.iter().skip(1).map(String::as_str))).collect();
+    if stash_commits.contains(sha.as_str()) {
+        return Some(card.child(row().gap(6.0).center_y().child(rune::icon(&I_INFO, 13.0).color(k.c.icon_faint)).child(text(crate::i18n::t("This is a stash entry, not history: use Branches → Stashes to apply or drop it.")).font(k.ty.small).color(k.c.text_muted).wrap().shrink())));
+    }
 
     // Header: what this is, on which branch, and the guide.
     let open = s.history_open.help;
@@ -466,17 +477,44 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
     );
     out = out.child(el().w_full().h(1.0).fill(k.c.border_weak));
 
+    // What the loaded graph says around this commit (unknown past the loaded page: then the
+    // simulation is the judge).
+    let by_sha: std::collections::HashMap<&str, &Commit> = g.commits.iter().map(|x| (x.sha.as_str(), x)).collect();
+    let parent = c.parents.first().and_then(|p| by_sha.get(p.as_str()));
+    let parent_blocks = match parent {
+        Some(p) if p.parents.is_empty() => Some(crate::i18n::t("The commit before it is the first commit of the history.")),
+        Some(p) if p.parents.len() > 1 => Some(crate::i18n::t("The commit before it is a merge commit.")),
+        _ => None,
+    };
+    // A merge commit between the tip and this commit (first parents): a rewrite would flatten it.
+    let merge_above = here && {
+        let head = detail.filter(|d| d.is_head).map(|_| sha.as_str()).or_else(|| head_sha(g));
+        let mut at = head;
+        let mut found = false;
+        while let Some(x) = at.filter(|x| *x != sha).and_then(|x| by_sha.get(x)) {
+            if x.parents.len() > 1 {
+                found = true;
+                break;
+            }
+            at = x.parents.first().map(String::as_str);
+        }
+        found
+    };
+    let flatten = merge_above.then(|| crate::i18n::t("There's a merge commit above it: this would flatten it. Use Revert or Reset instead."));
+
     // The buttons, grouped by what you want to do with this commit.
     let buttons = || row().gap(6.0).flex_wrap();
     if !is_head {
+        // In the branch's past: going back. Anywhere else: the branch jumps there.
+        let title = if here { crate::i18n::t("Go back to here") } else { tf!("Move {branch} here") };
         let modes = [(ResetMode::Soft, "Soft"), (ResetMode::Mixed, "Mixed"), (ResetMode::Hard, "Hard")];
-        let b = modes.into_iter().fold(buttons(), |r, (mode, label)| r.child(op_button(s, k, &tf!("h-reset-{}", mode.word()), None, label, Op::Reset { to: sha.clone(), mode })));
-        out = out.child(group(k, "h-g-reset", &I_RESET, "Go back to here", b));
+        let b = modes.into_iter().fold(buttons(), |r, (mode, label)| r.child(op_button(s, k, &tf!("h-reset-{}", mode.word()), None, label, Op::Reset { to: sha.clone(), mode }, None)));
+        out = out.child(group(k, "h-g-reset", &I_RESET, &title, b));
     }
     if here && !root {
-        let mut b = buttons().child(op_button(s, k, "h-revert", Some(&I_UNDO), "Revert", Op::Revert { sha: sha.clone() }));
+        let mut b = buttons().child(op_button(s, k, "h-revert", Some(&I_UNDO), "Revert", Op::Revert { sha: sha.clone() }, None));
         if !merge {
-            b = b.child(op_button(s, k, "h-drop", Some(&I_DROP), "Drop", Op::Drop { sha: sha.clone() }));
+            b = b.child(op_button(s, k, "h-drop", Some(&I_DROP), "Drop", Op::Drop { sha: sha.clone() }, flatten.clone()));
         }
         out = out.child(group(k, "h-g-undo", &I_UNDO, "Undo this commit", b));
     }
@@ -486,27 +524,34 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
         let loaded = message.is_some();
         let message = message.unwrap_or_default();
         let id = sha.clone();
+        let reword_help = flatten.as_ref().map_or_else(|| Act::Reword.help(), |why| tf!("{why} {}", Act::Reword.help()));
         let mut b = buttons().child(
             Button::new(crate::i18n::t("Reword…"))
                 .variant(ButtonVariant::Outline)
                 .icon(&I_EDIT)
-                .disabled(s.pending.is_some() || !loaded)
-                .help(Act::Reword.help())
+                .disabled(s.pending.is_some() || !loaded || flatten.is_some())
+                .help(reword_help)
                 .on_press(move |s: &mut State| s.start_reword(id.clone(), message.clone()))
                 .build(k)
                 .key("h-reword"),
         );
+        let joins = flatten.clone().or_else(|| parent_blocks.clone());
         b = b
-            .child(op_button(s, k, "h-squash", Some(&I_SQUASH), "Squash", Op::Squash { sha: sha.clone(), fixup: false }))
-            .child(op_button(s, k, "h-fixup", Some(&I_SQUASH), "Fixup", Op::Squash { sha: sha.clone(), fixup: true }));
+            .child(op_button(s, k, "h-squash", Some(&I_SQUASH), "Squash", Op::Squash { sha: sha.clone(), fixup: false }, joins.clone()))
+            .child(op_button(s, k, "h-fixup", Some(&I_SQUASH), "Fixup", Op::Squash { sha: sha.clone(), fixup: true }, joins.clone()));
         if !is_head {
-            b = b.child(op_button(s, k, "h-up", Some(&glyphs::CHEVRON_UP), "Move up", Op::Move { sha: sha.clone(), up: true }));
+            b = b.child(op_button(s, k, "h-up", Some(&glyphs::CHEVRON_UP), "Move up", Op::Move { sha: sha.clone(), up: true }, flatten.clone()));
         }
-        b = b.child(op_button(s, k, "h-down", Some(&glyphs::CHEVRON_DOWN), "Move down", Op::Move { sha: sha.clone(), up: false }));
+        b = b.child(op_button(s, k, "h-down", Some(&glyphs::CHEVRON_DOWN), "Move down", Op::Move { sha: sha.clone(), up: false }, joins));
         out = out.child(group(k, "h-g-change", &I_EDIT, "Change this commit", b));
+        // Why some are off, in words (the hover says it too).
+        let note = flatten.clone().or_else(|| parent_blocks.as_ref().map(|why| tf!("Squash, Fixup and Move down are off: {}", why)));
+        if let Some(why) = note {
+            out = out.child(row().gap(6.0).items_start().child(rune::icon(&I_WARN, 12.0).color(k.c.warning.icon)).child(text(why).font(k.ty.small).color(k.c.text_muted).wrap().shrink()));
+        }
     }
     if !here && !merge && !root {
-        let b = buttons().child(op_button(s, k, "h-pick", Some(&I_ADD), "Cherry-pick", Op::CherryPick { sha: sha.clone() }));
+        let b = buttons().child(op_button(s, k, "h-pick", Some(&I_ADD), "Cherry-pick", Op::CherryPick { sha: sha.clone() }, None));
         out = out.child(group(k, "h-g-pick", &I_ADD, &tf!("Copy to {branch}"), b));
     }
     if open {
@@ -518,7 +563,13 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
 /// Amend, for the Commits toolbar: put the staged changes into the last commit.
 pub fn amend_button(s: &State, k: &Kit) -> Option<El> {
     s.local_path()?;
-    Some(op_button(s, k, "h-amend", Some(&I_EDIT), "Amend last commit", Op::Amend))
+    let st = s.rd().and_then(|d| d.status.data.as_ref());
+    let blocked = match st {
+        Some(st) if st.branch.is_empty() || st.branch == "(detached)" => Some(crate::i18n::t("You're on a detached HEAD: switch to a branch first.")),
+        Some(st) if st.staged == 0 => Some(crate::i18n::t("Nothing is staged: stage the changes to put in first (git add).")),
+        _ => None,
+    };
+    Some(op_button(s, k, "h-amend", Some(&I_EDIT), "Amend last commit", Op::Amend, blocked))
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -3780,6 +3780,16 @@ fn main() {
                 let remote = s.repos.iter().find(|r| r.path.is_none()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
                 s.select_repo(&remote, Page::Commits);
             }),
+            ("commit-by-subject", |s: &mut State| {
+                // The Commits page with the commit whose subject is SIGIT_SUBJECT selected: for
+                // checking which Edit history actions it offers. Nothing runs.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                let want = std::env::var("SIGIT_SUBJECT").unwrap_or_default();
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.iter().find(|c| c.subject == want)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                }
+            }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;
                 let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
@@ -4944,6 +4954,27 @@ mod cache_tests {
         assert!(s.can_stash_confirm());
         s.confirm(true);
         assert_ne!(git(&["rev-parse", "HEAD"]), before, "with the name it runs");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_selection_follows_your_commit_and_undo_brings_it_back() {
+        let dir = history_repo("follow-sel");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let two = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reword { sha: two.clone(), message: "two, clearer".into() }).unwrap();
+        let mut s = dialog_state();
+        s.commit_sel = Some(two.clone());
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        let r = history::apply(&dir, match &action { guard::Action::History { plan, .. } => plan, _ => unreachable!() });
+        let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: true, detail: r.clone().unwrap(), commands: vec![] };
+        s.action_finished(action.clone(), action.label(), None, None, (r, entry, Ok(())));
+        let now = s.commit_sel.clone().unwrap();
+        assert_ne!(now, two, "the selection moved to the reworded commit's new SHA");
+        assert_eq!(git(&["log", "-1", "--format=%s", &now]).trim(), "two, clearer");
+        let id = s.toasts.iter().find(|t| t.undo.is_some()).unwrap().id;
+        s.run_undo(id);
+        assert_eq!(s.commit_sel.as_deref(), Some(two.as_str()), "Undo selects the commit you had");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

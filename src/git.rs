@@ -160,6 +160,10 @@ pub fn status(dir: &Path) -> Result<LocalStatus, String> {
             st.behind = it.next().and_then(|b| b.trim_start_matches('-').parse().ok()).unwrap_or(0);
         } else if !l.starts_with('#') {
             st.changed += 1;
+            // "1 XY …" / "2 XY …": X is the staged side ('.' = nothing staged).
+            if (l.starts_with("1 ") || l.starts_with("2 ")) && l.as_bytes().get(2).is_some_and(|x| *x != b'.') {
+                st.staged += 1;
+            }
         }
     }
     Ok(st)

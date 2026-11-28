@@ -224,7 +224,11 @@ you simulate again. Then `git update-ref` moves the branch only if it is still w
 saw it, and your files follow (or the branch goes back). Uncommitted changes are stashed first when
 the files change. Undo (10 s) puts the branch back. sigit never pushes: after rewriting pushed
 commits it shows the `git push --force-with-lease` command for you to run. Conflicts, merge commits
-inside the edited range and the first commit of a history are refused. Needs git 2.40 or newer
+inside the edited range and the first commit of a history are refused: the card turns those
+actions off and says why (a merge commit above, the commit before is the first or a merge commit,
+nothing staged for Amend). A commit outside your branch's past offers **Move {branch} here**
+instead of "Go back to here"; stash entries offer no edits. After an edit the selection follows
+your commit to its new SHA, and Undo selects it again. Needs git 2.40 or newer
 (Reset and Amend work with any git).
 
 **Clone for me.** A repo with no local clone shows **Clone for me** on its Commits and Branches

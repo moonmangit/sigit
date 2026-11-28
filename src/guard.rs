@@ -199,7 +199,8 @@ pub enum Undo {
     /// The stash "Stash and continue" made, by its SHA.
     StashPop { dir: PathBuf, sha: String },
     /// A history edit: the branch back from `from` to `to`, then the stash it made, if any.
-    History { dir: PathBuf, branch: String, from: String, to: String, sync: history::Sync, stash: Option<String> },
+    /// `select`: the commit selected before the edit, selected again after Undo.
+    History { dir: PathBuf, branch: String, from: String, to: String, sync: history::Sync, stash: Option<String>, select: Option<String> },
     Prefs(Box<Prefs>),
 }
 
@@ -439,6 +440,7 @@ impl State {
                 to: plan.snap.tip.clone(),
                 sync: plan.sync,
                 stash: stash.clone(),
+                select: self.commit_sel.clone(),
             }),
             _ => None,
         };
@@ -509,7 +511,11 @@ impl State {
             }
             Action::Fetch { .. } => self.refresh_page(),
             Action::Stash { .. } | Action::DeleteBranch { .. } => self.refresh_branch_tools(),
-            Action::History { .. } => {
+            Action::History { plan, .. } => {
+                // Your commit, followed through the edit: its new SHA, or the new tip if it left.
+                if let Some(sel) = self.commit_sel.clone() {
+                    self.commit_sel = Some(plan.follow(&sel).unwrap_or_else(|| plan.new_tip.clone()));
+                }
                 self.refs_moved();
                 self.refresh_page();
                 self.refresh_status();
@@ -525,7 +531,11 @@ impl State {
             Undo::SwitchBack { dir, branch } => (tf!("Switch back to {branch}"), Box::new(move || git::checkout(&dir, &branch, false))),
             Undo::RestoreBranch { dir, name, sha } => (tf!("Restore {name}"), Box::new(move || git::restore_branch(&dir, &name, &sha))),
             Undo::StashPop { dir, sha } => ("Pop stash".into(), Box::new(move || git::stash_pop_sha(&dir, &sha))),
-            Undo::History { dir, branch, from, to, sync, stash } => (
+            Undo::History { dir, branch, from, to, sync, stash, select } => {
+                if let Some(sel) = select {
+                    self.commit_sel = Some(sel);
+                }
+                (
                 tf!("Undo the edit on {branch}"),
                 Box::new(move || {
                     let msg = history::undo(&dir, &branch, &from, &to, sync)?;
@@ -534,7 +544,8 @@ impl State {
                     }
                     Ok(msg)
                 }),
-            ),
+            )
+            }
             Undo::Prefs(p) => {
                 self.prefs = *p;
                 self.save_prefs();
@@ -852,7 +863,7 @@ mod tests {
         let lines = a.command_lines(false);
         assert_eq!(lines.len(), 2);
         assert!(lines[1].starts_with("git reset --hard bbbbbbb"));
-        let u = Undo::History { dir, branch: "feat".into(), from: "b".repeat(40), to: "a".repeat(40), sync: Sync::Hard, stash: Some("s".repeat(40)) };
+        let u = Undo::History { dir, branch: "feat".into(), from: "b".repeat(40), to: "a".repeat(40), sync: Sync::Hard, stash: Some("s".repeat(40)), select: None };
         assert_eq!(u.command_lines(), [format!("git update-ref -m \"sigit: undo\" refs/heads/feat {} {}", "a".repeat(40), "b".repeat(40)), "git stash pop stash@{0}".to_owned()]);
     }
 

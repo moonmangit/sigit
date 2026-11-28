@@ -1497,3 +1497,11 @@ The clone in {} didn't come out as {slug}	clone ใน {} ไม่ได้เ�
 {} already exists and isn't a clone of {slug}	{} มีอยู่แล้วและไม่ใช่ clone ของ {slug}
 {} already holds a clone of {s}	{} มี clone ของ {s} อยู่แล้ว
 {} already holds a git repository that isn't {slug}	{} มี git repository ที่ไม่ใช่ {slug} อยู่แล้ว
+Move {branch} here	ย้าย {branch} มาที่นี่
+Nothing is staged: stage the changes to put in first (git add).	ไม่มีอะไร stage ไว้: stage การเปลี่ยนแปลงที่จะใส่ก่อน (git add)
+Squash, Fixup and Move down are off: {}	Squash, Fixup และ เลื่อนลง ใช้ไม่ได้: {}
+The commit before it is a merge commit.	commit ก่อนหน้าเป็น merge commit
+The commit before it is the first commit of the history.	commit ก่อนหน้าคือ commit แรกของประวัติ
+There's a merge commit above it: this would flatten it. Use Revert or Reset instead.	มี merge commit อยู่ด้านบน: การนี้จะทำให้มันแบนลง ใช้ Revert หรือ Reset แทน
+This is a stash entry, not history: use Branches → Stashes to apply or drop it.	นี่คือ stash ไม่ใช่ประวัติ: ใช้ Branch → Stash เพื่อ apply หรือ drop
+You're on a detached HEAD: switch to a branch first.	คุณอยู่บน detached HEAD: สลับไปที่ branch ก่อน
