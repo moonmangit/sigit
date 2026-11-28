@@ -344,6 +344,13 @@ fn kit(s: &State, cx: &mut Cx<State>) -> Kit {
     // A darker backdrop behind every modal (dialogs, the guide, the palette) so what's in
     // front stands out; the kit's default is 30% black.
     k.c.scrim = Color::BLACK.alpha(if dark { 0.62 } else { 0.48 });
+    // Pop-overs (context menus, Select lists, toasts) are filled with the page colour, and the
+    // kit's ring is a faint 0.5 pt line: they melt into what's behind them. Give them a clear
+    // 1 pt outline and a deeper drop so they read as a layer on top.
+    k.elevation.floating = vec![
+        rune::Shadow { y: 6.0, blur: 18.0, color: Color::BLACK.alpha(if dark { 0.55 } else { 0.18 }), ..Default::default() },
+        rune::Shadow { spread: 1.0, color: k.c.text_base.alpha(if dark { 0.30 } else { 0.24 }), ..Default::default() },
+    ];
     k
 }
 
