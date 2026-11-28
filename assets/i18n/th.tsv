@@ -1562,3 +1562,8 @@ your branch	แบรนช์ของคุณ
 {} isn't a sandbox sigit made: it's left alone	{} ไม่ใช่แซนด์บ็อกซ์ที่ sigit สร้าง: จะไม่แตะต้อง
 copy	คัดลอก
 made	สร้างเมื่อ
+That folder is a sigit sandbox, not a clone: open it from the Sandbox page	โฟลเดอร์นั้นเป็นแซนด์บ็อกซ์ของ sigit ไม่ใช่โคลน: เปิดจากหน้าแซนด์บ็อกซ์
+The sandbox folder: open it in a terminal or editor to change files, then stage them for Amend.	โฟลเดอร์แซนด์บ็อกซ์: เปิดในเทอร์มินัลหรือเอดิเตอร์เพื่อแก้ไฟล์ แล้ว stage ไว้สำหรับ Amend
+Throw the practice away and copy your real branch again.	ทิ้งสิ่งที่ฝึกไว้ แล้วคัดลอกแบรนช์จริงของคุณอีกครั้ง
+Remove the sandbox folder. Your real clone doesn't change.	ลบโฟลเดอร์แซนด์บ็อกซ์ โคลนจริงของคุณไม่เปลี่ยนแปลง
+Couldn't mark the sandbox: {e}	ทำเครื่องหมายแซนด์บ็อกซ์ไม่ได้: {e}

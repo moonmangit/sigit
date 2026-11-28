@@ -118,26 +118,35 @@ fn make(dir: &Path, real: &Path, branch: &str, base: &str, slug: &str) -> Result
     let real_s = real.to_string_lossy().into_owned();
     let dir_s = dir.to_string_lossy().into_owned();
     crate::gh::unrecorded(|| crate::gh::run("git", &["clone", "--quiet", "--local", "--no-checkout", &real_s, &dir_s], None))?;
-    // `origin` is the real folder now: point it back at the real remote, with the real
-    // remote-tracking refs, the real local branches (cherry-pick sources) and tags.
+    // Mark it at once: a sandbox left half made (sigit quit meanwhile) is still ours to replace.
+    let info = Info { slug: slug.to_owned(), real: real.to_path_buf(), branch: branch.to_owned(), base: base.to_owned(), made: crate::model::now() };
+    let text = serde_json::to_string_pretty(&info).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(".git").join(MARK), text).map_err(|e| tf!("Couldn't mark the sandbox: {e}"))?;
+    // `origin` is the real folder now. Put back every real remote (origin, upstream…) with its
+    // URL and a dead push URL, then copy the real remote-tracking refs, the real local branches
+    // (cherry-pick sources) and tags from the real folder (no new objects move).
     git(dir, &["remote", "remove", "origin"])?;
-    let url = git_ok(real, &["remote", "get-url", "origin"]);
-    if let Some(url) = &url {
-        git(dir, &["remote", "add", "origin", url])?;
-        git(dir, &["config", "remote.origin.pushurl", NO_PUSH])?;
+    let remotes: Vec<String> = git(real, &["remote"]).unwrap_or_default().lines().map(str::trim).filter(|r| !r.is_empty()).map(str::to_owned).collect();
+    for r in &remotes {
+        if let Some(url) = git_ok(real, &["remote", "get-url", r]) {
+            git(dir, &["remote", "add", "--no-fetch", r, &url])?;
+            git(dir, &["config", &format!("remote.{r}.pushurl"), NO_PUSH])?;
+        }
     }
-    git(dir, &["fetch", "--quiet", "--no-tags", "--update-head-ok", &real_s, "+refs/heads/*:refs/heads/*", "+refs/remotes/origin/*:refs/remotes/origin/*", "+refs/tags/*:refs/tags/*"])?;
-    // `refs/remotes/origin/HEAD` is symbolic in the real clone; set it the same way.
-    if let Some(head) = git_ok(real, &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]) {
-        let _ = git(dir, &["symbolic-ref", "refs/remotes/origin/HEAD", &head]);
+    git(dir, &["fetch", "--quiet", "--no-tags", "--update-head-ok", &real_s, "+refs/heads/*:refs/heads/*", "+refs/remotes/*:refs/remotes/*", "+refs/tags/*:refs/tags/*"])?;
+    // `refs/remotes/<r>/HEAD` is symbolic in the real clone; set it the same way.
+    for r in &remotes {
+        if let Some(head) = git_ok(real, &["symbolic-ref", "--quiet", &format!("refs/remotes/{r}/HEAD")]) {
+            let _ = git(dir, &["symbolic-ref", &format!("refs/remotes/{r}/HEAD"), &head]);
+        }
     }
-    // The branch's upstream, and who you are (the edits make commits). Sandbox commits are
-    // never signed: they never leave this folder.
-    for key in [format!("branch.{branch}.remote"), format!("branch.{branch}.merge")] {
-        if url.is_some()
-            && let Some(v) = git_ok(real, &["config", "--get", &key])
-        {
-            git(dir, &["config", &key, &v])?;
+    // The branch's upstream (when its remote came along), and who you are (the edits make
+    // commits). Sandbox commits are never signed: they never leave this folder.
+    let upstream = git_ok(real, &["config", "--get", &format!("branch.{branch}.remote")]);
+    if let Some(remote) = upstream.filter(|r| remotes.contains(r)) {
+        git(dir, &["config", &format!("branch.{branch}.remote"), &remote])?;
+        if let Some(merge) = git_ok(real, &["config", "--get", &format!("branch.{branch}.merge")]) {
+            git(dir, &["config", &format!("branch.{branch}.merge"), &merge])?;
         }
     }
     for key in ["user.name", "user.email"] {
@@ -147,9 +156,6 @@ fn make(dir: &Path, real: &Path, branch: &str, base: &str, slug: &str) -> Result
     }
     git(dir, &["config", "commit.gpgsign", "false"])?;
     git(dir, &["checkout", "--quiet", "--force", branch])?;
-    let info = Info { slug: slug.to_owned(), real: real.to_path_buf(), branch: branch.to_owned(), base: base.to_owned(), made: crate::model::now() };
-    let text = serde_json::to_string_pretty(&info).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(".git").join(MARK), text).map_err(|e| tf!("Couldn't mark the sandbox: {e}"))?;
     Ok(info)
 }
 
@@ -183,7 +189,11 @@ fn force_remove(dir: &Path) -> Result<(), String> {
             }
         }
     }
-    writable(dir);
+    // Only Windows refuses to delete read-only files; elsewhere leave the (shared) object
+    // files' modes alone.
+    if cfg!(windows) {
+        writable(dir);
+    }
     std::fs::remove_dir_all(dir).map_err(|e| tf!("Couldn't delete {}: {e}", dir.display()))
 }
 
@@ -322,7 +332,11 @@ mod tests {
         s.add_repo_pub("acme/app".into(), Some(real.clone()));
         s.cur = Some("acme/app".into());
         s.page = crate::Page::Sandbox;
+        // A GitHub dialog opened before the sandbox comes on can't be confirmed after.
+        s.request(Action::Close { slug: "acme/app".into(), number: 1, title: "x".into() });
+        assert!(s.pending.is_some());
         s.start_sandbox();
+        assert!(s.pending.is_none(), "switching closes it");
         let dir = dir_for(&home, "acme/app").unwrap();
         assert_eq!(s.local_path(), Some(dir.clone()), "the local pages work on the sandbox");
         assert!(s.in_sandbox());
@@ -362,6 +376,31 @@ mod tests {
         s.delete_sandbox();
         assert!(!dir.exists() && real.exists());
         assert_eq!(record(&real), before, "the real clone is exactly as it began");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_half_made_sandbox_is_replaced_and_every_remote_comes_along() {
+        let (home, real, root) = setup("half");
+        // A fork: the branch tracks `upstream`, which has a commit origin doesn't.
+        let up = root.join("upstream.git");
+        run(&root, &["clone", "-q", "--bare", &root.join("remote.git").to_string_lossy(), &up.to_string_lossy()]);
+        run(&real, &["remote", "add", "upstream", &up.to_string_lossy()]);
+        run(&real, &["push", "-q", "upstream", "main"]);
+        run(&real, &["fetch", "-q", "upstream"]);
+        run(&real, &["branch", "-q", "-u", "upstream/main"]);
+        // sigit stopped right after the clone: only the mark is there.
+        let dir = dir_for(&home, "acme/app").unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join(".git").join(MARK), "{}").unwrap();
+        create(&home, "acme/app", &real).expect("a marked, half-made folder is replaced");
+        assert_eq!(run(&dir, &["rev-parse", "upstream/main"]), run(&real, &["rev-parse", "upstream/main"]));
+        assert_eq!(run(&dir, &["rev-parse", "--abbrev-ref", "main@{upstream}"]).trim(), "upstream/main");
+        assert_eq!(run(&dir, &["rev-list", "--count", "@{upstream}..main"]).trim(), "0", "pushed to upstream, as in the real clone");
+        for r in ["origin", "upstream"] {
+            assert_eq!(run(&dir, &["config", &format!("remote.{r}.pushurl")]).trim(), NO_PUSH);
+            assert!(crate::gh::run("git", &["push", r, "main"], Some(&dir)).is_err());
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 

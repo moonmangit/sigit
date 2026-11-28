@@ -360,6 +360,10 @@ impl State {
             return;
         }
         let Some(p) = self.pending.take() else { return };
+        if let Some(why) = self.sandbox_block(&p.action) {
+            self.toast(why, true);
+            return;
+        }
         if matches!(p.action, Action::Merge { .. }) && self.prefs.grace_secs > 0 {
             self.grace = Some(Grace { action: p.action, at: Instant::now() + Duration::from_secs(self.prefs.grace_secs as u64) });
             return;

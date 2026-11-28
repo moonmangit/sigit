@@ -3145,10 +3145,9 @@ impl State {
         self.commit_detail = Load::default();
         self.reword = None;
         self.history_open = ui::HistoryOpen::default();
-        // A dialog for the other folder can't run here.
-        if self.pending.as_ref().is_some_and(|p| p.action.dir().is_some()) {
-            self.pending = None;
-        }
+        // An open dialog was made for the other side (the other folder, or GitHub while the
+        // sandbox was off): it can't run now.
+        self.pending = None;
         self.refresh_status();
         self.refresh_graph();
         self.refresh_branches();
@@ -3318,6 +3317,10 @@ impl State {
             self.toast(crate::i18n::t(tf!("{} isn't a git repository", dir.display())), true);
             return;
         };
+        if sandbox::is_sandbox(&top) {
+            self.toast(crate::i18n::t("That folder is a sigit sandbox, not a clone: open it from the Sandbox page"), true);
+            return;
+        }
         let Some(slug) = git::slug_of(&top) else {
             self.toast(crate::i18n::t("Its `origin` remote isn't on GitHub"), true);
             return;
@@ -3330,7 +3333,7 @@ impl State {
 
 /// "Add local repo…" / "Locate local clone…": the OS folder picker.
 pub fn ask_local_repo(s: &mut State, tx: &mut Tx) {
-    let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.local_path(), ..Default::default() };
+    let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.repo().and_then(|r| r.path.clone()), ..Default::default() };
     tx.open_folder(options, |s: &mut State, r, _| match r {
         Ok(Some(dir)) => s.add_local_repo(dir),
         Ok(None) => {}

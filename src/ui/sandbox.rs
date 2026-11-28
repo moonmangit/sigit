@@ -170,7 +170,11 @@ fn present(s: &State, k: &Kit, v: &View) -> El {
         .gap(8.0)
         .center_y()
         .flex_wrap()
-        .child(muted(k, crate::i18n::t(tf!("Started from {} · now {}", short(&info.base), if v.tip.is_empty() { "—".to_owned() } else { short(&v.tip) }))));
+        .child(muted(k, crate::i18n::t(tf!("Started from {} · now {}", short(&info.base), if v.tip.is_empty() { "—".to_owned() } else { short(&v.tip) }))))
+        .children(s.cur.as_deref().and_then(|c| s.sandbox_dir_of(c)).map(|d| {
+            let path = d.display().to_string();
+            row().gap(4.0).center_y().child(muted(k, "·")).child(muted(k, path.clone()).help(crate::i18n::t("The sandbox folder: open it in a terminal or editor to change files, then stage them for Amend."))).child(super::copy_button(k, "sb-path", path, "folder path"))
+        }));
 
     let mut buttons = row().key("sb-buttons").gap(8.0).flex_wrap();
     if on {
