@@ -71,6 +71,7 @@ keep your local folder paths out of the binary. Official releases are built by
 | **Environments** | What's deployed where, a deployment timeline | Open the deployed commit |
 | **Commits** (local clone) | Commit graph with lanes, branch and tag chips | Commit detail with diff; **edit history** (below) |
 | **Branches** (local clone) | Local and remote, ahead/behind, stashes, clean-up of merged or gone branches; select a branch for a side pane of what it brings to the default branch (or one you pick): PRs, contributors, modules | Checkout, fetch, fast-forward pull |
+| **Sandbox** (local clone) | A private practice copy of your clone: its commits, branches and real `origin/*` | Start, enter / leave, reset, delete; while it's on, Commits and Branches (and every history edit, with Undo) work on the copy |
 | **Groups** | A dashboard for repos you group yourself, across owners | |
 
 The sidebar starts with the **Dashboard**, then your **pins**, your **groups** and, under
@@ -80,7 +81,7 @@ pinned repos and the repos inside a group, into your order; fold sections, and g
 organizations your own colour and icon.
 
 Pick a repo or group and a second sidebar lists its sections, each with its count (Pull
-requests, Actions, Environments, Commits, Branches; for a group, Overview and one panel at a
+requests, Actions, Environments, Commits, Branches, Sandbox; for a group, Overview and one panel at a
 time, then its repos). Drag its edge to resize it. Its **filters** (a date range, and a
 contributor you type or pick from a list with profile pictures) stay as you move around, and
 narrow pull requests, runs and commits in the query itself, so they reach past the first page.
@@ -95,6 +96,21 @@ Around every page:
 - **Copy what you paste elsewhere.** SHAs, branch and file names, links, clone URLs and error
   messages have a copy button or copy on click.
 - **Ctrl+K** jumps to any repo, #PR, branch, group or command, typed in English or Thai.
+
+### Sandbox: practise on your real commits
+
+**Sandbox** in the second sidebar makes a private copy of the current branch's clone, so you can
+try any history edit (reset, revert, reword, squash, drop, move, cherry-pick, amend) on your real
+commits without risk.
+
+- It is a `git clone --local` in sigit's settings folder (`<settings>/sandboxes/owner__name`). The
+  commit files are hard links, so it adds little disk; the page shows how much.
+- It has your commits, local branches and real `origin/*` refs, so "pushed" and ahead / behind
+  read as in your clone. Uncommitted files are not copied.
+- Its push URL doesn't work: a push from it always fails. While it's on, a banner shows on every
+  repo page, and sigit refuses actions that change GitHub (merge, close, approve, re-run, new PR).
+- **Reset** copies your real branch again; **Delete** removes the folder. sigit deletes only a
+  folder it marked as a sandbox, and the folder scan never adds a sandbox as a clone.
 
 ## See the gh and git commands
 

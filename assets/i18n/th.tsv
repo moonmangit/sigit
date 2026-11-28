@@ -1509,3 +1509,56 @@ Copy SHA	คัดลอก SHA
 Copy to {b}	คัดลอกไปที่ {b}
 Move {b} here	ย้าย {b} มาที่นี่
 SHA copied	คัดลอก SHA แล้ว
+Back to your real clone	กลับไปที่โคลนจริงของคุณ
+Changes on GitHub	การเปลี่ยนแปลงบน GitHub
+Copies the commits of your clone (not uncommitted files) into a private folder, and switches the Commits and Branches pages to it.	คัดลอกคอมมิตของโคลน (ไม่รวมไฟล์ที่ยังไม่คอมมิต) ไปยังโฟลเดอร์ส่วนตัว แล้วสลับหน้าคอมมิตและแบรนช์ไปใช้โฟลเดอร์นั้น
+Couldn't delete {}: {e}	ลบ {} ไม่ได้: {e}
+Couldn't find sigit's settings folder for the sandbox	ไม่พบโฟลเดอร์การตั้งค่าของ sigit สำหรับแซนด์บ็อกซ์
+Delete sandbox	ลบแซนด์บ็อกซ์
+Delete the sandbox? Your practice edits go. Your real clone doesn't change.	ลบแซนด์บ็อกซ์ไหม การแก้ไขที่ฝึกไว้จะหายไป โคลนจริงของคุณไม่เปลี่ยนแปลง
+Delete…	ลบ…
+Enter sandbox	เข้าแซนด์บ็อกซ์
+Every edit still shows the simulation, the risk and Undo, as on your real clone.	ทุกการแก้ไขยังแสดงการจำลอง ความเสี่ยง และเลิกทำ เหมือนในโคลนจริง
+Fetch and pull	Fetch และ pull
+Go to Commits	ไปที่คอมมิต
+It has your commits, your branches and your real remote branches (origin/…), so "pushed" and "ahead / behind" read the same. Uncommitted files are not copied.	มีคอมมิต แบรนช์ และแบรนช์รีโมตจริงของคุณ (origin/…) ดังนั้น "พุชแล้ว" และ "นำหน้า / ตามหลัง" จะแสดงเหมือนเดิม ไฟล์ที่ยังไม่คอมมิตจะไม่ถูกคัดลอก
+Leave sandbox	ออกจากแซนด์บ็อกซ์
+Making the sandbox…	กำลังสร้างแซนด์บ็อกซ์…
+Off: pages show your real clone	ปิด: หน้าต่าง ๆ แสดงโคลนจริงของคุณ
+Practice copy: your real clone and GitHub don't change.	สำเนาสำหรับฝึก: โคลนจริงและ GitHub ไม่เปลี่ยนแปลง
+Practise on a copy of {branch}	ฝึกบนสำเนาของ {branch}
+Push	พุช
+Pushing from the sandbox always fails. While it's on, sigit doesn't change GitHub: merge, close, approve, re-run and new pull requests are off.	การพุชจากแซนด์บ็อกซ์จะล้มเหลวเสมอ ขณะเปิดอยู่ sigit จะไม่เปลี่ยนแปลง GitHub: การ merge ปิด อนุมัติ รันใหม่ และสร้าง pull request ใหม่จะใช้ไม่ได้
+Reset sandbox	รีเซ็ตแซนด์บ็อกซ์
+Reset the sandbox? Your practice edits go, and it starts again from your real branch.	รีเซ็ตแซนด์บ็อกซ์ไหม การแก้ไขที่ฝึกไว้จะหายไป และจะเริ่มใหม่จากแบรนช์จริงของคุณ
+Reset, revert, reword, squash, drop…	รีเซ็ต รีเวิร์ต แก้ข้อความ สควอช ลบ…
+Reset…	รีเซ็ต…
+Sandbox	แซนด์บ็อกซ์
+Sandbox deleted	ลบแซนด์บ็อกซ์แล้ว
+Sandbox of {branch}	แซนด์บ็อกซ์ของ {branch}
+Sandbox of {}	แซนด์บ็อกซ์ของ {}
+Sandbox on: edits change only the sandbox	เปิดแซนด์บ็อกซ์: การแก้ไขเปลี่ยนเฉพาะแซนด์บ็อกซ์
+Sandbox page	หน้าแซนด์บ็อกซ์
+Sandbox ready. Practise freely: your real clone and GitHub don't change.	แซนด์บ็อกซ์พร้อมแล้ว ฝึกได้เต็มที่: โคลนจริงและ GitHub ไม่เปลี่ยนแปลง
+Start sandbox	เริ่มแซนด์บ็อกซ์
+Started from {} · now {}	เริ่มจาก {} · ตอนนี้ {}
+That was for your real clone, but the sandbox is on now. Nothing changed: try again.	คำสั่งนั้นเป็นของโคลนจริง แต่ตอนนี้แซนด์บ็อกซ์เปิดอยู่ ไม่มีอะไรเปลี่ยน: ลองอีกครั้ง
+The Commits and Branches pages work on the sandbox until you leave it.	หน้าคอมมิตและแบรนช์จะใช้แซนด์บ็อกซ์จนกว่าคุณจะออก
+The real clone isn't on a branch (detached HEAD). Check out a branch first.	โคลนจริงไม่ได้อยู่บนแบรนช์ (detached HEAD) เช็กเอาต์แบรนช์ก่อน
+The sandbox is a private copy of your local clone in sigit's settings folder. Git shares the commit files with your clone, so it uses little disk.	แซนด์บ็อกซ์คือสำเนาส่วนตัวของโคลนในเครื่อง อยู่ในโฟลเดอร์การตั้งค่าของ sigit Git ใช้ไฟล์คอมมิตร่วมกับโคลน จึงใช้พื้นที่ดิสก์น้อย
+The sandbox is on, so sigit changes nothing on GitHub. Leave the sandbox to do this.	แซนด์บ็อกซ์เปิดอยู่ sigit จึงไม่เปลี่ยนแปลงอะไรบน GitHub ออกจากแซนด์บ็อกซ์ก่อนเพื่อทำสิ่งนี้
+The sandbox stays until you delete it. Reset copies your real branch again.	แซนด์บ็อกซ์จะอยู่จนกว่าคุณจะลบ รีเซ็ตจะคัดลอกแบรนช์จริงอีกครั้ง
+Try any history edit on your real commits. Your real clone and GitHub don't change.	ลองแก้ประวัติแบบใดก็ได้บนคอมมิตจริงของคุณ โคลนจริงและ GitHub ไม่เปลี่ยนแปลง
+Your clone	โคลนของคุณ
+Your commits and branches. Edit anything.	คอมมิตและแบรนช์ของคุณ แก้ไขอะไรก็ได้
+Your real clone is on {} now. Reset makes the sandbox from that branch.	ตอนนี้โคลนจริงอยู่บน {} รีเซ็ตจะสร้างแซนด์บ็อกซ์จากแบรนช์นั้น
+Your real {} has changed since the sandbox started. Reset to practise on its new commits.	{} จริงของคุณเปลี่ยนไปตั้งแต่เริ่มแซนด์บ็อกซ์ รีเซ็ตเพื่อฝึกกับคอมมิตใหม่
+commits gone	คอมมิตที่หายไป
+extra disk	ดิสก์ที่ใช้เพิ่ม
+new or remade commits	คอมมิตใหม่หรือที่สร้างใหม่
+your branch	แบรนช์ของคุณ
+{branch} has no commits yet	{branch} ยังไม่มีคอมมิต
+{branch}: stays as it is	{branch}: คงเดิม
+{} isn't a sandbox sigit made: it's left alone	{} ไม่ใช่แซนด์บ็อกซ์ที่ sigit สร้าง: จะไม่แตะต้อง
+copy	คัดลอก
+made	สร้างเมื่อ

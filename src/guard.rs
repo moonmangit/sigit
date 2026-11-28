@@ -159,6 +159,38 @@ impl Action {
     }
 
     /// Changes the working copy: checked for uncommitted changes first (A5).
+    /// The local folder the action works on (none: it changes GitHub).
+    pub fn dir(&self) -> Option<&PathBuf> {
+        match self {
+            Action::Checkout { dir, .. }
+            | Action::PrCheckout { dir, .. }
+            | Action::Pull { dir }
+            | Action::Fetch { dir }
+            | Action::Stash { dir, .. }
+            | Action::DeleteBranch { dir, .. }
+            | Action::History { dir, .. } => Some(dir),
+            _ => None,
+        }
+    }
+
+    /// The repo a GitHub action changes.
+    pub fn repo(&self) -> Option<&str> {
+        match self {
+            Action::Merge { slug, .. }
+            | Action::Close { slug, .. }
+            | Action::Approve { slug, .. }
+            | Action::RequestChanges { slug, .. }
+            | Action::Comment { slug, .. }
+            | Action::Rerun { slug, .. }
+            | Action::CancelRun { slug, .. }
+            | Action::Checkout { slug, .. }
+            | Action::PrCheckout { slug, .. }
+            | Action::History { slug, .. } => Some(slug),
+            Action::CreatePr { spec } => Some(&spec.slug),
+            _ => None,
+        }
+    }
+
     fn local_dir(&self) -> Option<&PathBuf> {
         match self {
             Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } | Action::Pull { dir } | Action::Stash { dir, op: "pop", .. } => Some(dir),
@@ -247,7 +279,24 @@ struct Context {
 
 impl State {
     /// The single entry point for every write action.
+    /// While a repo's sandbox is on, only local actions in the sandbox run: nothing changes
+    /// GitHub or the real clone from there.
+    pub fn sandbox_block(&self, action: &Action) -> Option<String> {
+        let slug = self.cur.as_deref()?;
+        let sandbox = self.sandbox_on.get(slug)?;
+        match action.dir() {
+            Some(dir) if dir == sandbox => None,
+            Some(_) => Some(crate::i18n::t("That was for your real clone, but the sandbox is on now. Nothing changed: try again.")),
+            None if action.repo().is_some_and(|s| s != slug) => None,
+            None => Some(crate::i18n::t("The sandbox is on, so sigit changes nothing on GitHub. Leave the sandbox to do this.")),
+        }
+    }
+
     pub fn request(&mut self, action: Action) {
+        if let Some(why) = self.sandbox_block(&action) {
+            self.toast(why, true);
+            return;
+        }
         if action.instant() {
             self.execute(action, false);
             return;

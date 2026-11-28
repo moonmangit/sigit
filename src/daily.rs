@@ -267,14 +267,24 @@ impl State {
         d.stashes.loading = true;
         d.cleanup.loading = true;
         let (dir2, slug2) = (dir.clone(), slug.clone());
-        jobs::spawn(self, move || git::stashes(&dir2), move |s, r| s.rd_mut_pub(&slug2).stashes.finish(r));
+        let (here, slug3) = (dir.clone(), slug.clone());
+        jobs::spawn(self, move || git::stashes(&dir2), move |s, r| {
+            if s.same_dir(&slug2, &here) {
+                s.rd_mut_pub(&slug2).stashes.finish(r);
+            }
+        });
+        let here = dir.clone();
         jobs::spawn(
             self,
             move || {
                 let default = if meta.default_branch.is_empty() { "main".to_owned() } else { meta.default_branch.clone() };
                 git::cleanup(&dir, &default, now(), |b| risk::important_branch(b, &default, &meta.protected))
             },
-            move |s, r| s.rd_mut_pub(&slug).cleanup.finish(r),
+            move |s, r| {
+                if s.same_dir(&slug3, &here) {
+                    s.rd_mut_pub(&slug).cleanup.finish(r);
+                }
+            },
         );
     }
 

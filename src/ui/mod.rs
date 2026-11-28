@@ -16,6 +16,7 @@ mod onboarding;
 pub mod overlays;
 pub mod split;
 mod prs;
+mod sandbox;
 pub(crate) use prs::merge_action;
 mod pulse;
 mod pr_new;
@@ -714,6 +715,8 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         Page::Commits | Page::Branches if repo.path.is_none() => no_clone(s, k, &repo.slug),
         Page::Commits => commits::view(s, k),
         Page::Branches => branches::view(s, k),
+        Page::Sandbox if repo.path.is_none() => no_clone(s, k, &repo.slug),
+        Page::Sandbox => sandbox::view(s, k),
         Page::Inbox | Page::Group => unreachable!(),
     };
     col()
@@ -722,6 +725,7 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         .h_full()
         .padding(16.0)
         .gap(12.0)
+        .children(sandbox::banner(s, k))
         .child(head)
         .child(col().key(tf!("page:{page:?}")).w_full().grow(1.0).min_h(0.0).child(body))
 }
