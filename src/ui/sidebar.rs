@@ -739,6 +739,7 @@ pub fn context(s: &State, k: &Kit, layer: &mut Vec<El>) -> Option<El> {
                 crate::open_url(tx, &url);
             }));
         }
+        MenuTarget::Commit(sha) => menu = super::history::commit_menu(s, menu, sha),
         MenuTarget::Owner(owner) => {
             let order = s.owners_sorted();
             let i = order.iter().position(|o| o == owner).unwrap_or(0);

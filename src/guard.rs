@@ -159,6 +159,38 @@ impl Action {
     }
 
     /// Changes the working copy: checked for uncommitted changes first (A5).
+    /// The local folder the action works on (none: it changes GitHub).
+    pub fn dir(&self) -> Option<&PathBuf> {
+        match self {
+            Action::Checkout { dir, .. }
+            | Action::PrCheckout { dir, .. }
+            | Action::Pull { dir }
+            | Action::Fetch { dir }
+            | Action::Stash { dir, .. }
+            | Action::DeleteBranch { dir, .. }
+            | Action::History { dir, .. } => Some(dir),
+            _ => None,
+        }
+    }
+
+    /// The repo a GitHub action changes.
+    pub fn repo(&self) -> Option<&str> {
+        match self {
+            Action::Merge { slug, .. }
+            | Action::Close { slug, .. }
+            | Action::Approve { slug, .. }
+            | Action::RequestChanges { slug, .. }
+            | Action::Comment { slug, .. }
+            | Action::Rerun { slug, .. }
+            | Action::CancelRun { slug, .. }
+            | Action::Checkout { slug, .. }
+            | Action::PrCheckout { slug, .. }
+            | Action::History { slug, .. } => Some(slug),
+            Action::CreatePr { spec } => Some(&spec.slug),
+            _ => None,
+        }
+    }
+
     fn local_dir(&self) -> Option<&PathBuf> {
         match self {
             Action::Checkout { dir, .. } | Action::PrCheckout { dir, .. } | Action::Pull { dir } | Action::Stash { dir, op: "pop", .. } => Some(dir),
@@ -199,7 +231,8 @@ pub enum Undo {
     /// The stash "Stash and continue" made, by its SHA.
     StashPop { dir: PathBuf, sha: String },
     /// A history edit: the branch back from `from` to `to`, then the stash it made, if any.
-    History { dir: PathBuf, branch: String, from: String, to: String, sync: history::Sync, stash: Option<String> },
+    /// `select`: the commit selected before the edit, selected again after Undo.
+    History { dir: PathBuf, branch: String, from: String, to: String, sync: history::Sync, stash: Option<String>, select: Option<String> },
     Prefs(Box<Prefs>),
 }
 
@@ -246,7 +279,24 @@ struct Context {
 
 impl State {
     /// The single entry point for every write action.
+    /// While a repo's sandbox is on, only local actions in the sandbox run: nothing changes
+    /// GitHub or the real clone from there.
+    pub fn sandbox_block(&self, action: &Action) -> Option<String> {
+        let slug = self.cur.as_deref()?;
+        let sandbox = self.sandbox_on.get(slug)?;
+        match action.dir() {
+            Some(dir) if dir == sandbox => None,
+            Some(_) => Some(crate::i18n::t("That was for your real clone, but the sandbox is on now. Nothing changed: try again.")),
+            None if action.repo().is_some_and(|s| s != slug) => None,
+            None => Some(crate::i18n::t("The sandbox is on, so sigit changes nothing on GitHub. Leave the sandbox to do this.")),
+        }
+    }
+
     pub fn request(&mut self, action: Action) {
+        if let Some(why) = self.sandbox_block(&action) {
+            self.toast(why, true);
+            return;
+        }
         if action.instant() {
             self.execute(action, false);
             return;
@@ -310,6 +360,10 @@ impl State {
             return;
         }
         let Some(p) = self.pending.take() else { return };
+        if let Some(why) = self.sandbox_block(&p.action) {
+            self.toast(why, true);
+            return;
+        }
         if matches!(p.action, Action::Merge { .. }) && self.prefs.grace_secs > 0 {
             self.grace = Some(Grace { action: p.action, at: Instant::now() + Duration::from_secs(self.prefs.grace_secs as u64) });
             return;
@@ -439,6 +493,7 @@ impl State {
                 to: plan.snap.tip.clone(),
                 sync: plan.sync,
                 stash: stash.clone(),
+                select: self.commit_sel.clone(),
             }),
             _ => None,
         };
@@ -509,7 +564,11 @@ impl State {
             }
             Action::Fetch { .. } => self.refresh_page(),
             Action::Stash { .. } | Action::DeleteBranch { .. } => self.refresh_branch_tools(),
-            Action::History { .. } => {
+            Action::History { plan, .. } => {
+                // Your commit, followed through the edit: its new SHA, or the new tip if it left.
+                if let Some(sel) = self.commit_sel.clone() {
+                    self.commit_sel = Some(plan.follow(&sel).unwrap_or_else(|| plan.new_tip.clone()));
+                }
                 self.refs_moved();
                 self.refresh_page();
                 self.refresh_status();
@@ -525,7 +584,11 @@ impl State {
             Undo::SwitchBack { dir, branch } => (tf!("Switch back to {branch}"), Box::new(move || git::checkout(&dir, &branch, false))),
             Undo::RestoreBranch { dir, name, sha } => (tf!("Restore {name}"), Box::new(move || git::restore_branch(&dir, &name, &sha))),
             Undo::StashPop { dir, sha } => ("Pop stash".into(), Box::new(move || git::stash_pop_sha(&dir, &sha))),
-            Undo::History { dir, branch, from, to, sync, stash } => (
+            Undo::History { dir, branch, from, to, sync, stash, select } => {
+                if let Some(sel) = select {
+                    self.commit_sel = Some(sel);
+                }
+                (
                 tf!("Undo the edit on {branch}"),
                 Box::new(move || {
                     let msg = history::undo(&dir, &branch, &from, &to, sync)?;
@@ -534,7 +597,8 @@ impl State {
                     }
                     Ok(msg)
                 }),
-            ),
+            )
+            }
             Undo::Prefs(p) => {
                 self.prefs = *p;
                 self.save_prefs();
@@ -852,7 +916,7 @@ mod tests {
         let lines = a.command_lines(false);
         assert_eq!(lines.len(), 2);
         assert!(lines[1].starts_with("git reset --hard bbbbbbb"));
-        let u = Undo::History { dir, branch: "feat".into(), from: "b".repeat(40), to: "a".repeat(40), sync: Sync::Hard, stash: Some("s".repeat(40)) };
+        let u = Undo::History { dir, branch: "feat".into(), from: "b".repeat(40), to: "a".repeat(40), sync: Sync::Hard, stash: Some("s".repeat(40)), select: None };
         assert_eq!(u.command_lines(), [format!("git update-ref -m \"sigit: undo\" refs/heads/feat {} {}", "a".repeat(40), "b".repeat(40)), "git stash pop stash@{0}".to_owned()]);
     }
 

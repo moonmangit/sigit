@@ -16,6 +16,7 @@ mod onboarding;
 pub mod overlays;
 pub mod split;
 mod prs;
+mod sandbox;
 pub(crate) use prs::merge_action;
 mod pulse;
 mod pr_new;
@@ -344,6 +345,13 @@ fn kit(s: &State, cx: &mut Cx<State>) -> Kit {
     // A darker backdrop behind every modal (dialogs, the guide, the palette) so what's in
     // front stands out; the kit's default is 30% black.
     k.c.scrim = Color::BLACK.alpha(if dark { 0.62 } else { 0.48 });
+    // Pop-overs (context menus, Select lists, toasts) are filled with the page colour, and the
+    // kit's ring is a faint 0.5 pt line: they melt into what's behind them. Give them a clear
+    // 1 pt outline and a deeper drop so they read as a layer on top.
+    k.elevation.floating = vec![
+        rune::Shadow { y: 6.0, blur: 18.0, color: Color::BLACK.alpha(if dark { 0.55 } else { 0.18 }), ..Default::default() },
+        rune::Shadow { spread: 1.0, color: k.c.text_base.alpha(if dark { 0.30 } else { 0.24 }), ..Default::default() },
+    ];
     k
 }
 
@@ -707,6 +715,8 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         Page::Commits | Page::Branches if repo.path.is_none() => no_clone(s, k, &repo.slug),
         Page::Commits => commits::view(s, k),
         Page::Branches => branches::view(s, k),
+        Page::Sandbox if repo.path.is_none() => no_clone(s, k, &repo.slug),
+        Page::Sandbox => sandbox::view(s, k),
         Page::Inbox | Page::Group => unreachable!(),
     };
     col()
@@ -715,6 +725,7 @@ fn repo_page(s: &State, k: &Kit, page: Page) -> El {
         .h_full()
         .padding(16.0)
         .gap(12.0)
+        .children(sandbox::banner(s, k))
         .child(head)
         .child(col().key(tf!("page:{page:?}")).w_full().grow(1.0).min_h(0.0).child(body))
 }

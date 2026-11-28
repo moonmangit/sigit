@@ -44,6 +44,10 @@ pub fn walk(root: &Path, max_depth: usize, max_dirs: usize, slug: &dyn Fn(&Path)
             break;
         }
         visited += 1;
+        // A sandbox (sandbox.rs) is sigit's own practice copy, not one of your clones.
+        if crate::sandbox::is_sandbox(&dir) {
+            continue;
+        }
         if dir.join(".git").symlink_metadata().is_ok() {
             match slug(&dir) {
                 Some(s) => match index.get(&s) {

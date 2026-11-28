@@ -71,6 +71,7 @@ keep your local folder paths out of the binary. Official releases are built by
 | **Environments** | What's deployed where, a deployment timeline | Open the deployed commit |
 | **Commits** (local clone) | Commit graph with lanes, branch and tag chips | Commit detail with diff; **edit history** (below) |
 | **Branches** (local clone) | Local and remote, ahead/behind, stashes, clean-up of merged or gone branches; select a branch for a side pane of what it brings to the default branch (or one you pick): PRs, contributors, modules | Checkout, fetch, fast-forward pull |
+| **Sandbox** (local clone) | A private practice copy of your clone: its commits, branches and real `origin/*` | Start, enter / leave, reset, delete; while it's on, Commits and Branches (and every history edit, with Undo) work on the copy |
 | **Groups** | A dashboard for repos you group yourself, across owners | |
 
 The sidebar starts with the **Dashboard**, then your **pins**, your **groups** and, under
@@ -80,7 +81,7 @@ pinned repos and the repos inside a group, into your order; fold sections, and g
 organizations your own colour and icon.
 
 Pick a repo or group and a second sidebar lists its sections, each with its count (Pull
-requests, Actions, Environments, Commits, Branches; for a group, Overview and one panel at a
+requests, Actions, Environments, Commits, Branches, Sandbox; for a group, Overview and one panel at a
 time, then its repos). Drag its edge to resize it. Its **filters** (a date range, and a
 contributor you type or pick from a list with profile pictures) stay as you move around, and
 narrow pull requests, runs and commits in the query itself, so they reach past the first page.
@@ -95,6 +96,21 @@ Around every page:
 - **Copy what you paste elsewhere.** SHAs, branch and file names, links, clone URLs and error
   messages have a copy button or copy on click.
 - **Ctrl+K** jumps to any repo, #PR, branch, group or command, typed in English or Thai.
+
+### Sandbox: practise on your real commits
+
+**Sandbox** in the second sidebar makes a private copy of the current branch's clone, so you can
+try any history edit (reset, revert, reword, squash, drop, move, cherry-pick, amend) on your real
+commits without risk.
+
+- It is a `git clone --local` in sigit's settings folder (`<settings>/sandboxes/owner__name`). The
+  commit files are hard links, so it adds little disk; the page shows how much.
+- It has your commits, local branches and real `origin/*` refs, so "pushed" and ahead / behind
+  read as in your clone. Uncommitted files are not copied.
+- Its push URL doesn't work: a push from it always fails. While it's on, a banner shows on every
+  repo page, and sigit refuses actions that change GitHub (merge, close, approve, re-run, new PR).
+- **Reset** copies your real branch again; **Delete** removes the folder. sigit deletes only a
+  folder it marked as a sandbox, and the folder scan never adds a sandbox as a clone.
 
 ## See the gh and git commands
 
@@ -199,7 +215,8 @@ profile), and click a folder in **Changed code** to show only the PRs that touch
 
 **New pull request.** Open one from the **New pull request** button on a repo's Pull requests page, or **Open PR** for the selected branch on Branches. Pick any branch as From and any as To; the form shows how many commits ahead the pair is, starts with the title from the last commit (**Use last commit**), and **List commits** fills the body. It blocks with a reason when there's nothing to merge, the branch isn't pushed, a PR between those two is already open (click to open it), or the title is blank. The target, draft/ready, reviewers, assignees and labels are remembered per repo, and every PR still goes through a confirm step showing the exact `gh pr create` command; edits survive a cancel or a failure.
 
-**Edit history.** Select a commit on the Commits page. The Edit history card groups the actions by
+**Edit history.** Select a commit on the Commits page, or right-click a commit row for the same
+actions in a menu. The Edit history card groups the actions by
 what you want: **Go back to here** (Reset soft, mixed, hard), **Undo this commit** (Revert, Drop),
 **Change this commit** (Reword…, Squash, Fixup, Move up / down) and, for a commit on another
 branch, **Copy to** your branch (Cherry-pick); **Amend last commit** in the toolbar puts your
@@ -224,7 +241,11 @@ you simulate again. Then `git update-ref` moves the branch only if it is still w
 saw it, and your files follow (or the branch goes back). Uncommitted changes are stashed first when
 the files change. Undo (10 s) puts the branch back. sigit never pushes: after rewriting pushed
 commits it shows the `git push --force-with-lease` command for you to run. Conflicts, merge commits
-inside the edited range and the first commit of a history are refused. Needs git 2.40 or newer
+inside the edited range and the first commit of a history are refused: the card turns those
+actions off and says why (a merge commit above, the commit before is the first or a merge commit,
+nothing staged for Amend). A commit outside your branch's past offers **Move {branch} here**
+instead of "Go back to here"; stash entries offer no edits. After an edit the selection follows
+your commit to its new SHA, and Undo selects it again. Needs git 2.40 or newer
 (Reset and Amend work with any git).
 
 **Clone for me.** A repo with no local clone shows **Clone for me** on its Commits and Branches

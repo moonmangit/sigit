@@ -40,11 +40,12 @@ mod model;
 mod pulse;
 mod risk;
 mod route;
+mod sandbox;
 mod scan;
 mod ui;
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
@@ -234,6 +235,8 @@ pub enum Page {
     Envs,
     Commits,
     Branches,
+    /// Practise history edits on a private copy of the clone (sandbox.rs).
+    Sandbox,
     /// A dashboard for one of your groups (B5).
     Group,
 }
@@ -242,7 +245,7 @@ pub enum Page {
 pub const GROUP_TABS: [&str; 4] = ["Overview", "Pull requests", "Actions", "Environments"];
 
 impl Page {
-    pub const REPO: [Page; 5] = [Page::Pulls, Page::Actions, Page::Envs, Page::Commits, Page::Branches];
+    pub const REPO: [Page; 6] = [Page::Pulls, Page::Actions, Page::Envs, Page::Commits, Page::Branches, Page::Sandbox];
     pub fn label(self) -> &'static str {
         match self {
             Page::Inbox => "Dashboard",
@@ -251,6 +254,7 @@ impl Page {
             Page::Envs => "Environments",
             Page::Commits => "Commits",
             Page::Branches => "Branches",
+            Page::Sandbox => "Sandbox",
             Page::Group => "Group",
         }
     }
@@ -314,6 +318,8 @@ pub enum MenuTarget {
     Group(String),
     /// An owner (you or an organization) section header.
     Owner(String),
+    /// A commit row on the Commits page (its SHA): the history actions.
+    Commit(String),
 }
 
 /// A repo's "Comparisons for …" dialog: one (From, To, On) line per shared comparison.
@@ -595,6 +601,14 @@ pub struct State {
     pub pr_draft: Option<PrDraft>,
     /// Commits → Reword…: the commit and its new message, before the simulation.
     pub reword: Option<(String, TextEdit)>,
+    /// Repos whose local pages work on their sandbox now, and the sandbox's folder.
+    pub sandbox_on: HashMap<String, PathBuf>,
+    /// The Sandbox page: each repo's sandbox (`None`: there is none).
+    pub sandbox: HashMap<String, Load<Option<sandbox::View>>>,
+    /// The Sandbox page asks before "reset" or "delete" throws practice away.
+    pub sandbox_ask: Option<&'static str>,
+    /// The Sandbox page's "How it works" is open.
+    pub sandbox_how: bool,
     /// What's open in the history preview and the Edit history section.
     pub history_open: ui::HistoryOpen,
     /// The draft last handed to the guard: it comes back if the PR isn't opened.
@@ -762,6 +776,10 @@ impl State {
             compare_edit: None,
             pr_draft: None,
             reword: None,
+            sandbox_on: HashMap::new(),
+            sandbox: HashMap::new(),
+            sandbox_ask: None,
+            sandbox_how: false,
             history_open: Default::default(),
             last_pr_draft: None,
             cmp_rows: Vec::new(),
@@ -841,8 +859,28 @@ impl State {
         self.data.entry(slug.to_owned()).or_default()
     }
 
+    /// The folder the local pages work on: the clone, or its sandbox while that's on.
     pub fn local_path(&self) -> Option<PathBuf> {
-        self.repo().and_then(|r| r.path.clone())
+        self.repo_dir(self.cur.as_deref()?)
+    }
+
+    /// `slug`'s folder for local work: its sandbox while that's on, else its clone.
+    pub fn repo_dir(&self, slug: &str) -> Option<PathBuf> {
+        if let Some(dir) = self.sandbox_on.get(slug) {
+            return Some(dir.clone());
+        }
+        self.repos.iter().find(|r| r.slug == slug).and_then(|r| r.path.clone())
+    }
+
+    /// A job's answer from `dir` still fits: `slug`'s local folder didn't switch meanwhile
+    /// (sandbox on or off).
+    pub fn same_dir(&self, slug: &str, dir: &Path) -> bool {
+        self.repo_dir(slug).as_deref() == Some(dir)
+    }
+
+    /// The current repo's pages work on its sandbox.
+    pub fn in_sandbox(&self) -> bool {
+        self.cur.as_deref().is_some_and(|c| self.sandbox_on.contains_key(c))
     }
 
     fn add_repo(&mut self, slug: String, path: Option<PathBuf>) {
@@ -1116,6 +1154,12 @@ impl State {
                     self.load_new_lane_details();
                 }
             }
+            Page::Sandbox => {
+                let l = self.cur.as_deref().and_then(|c| self.sandbox.get(c));
+                if l.is_none_or(|l| !l.loading && l.stale(ttl::LOCAL.min(cap))) {
+                    self.refresh_sandbox();
+                }
+            }
             _ => {}
         }
     }
@@ -1160,6 +1204,10 @@ impl State {
                     self.load_branch_lane();
                     self.load_lane_details(false);
                 }
+            }
+            Page::Sandbox => {
+                self.refresh_sandbox();
+                self.refresh_status();
             }
             Page::Group => self.load_group(false),
         }
@@ -1906,7 +1954,12 @@ impl State {
     pub fn refresh_status(&mut self) {
         let (Some(slug), Some(dir)) = (self.cur.clone(), self.local_path()) else { return };
         self.rd_mut(&slug).status.loading = true;
-        jobs::spawn(self, move || git::status(&dir), move |s, r| s.rd_mut(&slug).status.finish(r));
+        let d = dir.clone();
+        jobs::spawn(self, move || git::status(&d), move |s, r| {
+            if s.same_dir(&slug, &dir) {
+                s.rd_mut(&slug).status.finish(r);
+            }
+        });
     }
 
     /// Fetch the PRs of `head` in `slug` (the old list stays up meanwhile).
@@ -2426,6 +2479,7 @@ impl State {
         let filter = self.filter.clone();
         let f = filter.clone();
         self.rd_mut(&slug).graph.loading = true;
+        let here = dir.clone();
         jobs::spawn(
             self,
             move || {
@@ -2435,6 +2489,9 @@ impl State {
                 })
             },
             move |s, r| {
+                if !s.same_dir(&slug, &here) {
+                    return; // the sandbox went on or off: a newer load is on its way
+                }
                 if s.all_branches == all && s.filter == filter {
                     // The contributor list offers every author, not just the one picked.
                     if filter.who.is_empty()
@@ -2470,8 +2527,9 @@ impl State {
         self.commit_detail = Load::start();
         let sha = sha.to_owned();
         let key = sha.clone();
+        let here = (dir.clone(), self.cur.clone().unwrap_or_default());
         jobs::spawn(self, move || git::commit_detail(&dir, &key), move |s, r| {
-            if s.commit_sel.as_deref() == Some(&sha) {
+            if s.commit_sel.as_deref() == Some(&sha) && s.same_dir(&here.1, &here.0) {
                 s.commit_detail.finish(r);
             }
         });
@@ -2485,12 +2543,16 @@ impl State {
 
     /// Load `slug`'s local branch list from its clone (nothing without one).
     pub fn refresh_branches_of(&mut self, slug: &str) {
-        let Some(dir) = self.repos.iter().find(|r| r.slug == slug).and_then(|r| r.path.clone()) else { return };
+        let Some(dir) = self.repo_dir(slug) else { return };
         let slug = slug.to_owned();
         self.rd_mut(&slug).branches.loading = true;
+        let here = dir.clone();
         // Tests never shell out: the clone is offline there.
         let fetch = move || if cfg!(test) { Err("offline".to_owned()) } else { git::branches(&dir) };
         jobs::spawn(self, fetch, move |s, r| {
+            if !s.same_dir(&slug, &here) {
+                return;
+            }
             s.rd_mut(&slug).branches.finish(r);
             s.pr_lists_arrived(&slug);
         });
@@ -2910,6 +2972,9 @@ impl State {
         let d = dir.clone();
         jobs::spawn(self, move || history::simulate(&d, &op), move |s, r| {
             s.busy.retain(|b| *b != label);
+            if !s.same_dir(&slug, &dir) {
+                return; // the sandbox went on or off meanwhile: this preview is for the other folder
+            }
             match r {
                 Ok(plan) => {
                     // A new preview starts folded (the help box keeps its state).
@@ -2960,6 +3025,155 @@ impl State {
                 self.commit_sel = Some(sha);
             }
         }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Sandbox (sandbox.rs): practise on a private copy of the clone
+    // -----------------------------------------------------------------------------------------
+
+    /// Where `slug`'s sandbox goes.
+    pub fn sandbox_dir_of(&self, slug: &str) -> Option<PathBuf> {
+        sandbox::home().and_then(|h| sandbox::dir_for(&h, slug))
+    }
+
+    /// Read the current repo's sandbox for the Sandbox page.
+    pub fn refresh_sandbox(&mut self) {
+        let Some(slug) = self.cur.clone() else { return };
+        let Some(dir) = self.sandbox_dir_of(&slug) else { return };
+        let l = self.sandbox.entry(slug.clone()).or_default();
+        l.loading = true;
+        jobs::spawn(self, move || Ok(sandbox::view(&dir)), move |s, r| {
+            s.sandbox.entry(slug.clone()).or_default().finish(r);
+            // Its folder is gone (deleted outside sigit): the pages go back to the clone.
+            if s.sandbox.get(&slug).is_some_and(|l| matches!(l.data, Some(None))) && s.sandbox_on.contains_key(&slug) {
+                s.sandbox_on.remove(&slug);
+                s.local_switched(&slug);
+            }
+        });
+    }
+
+    /// Make the current repo's sandbox (again, when there is one) and switch to it.
+    pub fn start_sandbox(&mut self) {
+        self.sandbox_ask = None;
+        let Some(slug) = self.cur.clone() else { return };
+        let Some(real) = self.repo().and_then(|r| r.path.clone()) else { return };
+        let Some(home) = sandbox::home() else {
+            self.toast(crate::i18n::t("Couldn't find sigit's settings folder for the sandbox"), true);
+            return;
+        };
+        let label = crate::i18n::t("Making the sandbox…");
+        if self.busy.contains(&label) {
+            return;
+        }
+        // Off first: its folder is about to be made again.
+        if self.sandbox_on.remove(&slug).is_some() {
+            self.local_switched(&slug);
+        }
+        self.busy.push(label.clone());
+        let work = slug.clone();
+        jobs::spawn(self, move || sandbox::create(&home, &work, &real), move |s, r| {
+            s.busy.retain(|b| *b != label);
+            match r {
+                Ok(_) => {
+                    if let Some(dir) = s.sandbox_dir_of(&slug) {
+                        s.sandbox_on.insert(slug.clone(), dir);
+                        s.local_switched(&slug);
+                    }
+                    s.toast(crate::i18n::t("Sandbox ready. Practise freely: your real clone and GitHub don't change."), false);
+                }
+                Err(e) => s.toast(e, true),
+            }
+            if s.cur.as_deref() == Some(&slug) {
+                s.refresh_sandbox();
+            }
+        });
+    }
+
+    /// Switch the current repo's pages to its sandbox (`true`) or back to the real clone.
+    pub fn set_sandbox(&mut self, on: bool) {
+        self.sandbox_ask = None;
+        let Some(slug) = self.cur.clone() else { return };
+        let was = self.sandbox_on.contains_key(&slug);
+        if on == was {
+            return;
+        }
+        if on {
+            let Some(dir) = self.sandbox_dir_of(&slug).filter(|d| sandbox::is_sandbox(d)) else {
+                return self.start_sandbox();
+            };
+            self.sandbox_on.insert(slug.clone(), dir);
+        } else {
+            self.sandbox_on.remove(&slug);
+        }
+        self.local_switched(&slug);
+        self.toast(crate::i18n::t(if on { "Sandbox on: edits change only the sandbox" } else { "Back to your real clone" }), false);
+    }
+
+    /// Delete the current repo's sandbox (switching back to the real clone first).
+    pub fn delete_sandbox(&mut self) {
+        self.sandbox_ask = None;
+        let Some(slug) = self.cur.clone() else { return };
+        let (Some(home), Some(dir)) = (sandbox::home(), self.sandbox_dir_of(&slug)) else { return };
+        if self.sandbox_on.remove(&slug).is_some() {
+            self.local_switched(&slug);
+        }
+        jobs::spawn(self, move || sandbox::remove(&home, &dir), move |s, r| {
+            match r {
+                Ok(()) => s.toast(crate::i18n::t("Sandbox deleted"), false),
+                Err(e) => s.toast(e, true),
+            }
+            if s.cur.as_deref() == Some(&slug) {
+                s.refresh_sandbox();
+            }
+        });
+    }
+
+    /// `slug`'s local folder switched (sandbox on or off): drop everything read from the other
+    /// folder and read this one.
+    pub fn local_switched(&mut self, slug: &str) {
+        let d = self.rd_mut(slug);
+        d.status = Load::default();
+        d.graph = Load::default();
+        d.branches = Load::default();
+        d.stashes = Load::default();
+        d.cleanup = Load::default();
+        self.commit_memo.retain(|(s, _), _| s != slug);
+        if self.cur.as_deref() != Some(slug) {
+            return;
+        }
+        self.commit_sel = None;
+        self.commit_detail = Load::default();
+        self.reword = None;
+        self.history_open = ui::HistoryOpen::default();
+        // An open dialog was made for the other side (the other folder, or GitHub while the
+        // sandbox was off): it can't run now.
+        self.pending = None;
+        self.refresh_status();
+        self.refresh_graph();
+        self.refresh_branches();
+        self.refresh_branch_tools();
+    }
+
+    /// Reword… from the right-click menu: select the commit, open the editor with its full
+    /// message (the selected commit's detail has it; otherwise its subject, replaced by the full
+    /// message once git answers, unless you've started typing).
+    pub fn start_reword_for(&mut self, sha: String, subject: String) {
+        self.select_commit(&sha);
+        if let Some(body) = self.commit_detail.data.as_ref().map(|d| d.body.clone()) {
+            self.start_reword(sha, body);
+            return;
+        }
+        self.start_reword(sha.clone(), subject.clone());
+        let Some(dir) = self.local_path() else { return };
+        let id = sha.clone();
+        jobs::spawn(self, move || gh::run("git", &["show", "-s", "--format=%B", &id], Some(&dir)), move |s, r| {
+            if let (Ok(body), Some((at, msg))) = (r, s.reword.as_mut())
+                && *at == sha
+                && msg.text == subject
+            {
+                *msg = TextEdit::new(body.trim());
+            }
+        });
     }
 
     /// Reword…: opens the message editor with the commit's full message.
@@ -3103,6 +3317,10 @@ impl State {
             self.toast(crate::i18n::t(tf!("{} isn't a git repository", dir.display())), true);
             return;
         };
+        if sandbox::is_sandbox(&top) {
+            self.toast(crate::i18n::t("That folder is a sigit sandbox, not a clone: open it from the Sandbox page"), true);
+            return;
+        }
         let Some(slug) = git::slug_of(&top) else {
             self.toast(crate::i18n::t("Its `origin` remote isn't on GitHub"), true);
             return;
@@ -3115,7 +3333,7 @@ impl State {
 
 /// "Add local repo…" / "Locate local clone…": the OS folder picker.
 pub fn ask_local_repo(s: &mut State, tx: &mut Tx) {
-    let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.local_path(), ..Default::default() };
+    let options = FileDialogOptions { title: "Choose a local git repository".into(), directory: s.repo().and_then(|r| r.path.clone()), ..Default::default() };
     tx.open_folder(options, |s: &mut State, r, _| match r {
         Ok(Some(dir)) => s.add_local_repo(dir),
         Ok(None) => {}
@@ -3779,6 +3997,31 @@ fn main() {
                 // A repo with no local clone: Commits offers "Clone for me". Nothing runs.
                 let remote = s.repos.iter().find(|r| r.path.is_none()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
                 s.select_repo(&remote, Page::Commits);
+            }),
+            ("commit-by-subject", |s: &mut State| {
+                // The Commits page with the commit whose subject is SIGIT_SUBJECT selected: for
+                // checking which Edit history actions it offers. Nothing runs.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Commits);
+                let want = std::env::var("SIGIT_SUBJECT").unwrap_or_default();
+                if let Some(sha) = s.rd().and_then(|d| d.graph.data.as_ref()).and_then(|g| g.commits.iter().find(|c| c.subject == want)).map(|c| c.sha.clone()) {
+                    s.select_commit(&sha);
+                }
+            }),
+            ("sandbox", |s: &mut State| {
+                // The Sandbox page as it is (no sandbox yet, or the one already made).
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                s.select_repo(&local, Page::Sandbox);
+                s.refresh_sandbox();
+            }),
+            ("sandbox-on", |s: &mut State| {
+                // Makes (or makes again) the sandbox of the first local clone in sigit's settings
+                // folder and switches to it; SIGIT_SANDBOX_PAGE=commits shows Commits with the banner.
+                let local = s.repos.iter().find(|r| r.path.is_some()).map_or_else(|| "anomalyco/rune".to_owned(), |r| r.slug.clone());
+                let page = if std::env::var("SIGIT_SANDBOX_PAGE").is_ok_and(|p| p == "commits") { Page::Commits } else { Page::Sandbox };
+                s.select_repo(&local, Page::Sandbox);
+                s.start_sandbox();
+                s.show(page);
             }),
             ("light-history-edit", |s: &mut State| {
                 s.prefs.theme = config::Theme::Light;
@@ -4944,6 +5187,27 @@ mod cache_tests {
         assert!(s.can_stash_confirm());
         s.confirm(true);
         assert_ne!(git(&["rev-parse", "HEAD"]), before, "with the name it runs");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_selection_follows_your_commit_and_undo_brings_it_back() {
+        let dir = history_repo("follow-sel");
+        let git = |args: &[&str]| gh::run("git", args, Some(&dir)).unwrap();
+        let two = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+        let plan = history::simulate(&dir, &history::Op::Reword { sha: two.clone(), message: "two, clearer".into() }).unwrap();
+        let mut s = dialog_state();
+        s.commit_sel = Some(two.clone());
+        let action = guard::Action::History { dir: dir.clone(), slug: "a/b".into(), plan: Box::new(plan) };
+        let r = history::apply(&dir, match &action { guard::Action::History { plan, .. } => plan, _ => unreachable!() });
+        let entry = activity::Entry { at: 0, repo: "a/b".into(), action: action.label(), ok: true, detail: r.clone().unwrap(), commands: vec![] };
+        s.action_finished(action.clone(), action.label(), None, None, (r, entry, Ok(())));
+        let now = s.commit_sel.clone().unwrap();
+        assert_ne!(now, two, "the selection moved to the reworded commit's new SHA");
+        assert_eq!(git(&["log", "-1", "--format=%s", &now]).trim(), "two, clearer");
+        let id = s.toasts.iter().find(|t| t.undo.is_some()).unwrap().id;
+        s.run_undo(id);
+        assert_eq!(s.commit_sel.as_deref(), Some(two.as_str()), "Undo selects the commit you had");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -34,6 +34,8 @@ icon!(I_COMMIT, "g-commit", r#"<circle cx="8" cy="8" r="2.5" stroke="currentColo
 icon!(I_BRANCH, "g-branch", r#"<circle cx="5" cy="3.8" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="5" cy="12.2" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="11" cy="5.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M5 5.3V10.7M11 7C11 9 8.5 9.5 5.6 10.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>"#);
 icon!(I_PERSON, "g-person", r#"<circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M3 13.5C3.6 11 5.6 9.5 8 9.5S12.4 11 13 13.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>"#);
 
+icon!(I_SANDBOX, "g-sandbox", r#"<path d="M2 12.5H14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M3.5 12.5C4 9.5 6 8 8 8S12 9.5 12.5 12.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M8 8V3.5L11 4.6L8 5.7" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"#);
+
 fn page_icon(p: Page) -> &'static Icon {
     match p {
         Page::Pulls => &I_PR,
@@ -41,6 +43,7 @@ fn page_icon(p: Page) -> &'static Icon {
         Page::Envs => &I_ENV,
         Page::Commits => &I_COMMIT,
         Page::Branches => &I_BRANCH,
+        Page::Sandbox => &I_SANDBOX,
         Page::Inbox | Page::Group => &I_DASH,
     }
 }
@@ -150,7 +153,7 @@ pub fn view(s: &State, k: &Kit, layer: &mut Vec<El>) -> Option<El> {
             let repo = s.repo()?;
             let d = s.rd();
             for p in Page::REPO {
-                let needs_clone = matches!(p, Page::Commits | Page::Branches) && repo.path.is_none();
+                let needs_clone = matches!(p, Page::Commits | Page::Branches | Page::Sandbox) && repo.path.is_none();
                 let t = match p {
                     _ if needs_clone => Tail::None,
                     Page::Pulls => tail(d.map(|d| &d.prs), Vec::len, Some(s.pr_limit)),
@@ -166,6 +169,8 @@ pub fn view(s: &State, k: &Kit, layer: &mut Vec<El>) -> Option<El> {
                 }
                 if let Some(e) = tail_el(k, t, page == p) {
                     r = r.trailing(e);
+                } else if p == Page::Sandbox && s.in_sandbox() {
+                    r = r.trailing(text(crate::i18n::t("On")).font(k.ty.small_medium).color(k.c.warning.fg));
                 }
                 c = c.child(r.build(k).key(tf!("sp-{p:?}")));
             }

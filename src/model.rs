@@ -362,6 +362,8 @@ pub struct Branch {
 pub struct LocalStatus {
     pub branch: String,
     pub changed: usize,
+    /// Files with staged changes (what Amend would put into the last commit).
+    pub staged: usize,
     pub ahead: u32,
     pub behind: u32,
 }
