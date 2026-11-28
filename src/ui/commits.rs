@@ -86,7 +86,7 @@ fn table(s: &State, k: &Kit) -> El {
         let (Some(c), Some(gr)) = (g.commits.get(i), g.rows.get(i)) else { return Cell::text("") };
         let k = &kc;
         match col {
-            "graph" => Cell::el(lanes_cell(k, gr, c.parents.len() > 1, lanes, graph_w)),
+            "graph" => Cell::el(on_right_click(lanes_cell(k, gr, c.parents.len() > 1, lanes, graph_w), &c.sha)),
             "msg" => {
                 let mut r = row().gap(5.0).center_y().shrink().min_w(0.0);
                 // "HEAD -> main" draws two pills, so it counts double.
@@ -97,17 +97,28 @@ fn table(s: &State, k: &Kit) -> El {
                 if c.refs.len() > shown {
                     r = r.child(super::chip(k, tf!("+{}", c.refs.len() - shown), None).help(crate::i18n::t(c.refs[shown..].join(", "))));
                 }
-                Cell::el(r.child(text(c.subject.clone()).font(k.ty.ui).color(k.c.text_base).truncate().shrink().min_w(60.0).help_when_truncated(c.subject.clone())))
+                Cell::el(on_right_click(r.child(text(c.subject.clone()).font(k.ty.ui).color(k.c.text_base).truncate().shrink().min_w(60.0).help_when_truncated(c.subject.clone())), &c.sha))
             }
-            "author" => Cell::text(c.author.clone()).muted(),
-            "when" => Cell::text(ago(c.time, now)).muted(),
-            _ => Cell::text(c.sha.get(..7).unwrap_or_default().to_owned()).mono().muted(),
+            "author" => Cell::el(on_right_click(text(c.author.clone()).font(k.ty.ui).color(k.c.text_muted).truncate().w_full(), &c.sha)),
+            "when" => Cell::el(on_right_click(text(ago(c.time, now)).font(k.ty.ui).color(k.c.text_muted).w_full(), &c.sha)),
+            _ => Cell::el(on_right_click(text(c.sha.get(..7).unwrap_or_default().to_owned()).font(k.ty.mono).color(k.c.text_muted).w_full(), &c.sha)),
         }
     })
     .on_select(|s: &mut State, sha, _| s.select_commit(sha))
     .build(s, k)
     .grow(1.0)
     .min_h(0.0)
+}
+
+/// A right-click anywhere on a commit row: select the commit and open its history menu at the
+/// pointer.
+fn on_right_click(cell: El, sha: &str) -> El {
+    let sha = sha.to_owned();
+    // The whole cell answers, not only its text.
+    row().w_full().h_full().center_y().min_w(0.0).child(cell).on_secondary_press(move |s: &mut State, p, _| {
+        s.select_commit(&sha);
+        s.menu = Some((crate::MenuTarget::Commit(sha.clone()), p));
+    })
 }
 
 /// HEAD, local branches, remote branches and tags each get their own look. `fit`: in a table

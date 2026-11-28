@@ -314,6 +314,8 @@ pub enum MenuTarget {
     Group(String),
     /// An owner (you or an organization) section header.
     Owner(String),
+    /// A commit row on the Commits page (its SHA): the history actions.
+    Commit(String),
 }
 
 /// A repo's "Comparisons for …" dialog: one (From, To, On) line per shared comparison.
@@ -2960,6 +2962,28 @@ impl State {
                 self.commit_sel = Some(sha);
             }
         }
+    }
+
+    /// Reword… from the right-click menu: select the commit, open the editor with its full
+    /// message (the selected commit's detail has it; otherwise its subject, replaced by the full
+    /// message once git answers, unless you've started typing).
+    pub fn start_reword_for(&mut self, sha: String, subject: String) {
+        self.select_commit(&sha);
+        if let Some(body) = self.commit_detail.data.as_ref().map(|d| d.body.clone()) {
+            self.start_reword(sha, body);
+            return;
+        }
+        self.start_reword(sha.clone(), subject.clone());
+        let Some(dir) = self.local_path() else { return };
+        let id = sha.clone();
+        jobs::spawn(self, move || gh::run("git", &["show", "-s", "--format=%B", &id], Some(&dir)), move |s, r| {
+            if let (Ok(body), Some((at, msg))) = (r, s.reword.as_mut())
+                && *at == sha
+                && msg.text == subject
+            {
+                *msg = TextEdit::new(body.trim());
+            }
+        });
     }
 
     /// Reword…: opens the message editor with the commit's full message.

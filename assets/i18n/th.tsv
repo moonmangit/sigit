@@ -1505,3 +1505,7 @@ The commit before it is the first commit of the history.	commit ก่อนห�
 There's a merge commit above it: this would flatten it. Use Revert or Reset instead.	มี merge commit อยู่ด้านบน: การนี้จะทำให้มันแบนลง ใช้ Revert หรือ Reset แทน
 This is a stash entry, not history: use Branches → Stashes to apply or drop it.	นี่คือ stash ไม่ใช่ประวัติ: ใช้ Branch → Stash เพื่อ apply หรือ drop
 You're on a detached HEAD: switch to a branch first.	คุณอยู่บน detached HEAD: สลับไปที่ branch ก่อน
+Copy SHA	คัดลอก SHA
+Copy to {b}	คัดลอกไปที่ {b}
+Move {b} here	ย้าย {b} มาที่นี่
+SHA copied	คัดลอก SHA แล้ว

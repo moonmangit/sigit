@@ -434,23 +434,140 @@ fn group(k: &Kit, key: &str, icon: &'static Icon, title: &str, buttons: El) -> E
         .child(buttons.w_full())
 }
 
+/// Which actions a commit allows, and why some don't: one place, for the card and the
+/// right-click menu, so they never disagree.
+pub struct Avail {
+    /// On the current branch (in its past).
+    pub here: bool,
+    pub is_head: bool,
+    pub merge: bool,
+    pub root: bool,
+    /// git's own stash commits ("WIP on …", "index on …"): not history to edit.
+    pub stash: bool,
+    /// A merge commit above it: a rewrite would flatten it.
+    pub flatten: Option<String>,
+    /// The commit before it can't take a squash / swap (it's the first or a merge commit).
+    pub parent_blocks: Option<String>,
+}
+
+pub fn avail(s: &State, g: &CommitGraph, c: &Commit) -> Avail {
+    let sha = c.sha.as_str();
+    // From git when this commit's detail has loaded; the loaded graph until then (it can't see
+    // past a date or contributor filter).
+    let detail = s.commit_detail.data.as_ref().filter(|_| s.commit_sel.as_deref() == Some(sha));
+    let here = detail.and_then(|d| d.on_head).unwrap_or_else(|| on_head(g, sha));
+    let is_head = detail.map_or_else(|| head_sha(g) == Some(sha), |d| d.is_head);
+    let by_sha: std::collections::HashMap<&str, &Commit> = g.commits.iter().map(|x| (x.sha.as_str(), x)).collect();
+    let stash = g.commits.iter().filter(|x| x.refs.iter().any(|r| r == "refs/stash")).any(|x| x.sha == sha || x.parents.iter().skip(1).any(|p| p == sha));
+    let parent_blocks = match c.parents.first().and_then(|p| by_sha.get(p.as_str())) {
+        Some(p) if p.parents.is_empty() => Some(crate::i18n::t("The commit before it is the first commit of the history.")),
+        Some(p) if p.parents.len() > 1 => Some(crate::i18n::t("The commit before it is a merge commit.")),
+        _ => None,
+    };
+    // A merge commit between the tip and this commit (first parents).
+    let merge_above = here && {
+        let mut at = if is_head { Some(sha) } else { head_sha(g) };
+        let mut found = false;
+        while let Some(x) = at.filter(|x| *x != sha).and_then(|x| by_sha.get(x)) {
+            if x.parents.len() > 1 {
+                found = true;
+                break;
+            }
+            at = x.parents.first().map(String::as_str);
+        }
+        found
+    };
+    let flatten = merge_above.then(|| crate::i18n::t("There's a merge commit above it: this would flatten it. Use Revert or Reset instead."));
+    Avail { here, is_head, merge: c.parents.len() > 1, root: c.parents.is_empty(), stash, flatten, parent_blocks }
+}
+
+/// The right-click menu of a commit row: the card's actions, grouped the same way, with the
+/// same rules (an action that can only fail is off, with the reason under it).
+pub fn commit_menu(s: &State, mut menu: rune_kit::Menu, sha: &str) -> rune_kit::Menu {
+    use rune_kit::MenuItem;
+    let Some(g) = s.rd().and_then(|d| d.graph.data.as_ref()) else { return menu };
+    let Some(c) = g.commits.iter().find(|c| c.sha == sha) else { return menu };
+    let branch = s.rd().and_then(|d| d.status.data.as_ref()).map(|st| st.branch.clone()).filter(|b| !b.is_empty() && b != "(detached)");
+    let a = avail(s, g, c);
+    let busy = any_busy(s) || s.pending.is_some();
+    let item = |label: String, act: Act, op: Op, blocked: Option<String>, danger: bool| {
+        let mut it = MenuItem::new(label).icon(act.icon()).danger(danger).disabled(busy || blocked.is_some());
+        if let Some(why) = blocked {
+            it = it.description(why);
+        }
+        it.on_select(move |s: &mut State| {
+            s.menu = None;
+            s.simulate_history(op.clone());
+        })
+    };
+    let short = sha.get(..7).unwrap_or(sha).to_owned();
+    menu = menu.group_label(tf!("{short} {}", c.subject.chars().take(40).collect::<String>()));
+    match (&branch, s.local_path()) {
+        (Some(b), Some(_)) if !a.stash => {
+            let b = b.clone();
+            if !a.is_head {
+                menu = menu.separator().group_label(if a.here { crate::i18n::t("Go back to here") } else { tf!("Move {b} here") });
+                for (mode, label, act) in [(ResetMode::Soft, "Reset (soft)", Act::Soft), (ResetMode::Mixed, "Reset (mixed)", Act::Mixed), (ResetMode::Hard, "Reset (hard)", Act::Hard)] {
+                    menu = menu.item(item(crate::i18n::t(label), act, Op::Reset { to: sha.to_owned(), mode }, None, mode == ResetMode::Hard));
+                }
+            }
+            if a.here && !a.root {
+                menu = menu.separator().group_label(crate::i18n::t("Undo this commit")).item(item(crate::i18n::t("Revert"), Act::Revert, Op::Revert { sha: sha.to_owned() }, None, false));
+                if !a.merge {
+                    menu = menu.item(item(crate::i18n::t("Drop"), Act::Drop, Op::Drop { sha: sha.to_owned() }, a.flatten.clone(), true));
+                }
+            }
+            if a.here && !a.merge && !a.root {
+                let joins = a.flatten.clone().or_else(|| a.parent_blocks.clone());
+                let (id, subject) = (sha.to_owned(), c.subject.clone());
+                let mut reword = MenuItem::new(crate::i18n::t("Reword…")).icon(&I_EDIT).disabled(busy || a.flatten.is_some());
+                if let Some(why) = &a.flatten {
+                    reword = reword.description(why.clone());
+                }
+                menu = menu
+                    .separator()
+                    .group_label(crate::i18n::t("Change this commit"))
+                    .item(reword.on_select(move |s: &mut State| {
+                        s.menu = None;
+                        s.start_reword_for(id.clone(), subject.clone());
+                    }))
+                    .item(item(crate::i18n::t("Squash"), Act::Squash, Op::Squash { sha: sha.to_owned(), fixup: false }, joins.clone(), false))
+                    .item(item(crate::i18n::t("Fixup"), Act::Fixup, Op::Squash { sha: sha.to_owned(), fixup: true }, joins.clone(), false));
+                if !a.is_head {
+                    menu = menu.item(item(crate::i18n::t("Move up"), Act::Move, Op::Move { sha: sha.to_owned(), up: true }, a.flatten.clone(), false).icon(&glyphs::CHEVRON_UP));
+                }
+                menu = menu.item(item(crate::i18n::t("Move down"), Act::Move, Op::Move { sha: sha.to_owned(), up: false }, joins, false).icon(&glyphs::CHEVRON_DOWN));
+            }
+            if !a.here && !a.merge && !a.root {
+                menu = menu.separator().group_label(tf!("Copy to {b}")).item(item(crate::i18n::t("Cherry-pick"), Act::Pick, Op::CherryPick { sha: sha.to_owned() }, None, false));
+            }
+        }
+        (_, None) => {}
+        _ if a.stash => menu = menu.item(MenuItem::new(crate::i18n::t("This is a stash entry, not history: use Branches → Stashes to apply or drop it.")).disabled(true)),
+        _ => menu = menu.item(MenuItem::new(crate::i18n::t("You're on a detached HEAD: switch to a branch first.")).disabled(true)),
+    }
+    let full = sha.to_owned();
+    menu.separator()
+        .item(MenuItem::new(crate::i18n::t("Copy SHA")).on_select_tx(move |s: &mut State, tx| {
+            s.menu = None;
+            tx.copy(full.clone());
+            s.toast(crate::i18n::t("SHA copied"), false);
+        }))
+        .item(MenuItem::new(crate::i18n::t("What each action does")).icon(&I_INFO).on_select(|s: &mut State| {
+            s.menu = None;
+            s.history_open.help = true;
+        }))
+}
+
 /// The Edit history section of a commit's pane: three groups of labelled buttons.
 pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
     let branch = s.rd().and_then(|d| d.status.data.as_ref()).map(|st| st.branch.clone()).filter(|b| !b.is_empty() && b != "(detached)")?;
     s.local_path()?;
     let sha = c.sha.clone();
-    // From git when the commit's detail has loaded; the loaded graph until then (it can't see
-    // past a date or contributor filter).
+    let Avail { here, is_head, merge, root, stash, flatten, parent_blocks } = avail(s, g, c);
     let detail = s.commit_detail.data.as_ref();
-    let here = detail.and_then(|d| d.on_head).unwrap_or_else(|| on_head(g, &sha));
-    let is_head = detail.map_or_else(|| head_sha(g) == Some(sha.as_str()), |d| d.is_head);
-    let merge = c.parents.len() > 1;
-    let root = c.parents.is_empty();
     let card = col().key("h-actions").w_full().gap(10.0).padding(12.0).radius(k.radius.lg).border(1.0, k.c.border_weak).fill(k.c.layer_01);
-    // git's own stash commits ("WIP on …", "index on …") show under All branches: they aren't
-    // history to edit.
-    let stash_commits: std::collections::HashSet<&str> = g.commits.iter().filter(|x| x.refs.iter().any(|r| r == "refs/stash")).flat_map(|x| std::iter::once(x.sha.as_str()).chain(x.parents.iter().skip(1).map(String::as_str))).collect();
-    if stash_commits.contains(sha.as_str()) {
+    if stash {
         return Some(card.child(row().gap(6.0).center_y().child(rune::icon(&I_INFO, 13.0).color(k.c.icon_faint)).child(text(crate::i18n::t("This is a stash entry, not history: use Branches → Stashes to apply or drop it.")).font(k.ty.small).color(k.c.text_muted).wrap().shrink())));
     }
 
@@ -477,30 +594,6 @@ pub fn actions(s: &State, k: &Kit, g: &CommitGraph, c: &Commit) -> Option<El> {
     );
     out = out.child(el().w_full().h(1.0).fill(k.c.border_weak));
 
-    // What the loaded graph says around this commit (unknown past the loaded page: then the
-    // simulation is the judge).
-    let by_sha: std::collections::HashMap<&str, &Commit> = g.commits.iter().map(|x| (x.sha.as_str(), x)).collect();
-    let parent = c.parents.first().and_then(|p| by_sha.get(p.as_str()));
-    let parent_blocks = match parent {
-        Some(p) if p.parents.is_empty() => Some(crate::i18n::t("The commit before it is the first commit of the history.")),
-        Some(p) if p.parents.len() > 1 => Some(crate::i18n::t("The commit before it is a merge commit.")),
-        _ => None,
-    };
-    // A merge commit between the tip and this commit (first parents): a rewrite would flatten it.
-    let merge_above = here && {
-        let head = detail.filter(|d| d.is_head).map(|_| sha.as_str()).or_else(|| head_sha(g));
-        let mut at = head;
-        let mut found = false;
-        while let Some(x) = at.filter(|x| *x != sha).and_then(|x| by_sha.get(x)) {
-            if x.parents.len() > 1 {
-                found = true;
-                break;
-            }
-            at = x.parents.first().map(String::as_str);
-        }
-        found
-    };
-    let flatten = merge_above.then(|| crate::i18n::t("There's a merge commit above it: this would flatten it. Use Revert or Reset instead."));
 
     // The buttons, grouped by what you want to do with this commit.
     let buttons = || row().gap(6.0).flex_wrap();
